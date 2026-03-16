@@ -1279,7 +1279,7 @@ public class PrewarmedResourcePool {
      * Creates a PersistentVolumeClaim for an eager-start pool instance. The PVC is owned by the AppDefinition so it
      * survives session lifecycle and is cleaned up when the AppDefinition is deleted or the instance is scaled down.
      *
-     * @return the PVC name if created successfully, or empty if creation fails or storage class is not configured
+     * @return the PVC name if created successfully, or empty if creation fails
      */
     private Optional<String> createInstancePvc(AppDefinition appDef, int instanceId, String correlationId) {
         String pvcName = getInstancePvcName(appDef, instanceId);

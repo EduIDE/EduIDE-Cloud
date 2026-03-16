@@ -71,7 +71,9 @@ public class AppDefinitionHub {
         this.port = OptionalInt.of(toHub.getSpec().getPort());
         this.ingressname = Optional.ofNullable(toHub.getSpec().getIngressname());
         this.minInstances = OptionalInt.of(toHub.getSpec().getMinInstances());
-        this.maxInstances = OptionalInt.of(toHub.getSpec().getMaxInstances());
+        this.maxInstances = toHub.getSpec().getMaxInstances() != null
+                ? OptionalInt.of(toHub.getSpec().getMaxInstances())
+                : OptionalInt.empty();
         this.requestsMemory = Optional.ofNullable(toHub.getSpec().getRequestsMemory());
         this.requestsCpu = Optional.ofNullable(toHub.getSpec().getRequestsCpu());
         this.limitsMemory = Optional.ofNullable(toHub.getSpec().getLimitsMemory());

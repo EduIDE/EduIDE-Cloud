@@ -100,7 +100,7 @@ public class AppDefinitionV1beta10Spec {
         this.port = fromHub.getPort().orElse(0);
         this.ingressname = fromHub.getIngressname().orElse(null);
         this.minInstances = fromHub.getMinInstances().orElse(0);
-        this.maxInstances = fromHub.getMaxInstances().orElse(0);
+        this.maxInstances = fromHub.getMaxInstances().isPresent() ? fromHub.getMaxInstances().getAsInt() : null;
         this.requestsMemory = fromHub.getRequestsMemory().orElse(null);
         this.requestsCpu = fromHub.getRequestsCpu().orElse(null);
         this.limitsMemory = fromHub.getLimitsMemory().orElse(null);

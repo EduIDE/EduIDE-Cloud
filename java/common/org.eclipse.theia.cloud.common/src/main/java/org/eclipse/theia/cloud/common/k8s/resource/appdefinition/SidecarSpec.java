@@ -100,7 +100,7 @@ public class SidecarSpec {
         if (o == null || getClass() != o.getClass()) return false;
         SidecarSpec that = (SidecarSpec) o;
         return port == that.port
-                && mountWorkspace == that.mountWorkspace
+                && Objects.equals(mountWorkspace, that.mountWorkspace)
                 && Objects.equals(name, that.name)
                 && Objects.equals(image, that.image)
                 && Objects.equals(languages, that.languages)

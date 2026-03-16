@@ -315,7 +315,11 @@ public class LazySessionHandler implements SessionHandler {
     public synchronized boolean sessionDeleted(Session session, String correlationId, ISpan parentSpan) {
         ISpan span = Tracing.childSpan(parentSpan, "lazy.cleanup", "Lazy session cleanup");
         try {
-            return doSessionDeleted(session, correlationId, span);
+            boolean success = doSessionDeleted(session, correlationId, span);
+            if (success) {
+                Tracing.finishSuccess(span);
+            }
+            return success;
         } catch (Exception e) {
             Tracing.finishError(span, e);
             throw e;

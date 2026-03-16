@@ -413,11 +413,24 @@ public class SidecarManager {
         boolean success = true;
         for (int instance = 1; instance <= minInstances; instance++) {
             for (SidecarConfig config : configs) {
-                String deploymentName = SidecarResourceFactory.getPrewarmedResourceName(appDef, instance, config);
-                if (factory.getClient().kubernetes().apps().deployments().withName(deploymentName).get() == null) {
-                    Optional<String> pvcName = factory.lookupExistingPvc(appDef, instance);
-                    success &= factory.createPrewarmedService(appDef, instance, config, labels, correlationId).isPresent();
-                    success &= factory.createPrewarmedDeployment(appDef, instance, config, pvcName, labels, correlationId).isPresent();
+                String resourceName = SidecarResourceFactory.getPrewarmedResourceName(appDef, instance, config);
+
+                var kube = factory.getClient().kubernetes();
+                String namespace = factory.getClient().namespace();
+
+                boolean serviceExists = kube.services().inNamespace(namespace).withName(resourceName).get() != null;
+                boolean deploymentExists = kube.apps().deployments().inNamespace(namespace).withName(resourceName)
+                        .get() != null;
+
+                Optional<String> pvcName = factory.lookupExistingPvc(appDef, instance);
+
+                if (!serviceExists) {
+                    success &= factory.createPrewarmedService(appDef, instance, config, labels, correlationId)
+                            .isPresent();
+                }
+                if (!deploymentExists) {
+                    success &= factory.createPrewarmedDeployment(appDef, instance, config, pvcName, labels,
+                            correlationId).isPresent();
                 }
             }
         }

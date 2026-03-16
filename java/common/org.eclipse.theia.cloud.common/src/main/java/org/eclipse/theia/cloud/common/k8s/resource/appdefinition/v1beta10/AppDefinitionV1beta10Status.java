@@ -31,7 +31,7 @@ public class AppDefinitionV1beta10Status extends ResourceStatus {
         if (fromHub.getOperatorMessage().isPresent()) {
             this.setOperatorMessage(fromHub.getOperatorMessage().get());
         }
-        if (fromHub.getOperatorMessage().isPresent()) {
+        if (fromHub.getOperatorStatus().isPresent()) {
             this.setOperatorStatus(fromHub.getOperatorStatus().get());
         }
     }

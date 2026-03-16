@@ -12,8 +12,6 @@ package org.eclipse.theia.cloud.operator.sidecar;
 import static org.eclipse.theia.cloud.common.util.LogMessageUtil.formatLogMessage;
 
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -39,6 +37,7 @@ import io.fabric8.kubernetes.api.model.OwnerReference;
 import io.fabric8.kubernetes.api.model.OwnerReferenceBuilder;
 import io.fabric8.kubernetes.api.model.PersistentVolumeClaimVolumeSource;
 import io.fabric8.kubernetes.api.model.Quantity;
+import io.fabric8.kubernetes.api.model.LocalObjectReference;
 import io.fabric8.kubernetes.api.model.Service;
 import io.fabric8.kubernetes.api.model.ServiceBuilder;
 import io.fabric8.kubernetes.api.model.Volume;
@@ -155,6 +154,8 @@ public class SidecarResourceFactory {
             Deployment deployment = buildDeployment(name, config,
                 createOwnerReference(Session.API, Session.KIND, sessionName, sessionUID));
 
+            addImagePullSecret(deployment, appDefSpec);
+
             if (config.mountWorkspace() && pvcName.isPresent()) {
                 addVolumeClaimToDeployment(deployment, pvcName.get(), appDefSpec);
                 LOGGER.info(formatLogMessage(correlationId, "[Sidecar] Mounted PVC " + pvcName.get() + " to " + name));
@@ -234,6 +235,8 @@ public class SidecarResourceFactory {
         try {
             Deployment deployment = buildDeployment(name, config,
                 createOwnerReference(AppDefinition.API, AppDefinition.KIND, appDefName, appDefUID));
+
+            addImagePullSecret(deployment, appDef.getSpec());
 
             // Add additional labels to deployment + pod template
             if (additionalLabels != null && !additionalLabels.isEmpty()) {
@@ -404,42 +407,75 @@ public class SidecarResourceFactory {
     private void addVolumeClaimToDeployment(Deployment deployment, String pvcName, AppDefinitionSpec appDefSpec) {
         io.fabric8.kubernetes.api.model.PodSpec podSpec = deployment.getSpec().getTemplate().getSpec();
 
-        Volume volume = new Volume();
-        volume.setName("workspace-data");
-        PersistentVolumeClaimVolumeSource pvcSource = new PersistentVolumeClaimVolumeSource();
-        pvcSource.setClaimName(pvcName);
-        volume.setPersistentVolumeClaim(pvcSource);
-
         List<Volume> volumes = podSpec.getVolumes();
         if (volumes == null) {
             volumes = new ArrayList<>();
             podSpec.setVolumes(volumes);
         }
-        volumes.add(volume);
+
+        final String volumeName = "workspace-data";
+        boolean hasWorkspaceVolume = volumes.stream().anyMatch(v -> volumeName.equals(v.getName()));
+        if (!hasWorkspaceVolume) {
+            Volume volume = new Volume();
+            volume.setName(volumeName);
+            PersistentVolumeClaimVolumeSource pvcSource = new PersistentVolumeClaimVolumeSource();
+            pvcSource.setClaimName(pvcName);
+            volume.setPersistentVolumeClaim(pvcSource);
+            volumes.add(volume);
+        }
 
         Container sidecarContainer = podSpec.getContainers().get(0);
 
         String mountPath = TheiaCloudPersistentVolumeUtil.getMountPath(appDefSpec);
-
-        VolumeMount volumeMount = new VolumeMount();
-        volumeMount.setName("workspace-data");
-        volumeMount.setMountPath(mountPath);
 
         List<VolumeMount> volumeMounts = sidecarContainer.getVolumeMounts();
         if (volumeMounts == null) {
             volumeMounts = new ArrayList<>();
             sidecarContainer.setVolumeMounts(volumeMounts);
         }
-        volumeMounts.add(volumeMount);
+
+        boolean hasWorkspaceMount = volumeMounts.stream()
+                .anyMatch(vm -> volumeName.equals(vm.getName()) || mountPath.equals(vm.getMountPath()));
+        if (!hasWorkspaceMount) {
+            VolumeMount volumeMount = new VolumeMount();
+            volumeMount.setName(volumeName);
+            volumeMount.setMountPath(mountPath);
+            volumeMounts.add(volumeMount);
+        }
 
         List<EnvVar> envVars = sidecarContainer.getEnv();
         if (envVars == null) {
             envVars = new ArrayList<>();
             sidecarContainer.setEnv(envVars);
         }
-        envVars.add(new EnvVarBuilder()
-            .withName("WORKSPACE_PATH")
-            .withValue(mountPath)
-            .build());
+
+        boolean hasWorkspaceEnv = envVars.stream().anyMatch(env -> "WORKSPACE_PATH".equals(env.getName()));
+        if (!hasWorkspaceEnv) {
+            envVars.add(new EnvVarBuilder()
+                .withName("WORKSPACE_PATH")
+                .withValue(mountPath)
+                .build());
+        }
+    }
+
+    private void addImagePullSecret(Deployment deployment, AppDefinitionSpec appDefSpec) {
+        String pullSecret = appDefSpec.getPullSecret();
+        if (pullSecret == null || pullSecret.isBlank()) {
+            return;
+        }
+
+        io.fabric8.kubernetes.api.model.PodSpec podSpec = deployment.getSpec().getTemplate().getSpec();
+        if (podSpec.getImagePullSecrets() == null) {
+            podSpec.setImagePullSecrets(new ArrayList<>());
+        }
+
+        boolean alreadyPresent = podSpec.getImagePullSecrets().stream()
+                .map(LocalObjectReference::getName)
+                .anyMatch(pullSecret::equals);
+        if (!alreadyPresent) {
+            LocalObjectReference ref = new LocalObjectReference();
+            ref.setName(pullSecret);
+            podSpec.getImagePullSecrets().add(ref);
+        }
     }
 }

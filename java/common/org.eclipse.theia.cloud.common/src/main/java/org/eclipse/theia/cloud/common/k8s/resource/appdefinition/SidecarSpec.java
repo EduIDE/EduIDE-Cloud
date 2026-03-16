@@ -43,7 +43,7 @@ public class SidecarSpec {
     private String memoryRequest;
 
     @JsonProperty("mountWorkspace")
-    private boolean mountWorkspace;
+    private Boolean mountWorkspace;
 
     /**
      * Default constructor.
@@ -84,7 +84,7 @@ public class SidecarSpec {
     }
 
     public boolean isMountWorkspace() {
-        return mountWorkspace;
+        return mountWorkspace == null ? true : mountWorkspace;
     }
 
     @Override

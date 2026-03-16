@@ -253,6 +253,11 @@ public class PrewarmedResourcePool {
                 }
             }
 
+            // Ensure PVCs exist first for sidecars with mountWorkspace=true.
+            for (int instance = 1; instance <= minInstances; instance++) {
+                createInstancePvc(appDef, instance, correlationId);
+            }
+
             // Create sidecar resources BEFORE Theia deployments so DNS resolves at pod startup
             success &= sidecarManager.ensurePrewarmedSidecarCapacity(appDef, minInstances, labels, correlationId);
 
@@ -457,6 +462,11 @@ public class PrewarmedResourcePool {
                 cmSpan.setTag("outcome", cmSuccess ? "success" : "failure");
                 cmSpan.setTag("had_changes", (cmCreated + cmDeleted + cmRecreated) > 0 ? "true" : "false");
                 cmSpan.finish();
+            }
+
+            // Ensure PVCs exist first for sidecars with mountWorkspace=true.
+            for (int instance = 1; instance <= targetInstances; instance++) {
+                createInstancePvc(appDef, instance, correlationId);
             }
 
             // Reconcile sidecar resources BEFORE Theia deployments so DNS resolves at pod startup
@@ -1330,17 +1340,6 @@ public class PrewarmedResourcePool {
             Tracing.finishError(span, e);
             return Optional.empty();
         }
-    }
-
-    /**
-     * Deletes the PVC for a pool instance. Best-effort — logs warnings on failure.
-     */
-    private Optional<String> lookupExistingPvc(AppDefinition appDef, int instanceId) {
-        String pvcName = getInstancePvcName(appDef, instanceId);
-        if (client.persistentVolumeClaimsClient().has(pvcName)) {
-            return Optional.of(pvcName);
-        }
-        return Optional.empty();
     }
 
     private void deleteInstancePvc(AppDefinition appDef, int instanceId, String correlationId) {

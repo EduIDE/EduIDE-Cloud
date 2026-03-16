@@ -360,7 +360,9 @@ public class AppDefinitionHub {
         this.ingressHostnamePrefixes = Optional.ofNullable(toHub.getSpec().getIngressHostnamePrefixes());
         this.sidecars = Optional.empty();
 
-        this.timeoutLimit = OptionalInt.of(toHub.getSpec().getTimeout());
+        this.timeoutLimit = toHub.getSpec().getTimeout() != null
+                ? OptionalInt.of(toHub.getSpec().getTimeout())
+                : OptionalInt.empty();
 
         if (toHub.getSpec().getMonitor() != null) {
             this.monitorPort = OptionalInt.of(toHub.getSpec().getMonitor().getPort());

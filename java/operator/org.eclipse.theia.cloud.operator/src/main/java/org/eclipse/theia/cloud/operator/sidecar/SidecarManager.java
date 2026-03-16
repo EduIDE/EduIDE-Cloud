@@ -12,9 +12,14 @@ package org.eclipse.theia.cloud.operator.sidecar;
 import static org.eclipse.theia.cloud.common.util.LogMessageUtil.formatLogMessage;
 
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.function.Function;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -24,6 +29,8 @@ import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
 import org.eclipse.theia.cloud.common.tracing.Tracing;
 import org.eclipse.theia.cloud.operator.util.TheiaCloudPersistentVolumeUtil;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 
@@ -39,6 +46,7 @@ import io.sentry.SpanStatus;
 public class SidecarManager {
 
     private static final Logger LOGGER = LogManager.getLogger(SidecarManager.class);
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     @Inject
     private SidecarResourceFactory factory;
@@ -58,6 +66,35 @@ public class SidecarManager {
     }
 
     /**
+     * Validates that all sidecar names are unique within the AppDefinition.
+     *
+     * @return true if valid or no sidecars configured, false when duplicates are detected
+     */
+    public boolean validateUniqueSidecarNames(AppDefinition appDef, String correlationId) {
+        List<SidecarConfig> configs = getSidecarConfigs(appDef);
+        if (configs.isEmpty()) {
+            return true;
+        }
+
+        Set<String> seen = new HashSet<>();
+        Set<String> duplicates = new LinkedHashSet<>();
+        for (SidecarConfig config : configs) {
+            if (!seen.add(config.name())) {
+                duplicates.add(config.name());
+            }
+        }
+
+        if (!duplicates.isEmpty()) {
+            LOGGER.error(formatLogMessage(correlationId,
+                    "[Sidecar] Duplicate sidecar names in AppDefinition '" + appDef.getSpec().getName()
+                            + "': " + duplicates + ". Sidecar names must be unique."));
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
      * Creates all sidecar resources (Service + Deployment per sidecar) for a lazy session.
      * On failure of any sidecar, rolls back all previously created sidecars for this session.
      *
@@ -69,7 +106,11 @@ public class SidecarManager {
             Optional<String> pvcName,
             String correlationId) {
 
-        List<SidecarConfig> configs = getSidecarConfigs(appDef);
+        Optional<List<SidecarConfig>> configsOpt = getValidatedSidecarConfigs(appDef, correlationId);
+        if (configsOpt.isEmpty()) {
+            return false;
+        }
+        List<SidecarConfig> configs = configsOpt.get();
         if (configs.isEmpty()) {
             LOGGER.debug(formatLogMessage(correlationId, "[Sidecar] No sidecars configured for " + appDef.getSpec().getName()));
             return true;
@@ -139,7 +180,11 @@ public class SidecarManager {
             AppDefinition appDef,
             String correlationId) {
 
-        List<SidecarConfig> configs = getSidecarConfigs(appDef);
+        Optional<List<SidecarConfig>> configsOpt = getValidatedSidecarConfigs(appDef, correlationId);
+        if (configsOpt.isEmpty()) {
+            return;
+        }
+        List<SidecarConfig> configs = configsOpt.get();
         if (configs.isEmpty()) {
             LOGGER.debug(formatLogMessage(correlationId, "[Sidecar] No sidecars configured, skipping env var injection"));
             return;
@@ -166,14 +211,9 @@ public class SidecarManager {
                 container.setEnv(envVars);
             }
 
-            // Build SIDECAR_CONFIG JSON and per-sidecar env vars
-            StringBuilder configJson = new StringBuilder("[");
-            for (int i = 0; i < configs.size(); i++) {
-                SidecarConfig config = configs.get(i);
-                // Service name is deterministic: <session-deployment-name>-<sidecar-name>
-                // But at this point we use the same naming the factory uses
-                String serviceName = SidecarResourceFactory.getLazyResourceName(theiaDeployment.getMetadata().getName(), config);
-
+            for (SidecarConfig config : configs) {
+                String serviceName = SidecarResourceFactory
+                        .getLazyResourceName(theiaDeployment.getMetadata().getName(), config);
                 envVars.add(new EnvVarBuilder()
                     .withName(config.hostEnvVar())
                     .withValue(serviceName)
@@ -182,28 +222,14 @@ public class SidecarManager {
                     .withName(config.portEnvVar())
                     .withValue(String.valueOf(config.containerPort()))
                     .build());
-
-                if (i > 0) {
-                    configJson.append(",");
-                }
-                configJson.append("{\"name\":\"").append(config.name()).append("\"");
-                configJson.append(",\"host\":\"").append(serviceName).append("\"");
-                configJson.append(",\"port\":").append(config.containerPort());
-                if (config.languages() != null && !config.languages().isEmpty()) {
-                    configJson.append(",\"languages\":[");
-                    for (int j = 0; j < config.languages().size(); j++) {
-                        if (j > 0) configJson.append(",");
-                        configJson.append("\"").append(config.languages().get(j)).append("\"");
-                    }
-                    configJson.append("]");
-                }
-                configJson.append("}");
             }
-            configJson.append("]");
+
+            String configJson = serializeSidecarConfigJson(configs,
+                    config -> SidecarResourceFactory.getLazyResourceName(theiaDeployment.getMetadata().getName(), config));
 
             envVars.add(new EnvVarBuilder()
                 .withName("SIDECAR_CONFIG")
-                .withValue(configJson.toString())
+                .withValue(configJson)
                 .build());
 
             Tracing.finishSuccess(span);
@@ -226,7 +252,11 @@ public class SidecarManager {
             int instanceId,
             String correlationId) {
 
-        List<SidecarConfig> configs = getSidecarConfigs(appDef);
+        Optional<List<SidecarConfig>> configsOpt = getValidatedSidecarConfigs(appDef, correlationId);
+        if (configsOpt.isEmpty()) {
+            return;
+        }
+        List<SidecarConfig> configs = configsOpt.get();
         if (configs.isEmpty()) {
             return;
         }
@@ -250,9 +280,7 @@ public class SidecarManager {
                 container.setEnv(envVars);
             }
 
-            StringBuilder configJson = new StringBuilder("[");
-            for (int i = 0; i < configs.size(); i++) {
-                SidecarConfig config = configs.get(i);
+            for (SidecarConfig config : configs) {
                 String serviceName = SidecarResourceFactory.getPrewarmedResourceName(appDef, instanceId, config);
 
                 envVars.add(new EnvVarBuilder()
@@ -263,26 +291,14 @@ public class SidecarManager {
                     .withName(config.portEnvVar())
                     .withValue(String.valueOf(config.containerPort()))
                     .build());
-
-                if (i > 0) configJson.append(",");
-                configJson.append("{\"name\":\"").append(config.name()).append("\"");
-                configJson.append(",\"host\":\"").append(serviceName).append("\"");
-                configJson.append(",\"port\":").append(config.containerPort());
-                if (config.languages() != null && !config.languages().isEmpty()) {
-                    configJson.append(",\"languages\":[");
-                    for (int j = 0; j < config.languages().size(); j++) {
-                        if (j > 0) configJson.append(",");
-                        configJson.append("\"").append(config.languages().get(j)).append("\"");
-                    }
-                    configJson.append("]");
-                }
-                configJson.append("}");
             }
-            configJson.append("]");
+
+            String configJson = serializeSidecarConfigJson(configs,
+                    config -> SidecarResourceFactory.getPrewarmedResourceName(appDef, instanceId, config));
 
             envVars.add(new EnvVarBuilder()
                 .withName("SIDECAR_CONFIG")
-                .withValue(configJson.toString())
+                .withValue(configJson)
                 .build());
 
             Tracing.finishSuccess(span);
@@ -304,7 +320,11 @@ public class SidecarManager {
      * Deletes all prewarmed sidecar resources for a specific instance of an AppDefinition.
      */
     public void deletePrewarmedSidecars(AppDefinition appDef, int instanceId, String correlationId) {
-        List<SidecarConfig> configs = getSidecarConfigs(appDef);
+        Optional<List<SidecarConfig>> configsOpt = getValidatedSidecarConfigs(appDef, correlationId);
+        if (configsOpt.isEmpty()) {
+            return;
+        }
+        List<SidecarConfig> configs = configsOpt.get();
         for (SidecarConfig config : configs) {
             factory.deletePrewarmedResources(appDef, instanceId, config, correlationId);
         }
@@ -348,7 +368,11 @@ public class SidecarManager {
             Map<String, String> additionalLabels,
             String correlationId) {
 
-        List<SidecarConfig> configs = getSidecarConfigs(appDef);
+        Optional<List<SidecarConfig>> configsOpt = getValidatedSidecarConfigs(appDef, correlationId);
+        if (configsOpt.isEmpty()) {
+            return false;
+        }
+        List<SidecarConfig> configs = configsOpt.get();
         if (configs.isEmpty()) {
             return true;
         }
@@ -377,7 +401,11 @@ public class SidecarManager {
             Map<String, String> labels,
             String correlationId) {
 
-        List<SidecarConfig> configs = getSidecarConfigs(appDef);
+        Optional<List<SidecarConfig>> configsOpt = getValidatedSidecarConfigs(appDef, correlationId);
+        if (configsOpt.isEmpty()) {
+            return false;
+        }
+        List<SidecarConfig> configs = configsOpt.get();
         if (configs.isEmpty()) {
             return true;
         }
@@ -406,5 +434,26 @@ public class SidecarManager {
             String correlationId) {
         // Same logic as ensureCapacity — create any missing
         return ensurePrewarmedSidecarCapacity(appDef, targetInstances, labels, correlationId);
+    }
+
+    private Optional<List<SidecarConfig>> getValidatedSidecarConfigs(AppDefinition appDef, String correlationId) {
+        if (!validateUniqueSidecarNames(appDef, correlationId)) {
+            return Optional.empty();
+        }
+        return Optional.of(getSidecarConfigs(appDef));
+    }
+
+    private String serializeSidecarConfigJson(List<SidecarConfig> configs,
+            Function<SidecarConfig, String> serviceNameResolver) throws JsonProcessingException {
+        List<Map<String, Object>> entries = new ArrayList<>();
+        for (SidecarConfig config : configs) {
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("name", config.name());
+            entry.put("host", serviceNameResolver.apply(config));
+            entry.put("port", config.containerPort());
+            entry.put("languages", config.languages() != null ? config.languages() : List.of());
+            entries.add(entry);
+        }
+        return OBJECT_MAPPER.writeValueAsString(entries);
     }
 }

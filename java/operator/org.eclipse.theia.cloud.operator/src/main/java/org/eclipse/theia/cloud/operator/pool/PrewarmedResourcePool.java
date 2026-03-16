@@ -253,6 +253,9 @@ public class PrewarmedResourcePool {
                 }
             }
 
+            // Create sidecar resources BEFORE Theia deployments so DNS resolves at pod startup
+            success &= sidecarManager.ensurePrewarmedSidecarCapacity(appDef, minInstances, labels, correlationId);
+
             // Create missing deployments (with shared PVC)
             if (!missingDeploymentIds.isEmpty()) {
                 ISpan deploySpan = span.startChild("pool.create_deployments", "Create missing deployments");
@@ -278,8 +281,6 @@ public class PrewarmedResourcePool {
                 deploySpan.setTag("outcome", failed == 0 ? "success" : "failure");
                 Tracing.finish(deploySpan, failed == 0 ? SpanStatus.OK : SpanStatus.INTERNAL_ERROR);
             }
-
-            success &= sidecarManager.ensurePrewarmedSidecarCapacity(appDef, minInstances, labels, correlationId);
 
             span.setTag("outcome", success ? "success" : "failure"); Tracing.finish(span, success ? SpanStatus.OK : SpanStatus.INTERNAL_ERROR);
             return success;
@@ -458,6 +459,9 @@ public class PrewarmedResourcePool {
                 cmSpan.finish();
             }
 
+            // Reconcile sidecar resources BEFORE Theia deployments so DNS resolves at pod startup
+            success &= sidecarManager.reconcilePrewarmedSidecars(appDef, targetInstances, labels, correlationId);
+
             // Reconcile deployments
             ISpan deploySpan = span.startChild("pool.reconcile_deployments", "Reconcile deployments");
             List<Deployment> existingDeployments = K8sUtil.getExistingDeployments(client.kubernetes(),
@@ -499,8 +503,6 @@ public class PrewarmedResourcePool {
             deploySpan.setTag("outcome", deployResult.isSuccess() ? "success" : "failure");
             deploySpan.setTag("had_changes", (deployResult.getCreated() + deployResult.getDeleted() + deployResult.getRecreated()) > 0 ? "true" : "false");
             deploySpan.finish();
-
-            success &= sidecarManager.reconcilePrewarmedSidecars(appDef, targetInstances, labels, correlationId);
 
             span.setTag("outcome", success ? "success" : "failure"); Tracing.finish(span, success ? SpanStatus.OK : SpanStatus.INTERNAL_ERROR);
             return success;
@@ -669,9 +671,10 @@ public class PrewarmedResourcePool {
 
         Optional<String> pvcName = createInstancePvc(appDef, instanceId, correlationId);
 
-        resourceFactory.createDeploymentForEagerInstance(appDef, instanceId, pvcName, labels, correlationId);
-
+        // Create sidecar Deployment+Service BEFORE Theia Deployment so DNS resolves at pod startup
         sidecarManager.createPrewarmedSidecars(appDef, instanceId, pvcName, labels, correlationId);
+
+        resourceFactory.createDeploymentForEagerInstance(appDef, instanceId, pvcName, labels, correlationId);
     }
 
     private int parseInstanceIdOrDefault(Service service, int defaultValue) {

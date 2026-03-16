@@ -311,6 +311,33 @@ public class SidecarManager {
     }
 
     /**
+     * Restarts sidecar pods for a prewarmed instance WITHOUT deleting the Deployment or Service.
+     * Deletes the Pod(s) managed by each sidecar Deployment, allowing the Deployment controller
+     * to recreate them with a fresh state. Used during session release so the sidecar
+     * infrastructure stays in place for pool reuse.
+     */
+    public void restartPrewarmedSidecarPods(AppDefinition appDef, int instanceId, String correlationId) {
+        List<SidecarConfig> configs = getSidecarConfigs(appDef);
+        if (configs.isEmpty()) {
+            return;
+        }
+
+        ISpan span = Tracing.childSpan("sidecar.restart_prewarmed_pods", "Restart prewarmed sidecar pods");
+        span.setData("instance_id", instanceId);
+        span.setData("sidecar_count", configs.size());
+
+        LOGGER.info(formatLogMessage(correlationId,
+            "[Sidecar] Restarting " + configs.size() + " sidecar pod(s) for instance " + instanceId));
+
+        for (SidecarConfig config : configs) {
+            String resourceName = SidecarResourceFactory.getPrewarmedResourceName(appDef, instanceId, config);
+            factory.deletePodsForDeployment(resourceName, correlationId);
+        }
+
+        Tracing.finishSuccess(span);
+    }
+
+    /**
      * Creates prewarmed sidecar resources (Service + Deployment) for a single pool instance.
      * Called during pool creation / reconciliation.
      */

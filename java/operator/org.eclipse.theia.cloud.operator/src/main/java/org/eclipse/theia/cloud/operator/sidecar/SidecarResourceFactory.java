@@ -319,6 +319,23 @@ public class SidecarResourceFactory {
         }
     }
 
+    /**
+     * Deletes all pods matching a sidecar deployment's label selector, causing
+     * the Deployment controller to recreate them. The Deployment and Service are kept.
+     */
+    public void deletePodsForDeployment(String deploymentName, String correlationId) {
+        LOGGER.info(formatLogMessage(correlationId, "[Sidecar] Deleting pods for deployment " + deploymentName));
+
+        try {
+            client.kubernetes().pods().inNamespace(client.namespace())
+                .withLabel("app", deploymentName)
+                .delete();
+        } catch (Exception e) {
+            LOGGER.warn(formatLogMessage(correlationId,
+                "[Sidecar] Failed to delete pods for deployment " + deploymentName), e);
+        }
+    }
+
     // ========== PVC Lookup (for SidecarManager) ==========
 
     /**

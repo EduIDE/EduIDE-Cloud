@@ -340,7 +340,7 @@ public class EagerSessionHandler implements SessionHandler {
                 return false;
             }
 
-            sidecarManager.deletePrewarmedSidecars(appDef, instanceId, correlationId);
+            sidecarManager.restartPrewarmedSidecarPods(appDef, instanceId, correlationId);
 
             // Release instance back to pool
             ISpan releaseSpan = Tracing.childSpan(span, "eager.release_instance", "Release pool instance");

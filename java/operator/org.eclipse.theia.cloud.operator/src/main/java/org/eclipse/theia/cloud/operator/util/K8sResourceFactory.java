@@ -30,6 +30,7 @@ import org.eclipse.theia.cloud.operator.bandwidth.BandwidthLimiter;
 import org.eclipse.theia.cloud.operator.handler.AddedHandlerUtil;
 import org.eclipse.theia.cloud.operator.ingress.IngressPathProvider;
 import org.eclipse.theia.cloud.operator.replacements.DeploymentTemplateReplacements;
+import org.eclipse.theia.cloud.operator.sidecar.SidecarManager;
 import org.eclipse.theia.cloud.operator.util.OwnershipManager.OwnerContext;
 
 import com.google.inject.Inject;
@@ -69,6 +70,9 @@ public class K8sResourceFactory {
 
     @Inject
     private DeploymentTemplateReplacements deploymentReplacements;
+
+    @Inject
+    private SidecarManager sidecarManager;
 
     // ========== Service Creation ==========
 
@@ -171,12 +175,9 @@ public class K8sResourceFactory {
                     if (appDef.getSpec().getPullSecret() != null && !appDef.getSpec().getPullSecret().isEmpty()) {
                         AddedHandlerUtil.addImagePullSecret(deployment, appDef.getSpec().getPullSecret());
                     }
+                    sidecarManager.injectPrewarmedSidecarEnvVars(deployment, appDef, instance, correlationId);
                 }, correlationId);
     }
-
-    /**
-     * Creates a deployment for a lazy session.
-     */
     public Optional<Deployment> createDeploymentForLazySession(Session session, AppDefinition appDef,
             Optional<String> pvName, Map<String, String> labels, Consumer<Deployment> volumeHandler,
             String correlationId) {

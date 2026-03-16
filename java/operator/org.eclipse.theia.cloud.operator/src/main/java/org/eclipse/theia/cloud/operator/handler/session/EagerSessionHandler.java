@@ -32,8 +32,7 @@ import org.eclipse.theia.cloud.common.util.DataBridgeUtil;
 import org.eclipse.theia.cloud.operator.databridge.AsyncDataInjector;
 import org.eclipse.theia.cloud.operator.handler.AddedHandlerUtil;
 import org.eclipse.theia.cloud.operator.ingress.IngressManager;
-import org.eclipse.theia.cloud.operator.languageserver.LanguageServerManager;
-import org.eclipse.theia.cloud.operator.languageserver.LanguageServerResourceFactory;
+import org.eclipse.theia.cloud.operator.sidecar.SidecarManager;
 import org.eclipse.theia.cloud.operator.pool.PrewarmedResourcePool;
 import org.eclipse.theia.cloud.common.tracing.Tracing;
 import org.eclipse.theia.cloud.operator.util.SessionEnvCollector;
@@ -78,7 +77,7 @@ public class EagerSessionHandler implements SessionHandler {
     private IngressManager ingressManager;
 
     @Inject
-    private LanguageServerManager languageServerManager;
+    private SidecarManager sidecarManager;
 
     @Inject
     private SessionEnvCollector sessionEnvCollector;
@@ -230,13 +229,6 @@ public class EagerSessionHandler implements SessionHandler {
             }
             Tracing.finishSuccess(setupSpan);
 
-            String prewarmedLsServiceName = LanguageServerResourceFactory.getPrewarmedServiceName(appDef, instance.getInstanceId());
-            if (!languageServerManager.patchEnvVarsIntoExistingDeployment(instance.getDeploymentName(), prewarmedLsServiceName, appDef, correlationId)) {
-                LOGGER.warn(formatLogMessage(correlationId,
-                    "Failed to patch language server env vars into deployment " + instance.getDeploymentName()
-                    + "; session will continue without language server env vars."));
-            }
-
             // Schedule async credential injection via data bridge (tracked in separate transaction)
             if (DataBridgeUtil.isDataBridgeEnabled(appDef.getSpec())) {
                 Map<String, String> envVars = sessionEnvCollector.collect(session, correlationId);
@@ -348,7 +340,7 @@ public class EagerSessionHandler implements SessionHandler {
                 return false;
             }
 
-            languageServerManager.deletePrewarmedLanguageServer(appDef, instanceId, correlationId);
+            sidecarManager.deletePrewarmedSidecars(appDef, instanceId, correlationId);
 
             // Release instance back to pool
             ISpan releaseSpan = Tracing.childSpan(span, "eager.release_instance", "Release pool instance");

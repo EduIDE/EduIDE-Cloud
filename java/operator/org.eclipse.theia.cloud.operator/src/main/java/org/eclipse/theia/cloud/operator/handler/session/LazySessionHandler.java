@@ -37,7 +37,7 @@ import org.eclipse.theia.cloud.common.util.WorkspaceUtil;
 import org.eclipse.theia.cloud.operator.TheiaCloudOperatorArguments;
 import org.eclipse.theia.cloud.operator.handler.AddedHandlerUtil;
 import org.eclipse.theia.cloud.operator.ingress.IngressManager;
-import org.eclipse.theia.cloud.operator.languageserver.LanguageServerManager;
+import org.eclipse.theia.cloud.operator.sidecar.SidecarManager;
 import org.eclipse.theia.cloud.operator.util.K8sResourceFactory;
 import org.eclipse.theia.cloud.operator.util.K8sUtil;
 import org.eclipse.theia.cloud.operator.util.TheiaCloudK8sUtil;
@@ -85,7 +85,7 @@ public class LazySessionHandler implements SessionHandler {
     protected IngressManager ingressManager;
 
     @Inject
-    protected LanguageServerManager languageServerManager;
+    protected SidecarManager sidecarManager;
 
     @Override
     public boolean sessionAdded(Session session, String correlationId, ISpan parentSpan) {
@@ -272,16 +272,16 @@ public class LazySessionHandler implements SessionHandler {
                 session, appDef, storageName, labels,
                 deployment -> {
                     storageName.ifPresent(name -> addVolumeClaim(deployment, name, appDefSpec));
-                    languageServerManager.injectEnvVars(deployment, session, appDef, correlationId);
+                    sidecarManager.injectSidecarEnvVars(deployment, appDef, correlationId);
                 },
                 correlationId);
         Tracing.finishSuccess(deploymentSpan);
 
-        // Language server setup is best-effort: the session remains usable even if LS creation fails.
-        if (!languageServerManager.createLanguageServer(session, appDef, storageName, correlationId)) {
+        // Sidecar setup is best-effort: the session remains usable even if sidecar creation fails.
+        if (!sidecarManager.createSidecars(session, appDef, storageName, correlationId)) {
             LOGGER.warn(formatLogMessage(correlationId,
-                "Language server creation failed for session " + session.getMetadata().getName()
-                + "; session will continue without language server support."));
+                "Sidecar creation failed for session " + session.getMetadata().getName()
+                + "; session will continue without sidecar support."));
         }
 
         // Add HTTPRoute rule
@@ -365,7 +365,7 @@ public class LazySessionHandler implements SessionHandler {
             Tracing.finishSuccess(removeRulesSpan);
             LOGGER.info(formatLogMessage(correlationId, "Successfully cleaned up HTTPRoute rules for session"));
             // Cleanup language server resources for lazy sessions.
-            languageServerManager.deleteLanguageServer(session, correlationId);
+            sidecarManager.deleteSidecars(session, correlationId);
             span.setTag("outcome", "success");
             return true;
         } catch (KubernetesClientException e) {

@@ -29,6 +29,11 @@ on:
         required: false
         default: ""
         type: string
+      arc_registry_cache:
+        description: "Enable ARC registry cache import/export (slower on stateful BuildKit; default off)"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -39,112 +44,49 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  determine-tag:
-    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_mode == 'github-runners' && 'ubuntu-latest' || 'arc-buildkit-eduide-amd64' }}
-    outputs:
-      base_tag: ${{ steps.set-tag.outputs.base_tag }}
-      sha_tag: ${{ steps.set-tag.outputs.sha_tag }}
-      cache_tag: ${{ steps.set-tag.outputs.cache_tag }}
-      image_repo: ${{ steps.set-tag.outputs.image_repo }}
-    steps:
-      - name: Checkout for SHA access
-        uses: actions/checkout@v4
-
-      - name: Set tags
-        id: set-tag
-        shell: bash
-        run: |
-          set -euo pipefail
-          SHORT_SHA=$(git rev-parse --short=7 HEAD)
-          IMAGE_REPO="$(echo "${{ github.repository_owner }}/${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')"
-          OVERRIDE="${{ inputs.image_tag || '' }}"
-
-          if [[ -n "$OVERRIDE" ]]; then
-            BASE_TAG="$OVERRIDE"
-            CACHE_TAG="build-cache"
-          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            BASE_TAG="pr-${{ github.event.pull_request.number }}"
-            CACHE_TAG="build-cache-pr-${{ github.event.pull_request.number }}"
-          elif [[ "${{ github.event_name }}" == "release" ]]; then
-            BASE_TAG="${{ github.event.release.tag_name }}"
-            CACHE_TAG="build-cache-release"
-          elif [[ "${{ github.ref }}" == "refs/heads/main" ]] || [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
-            BASE_TAG="latest"
-            CACHE_TAG="build-cache"
-          else
-            BASE_TAG="${{ github.ref_name }}"
-            CACHE_TAG="build-cache"
-          fi
-          
-          echo "base_tag=${BASE_TAG}" >> "$GITHUB_OUTPUT"
-          echo "sha_tag=${BASE_TAG}-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
-          echo "cache_tag=${CACHE_TAG}" >> "$GITHUB_OUTPUT"
-          echo "image_repo=${IMAGE_REPO}" >> "$GITHUB_OUTPUT"
-
   build-and-push-landing-page:
-    needs: determine-tag
     uses: ls1intum/.github/.github/workflows/build-and-push-docker-image.yml@feature/split-build-workflow-modes
     with:
       docker-file: dockerfiles/landing-page/Dockerfile
-      image-name: ${{ needs.determine-tag.outputs.image_repo }}/landing-page
+      image-name: ${{ github.repository_owner }}/${{ github.event.repository.name }}/landing-page
       docker-context: .
-      tags: |
-        ${{ needs.determine-tag.outputs.base_tag }}
-        ${{ needs.determine-tag.outputs.sha_tag }}
       image-tag: ${{ inputs.image_tag || '' }}
       execution-mode: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit' }}
+      arc-registry-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.arc_registry_cache || false }}
       build-amd64: true
       build-arm64: ${{ github.event_name != 'pull_request' }}
       network: host
       registry-mirror: http://131.159.88.117:30081
-      cache-from: |
-        type=registry,ref=ghcr.io/${{ needs.determine-tag.outputs.image_repo }}/landing-page:${{ needs.determine-tag.outputs.cache_tag }}
-        type=registry,ref=ghcr.io/${{ needs.determine-tag.outputs.image_repo }}/landing-page:build-cache
-      cache-to: "type=registry,ref=ghcr.io/${{ needs.determine-tag.outputs.image_repo }}/landing-page:${{ needs.determine-tag.outputs.cache_tag }},mode=max"
     secrets: inherit
 
   build-and-push-operator:
-    needs: determine-tag
     uses: ls1intum/.github/.github/workflows/build-and-push-docker-image.yml@feature/split-build-workflow-modes
     with:
       docker-file: dockerfiles/operator/Dockerfile
-      image-name: ${{ needs.determine-tag.outputs.image_repo }}/operator
+      image-name: ${{ github.repository_owner }}/${{ github.event.repository.name }}/operator
       docker-context: .
-      tags: |
-        ${{ needs.determine-tag.outputs.base_tag }}
-        ${{ needs.determine-tag.outputs.sha_tag }}
       image-tag: ${{ inputs.image_tag || '' }}
       execution-mode: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit' }}
+      arc-registry-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.arc_registry_cache || false }}
       build-amd64: true
       build-arm64: ${{ github.event_name != 'pull_request' }}
       network: host
       registry-mirror: http://131.159.88.117:30081
-      cache-from: |
-        type=registry,ref=ghcr.io/${{ needs.determine-tag.outputs.image_repo }}/operator:${{ needs.determine-tag.outputs.cache_tag }}
-        type=registry,ref=ghcr.io/${{ needs.determine-tag.outputs.image_repo }}/operator:build-cache
-      cache-to: "type=registry,ref=ghcr.io/${{ needs.determine-tag.outputs.image_repo }}/operator:${{ needs.determine-tag.outputs.cache_tag }},mode=max"
     secrets:
       docker-secrets: ${{ secrets.SENTRY_AUTH_TOKEN != '' && format('SENTRY_AUTH_TOKEN={0}', secrets.SENTRY_AUTH_TOKEN) || '' }}
 
   build-and-push-service:
-    needs: determine-tag
     uses: ls1intum/.github/.github/workflows/build-and-push-docker-image.yml@feature/split-build-workflow-modes
     with:
       docker-file: dockerfiles/service/Dockerfile
-      image-name: ${{ needs.determine-tag.outputs.image_repo }}/service
+      image-name: ${{ github.repository_owner }}/${{ github.event.repository.name }}/service
       docker-context: .
-      tags: |
-        ${{ needs.determine-tag.outputs.base_tag }}
-        ${{ needs.determine-tag.outputs.sha_tag }}
       image-tag: ${{ inputs.image_tag || '' }}
       execution-mode: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit' }}
+      arc-registry-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.arc_registry_cache || false }}
       build-amd64: true
       build-arm64: ${{ github.event_name != 'pull_request' }}
       network: host
       registry-mirror: http://131.159.88.117:30081
-      cache-from: |
-        type=registry,ref=ghcr.io/${{ needs.determine-tag.outputs.image_repo }}/service:${{ needs.determine-tag.outputs.cache_tag }}
-        type=registry,ref=ghcr.io/${{ needs.determine-tag.outputs.image_repo }}/service:build-cache
-      cache-to: "type=registry,ref=ghcr.io/${{ needs.determine-tag.outputs.image_repo }}/service:${{ needs.determine-tag.outputs.cache_tag }},mode=max"
     secrets:
       docker-secrets: ${{ secrets.SENTRY_AUTH_TOKEN != '' && format('SENTRY_AUTH_TOKEN={0}', secrets.SENTRY_AUTH_TOKEN) || '' }}

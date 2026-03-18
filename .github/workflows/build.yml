@@ -53,7 +53,8 @@ jobs:
       image-tag: ${{ inputs.image_tag || '' }}
       execution-mode: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit' }}
       arc-registry-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.arc_registry_cache || false }}
-      github-registry-cache: true
+      cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:build-cache
+      cache-to: type=registry,ref=ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:build-cache,mode=max,image-manifest=true,oci-mediatypes=true
       build-amd64: true
       build-arm64: ${{ github.event_name != 'pull_request' }}
       network: host
@@ -68,7 +69,8 @@ jobs:
       image-tag: ${{ inputs.image_tag || '' }}
       execution-mode: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit' }}
       arc-registry-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.arc_registry_cache || false }}
-      github-registry-cache: true
+      cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:build-cache
+      cache-to: type=registry,ref=ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:build-cache,mode=max,image-manifest=true,oci-mediatypes=true
       build-amd64: true
       build-arm64: ${{ github.event_name != 'pull_request' }}
       network: host
@@ -84,7 +86,8 @@ jobs:
       image-tag: ${{ inputs.image_tag || '' }}
       execution-mode: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit' }}
       arc-registry-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.arc_registry_cache || false }}
-      github-registry-cache: true
+      cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:build-cache
+      cache-to: type=registry,ref=ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:build-cache,mode=max,image-manifest=true,oci-mediatypes=true
       build-amd64: true
       build-arm64: ${{ github.event_name != 'pull_request' }}
       network: host

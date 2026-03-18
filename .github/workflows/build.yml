@@ -56,7 +56,6 @@ jobs:
       build-amd64: true
       build-arm64: ${{ github.event_name != 'pull_request' }}
       network: host
-      registry-mirror: http://131.159.88.117:30081
     secrets: inherit
 
   build-and-push-operator:
@@ -71,7 +70,6 @@ jobs:
       build-amd64: true
       build-arm64: ${{ github.event_name != 'pull_request' }}
       network: host
-      registry-mirror: http://131.159.88.117:30081
     secrets:
       docker-secrets: ${{ secrets.SENTRY_AUTH_TOKEN != '' && format('SENTRY_AUTH_TOKEN={0}', secrets.SENTRY_AUTH_TOKEN) || '' }}
 
@@ -87,6 +85,5 @@ jobs:
       build-amd64: true
       build-arm64: ${{ github.event_name != 'pull_request' }}
       network: host
-      registry-mirror: http://131.159.88.117:30081
     secrets:
       docker-secrets: ${{ secrets.SENTRY_AUTH_TOKEN != '' && format('SENTRY_AUTH_TOKEN={0}', secrets.SENTRY_AUTH_TOKEN) || '' }}

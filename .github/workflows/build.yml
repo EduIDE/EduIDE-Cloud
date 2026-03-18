@@ -34,6 +34,11 @@ on:
         required: false
         default: false
         type: boolean
+      github_registry_cache:
+        description: "Enable github-runners registry cache import/export (default off)"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -53,6 +58,7 @@ jobs:
       image-tag: ${{ inputs.image_tag || '' }}
       execution-mode: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit' }}
       arc-registry-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.arc_registry_cache || false }}
+      github-registry-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.github_registry_cache || false }}
       build-amd64: true
       build-arm64: ${{ github.event_name != 'pull_request' }}
       network: host
@@ -67,6 +73,7 @@ jobs:
       image-tag: ${{ inputs.image_tag || '' }}
       execution-mode: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit' }}
       arc-registry-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.arc_registry_cache || false }}
+      github-registry-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.github_registry_cache || false }}
       build-amd64: true
       build-arm64: ${{ github.event_name != 'pull_request' }}
       network: host
@@ -82,6 +89,7 @@ jobs:
       image-tag: ${{ inputs.image_tag || '' }}
       execution-mode: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit' }}
       arc-registry-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.arc_registry_cache || false }}
+      github-registry-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.github_registry_cache || false }}
       build-amd64: true
       build-arm64: ${{ github.event_name != 'pull_request' }}
       network: host

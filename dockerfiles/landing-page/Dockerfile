@@ -17,5 +17,6 @@ RUN npm ci && \
 # production stage
 FROM nginx:stable-alpine as production-stage
 COPY --from=build-stage /app/landing-page/dist /usr/share/nginx/html
+COPY dockerfiles/landing-page/default.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]

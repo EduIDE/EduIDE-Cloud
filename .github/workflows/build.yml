@@ -56,14 +56,14 @@ jobs:
     uses: ls1intum/.github/.github/workflows/build-and-push-docker-image.yml@feature/split-build-workflow-modes
     with:
       docker-file: dockerfiles/landing-page/Dockerfile
-      image-name: ${{ github.repository_owner }}/${{ github.event.repository.name }}/landing-page
+      image-name: eduide/eduide-cloud/landing-page
       docker-context: .
       image-tag: ${{ inputs.image_tag || '' }}
       execution-mode: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit' }}
       arc-registry-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.arc_registry_cache || false }}
       no-cache: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.disable_layer_cache) || false }}
-      cache-from: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && format('type=registry,ref=ghcr.io/{0}/{1}:build-cache-landing-page', github.repository_owner, github.event.repository.name) || '' }}
-      cache-to: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && format('type=registry,ref=ghcr.io/{0}/{1}:build-cache-landing-page,mode=max,image-manifest=true,oci-mediatypes=true', github.repository_owner, github.event.repository.name) || '' }}
+      cache-from: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && 'type=registry,ref=ghcr.io/eduide/eduide-cloud:build-cache-landing-page' || '' }}
+      cache-to: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && 'type=registry,ref=ghcr.io/eduide/eduide-cloud:build-cache-landing-page,mode=max,image-manifest=true,oci-mediatypes=true' || '' }}
       build-amd64: true
       build-arm64: ${{ github.event_name != 'pull_request' }}
       network: host
@@ -73,14 +73,14 @@ jobs:
     uses: ls1intum/.github/.github/workflows/build-and-push-docker-image.yml@feature/split-build-workflow-modes
     with:
       docker-file: dockerfiles/operator/Dockerfile
-      image-name: ${{ github.repository_owner }}/${{ github.event.repository.name }}/operator
+      image-name: eduide/eduide-cloud/operator
       docker-context: .
       image-tag: ${{ inputs.image_tag || '' }}
       execution-mode: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit' }}
       arc-registry-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.arc_registry_cache || false }}
       no-cache: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.disable_layer_cache) || false }}
-      cache-from: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && format('type=registry,ref=ghcr.io/{0}/{1}:build-cache-operator', github.repository_owner, github.event.repository.name) || '' }}
-      cache-to: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && format('type=registry,ref=ghcr.io/{0}/{1}:build-cache-operator,mode=max,image-manifest=true,oci-mediatypes=true', github.repository_owner, github.event.repository.name) || '' }}
+      cache-from: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && 'type=registry,ref=ghcr.io/eduide/eduide-cloud:build-cache-operator' || '' }}
+      cache-to: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && 'type=registry,ref=ghcr.io/eduide/eduide-cloud:build-cache-operator,mode=max,image-manifest=true,oci-mediatypes=true' || '' }}
       build-amd64: true
       build-arm64: ${{ github.event_name != 'pull_request' }}
       network: host
@@ -91,14 +91,14 @@ jobs:
     uses: ls1intum/.github/.github/workflows/build-and-push-docker-image.yml@feature/split-build-workflow-modes
     with:
       docker-file: dockerfiles/service/Dockerfile
-      image-name: ${{ github.repository_owner }}/${{ github.event.repository.name }}/service
+      image-name: eduide/eduide-cloud/service
       docker-context: .
       image-tag: ${{ inputs.image_tag || '' }}
       execution-mode: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit' }}
       arc-registry-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.arc_registry_cache || false }}
       no-cache: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.disable_layer_cache) || false }}
-      cache-from: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && format('type=registry,ref=ghcr.io/{0}/{1}:build-cache-service', github.repository_owner, github.event.repository.name) || '' }}
-      cache-to: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && format('type=registry,ref=ghcr.io/{0}/{1}:build-cache-service,mode=max,image-manifest=true,oci-mediatypes=true', github.repository_owner, github.event.repository.name) || '' }}
+      cache-from: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && 'type=registry,ref=ghcr.io/eduide/eduide-cloud:build-cache-service' || '' }}
+      cache-to: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && 'type=registry,ref=ghcr.io/eduide/eduide-cloud:build-cache-service,mode=max,image-manifest=true,oci-mediatypes=true' || '' }}
       build-amd64: true
       build-arm64: ${{ github.event_name != 'pull_request' }}
       network: host
@@ -109,14 +109,14 @@ jobs:
     uses: ls1intum/.github/.github/workflows/build-and-push-docker-image.yml@feature/split-build-workflow-modes
     with:
       docker-file: dockerfiles/conversion-webhook/Dockerfile
-      image-name: ${{ github.repository_owner }}/${{ github.event.repository.name }}/conversion-webhook
+      image-name: eduide/eduide-cloud/conversion-webhook
       docker-context: .
       image-tag: ${{ inputs.image_tag || '' }}
       execution-mode: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit' }}
       arc-registry-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.arc_registry_cache || false }}
       no-cache: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.disable_layer_cache) || false }}
-      cache-from: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && format('type=registry,ref=ghcr.io/{0}/{1}:build-cache-conversion-webhook', github.repository_owner, github.event.repository.name) || '' }}
-      cache-to: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && format('type=registry,ref=ghcr.io/{0}/{1}:build-cache-conversion-webhook,mode=max,image-manifest=true,oci-mediatypes=true', github.repository_owner, github.event.repository.name) || '' }}
+      cache-from: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && 'type=registry,ref=ghcr.io/eduide/eduide-cloud:build-cache-conversion-webhook' || '' }}
+      cache-to: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && 'type=registry,ref=ghcr.io/eduide/eduide-cloud:build-cache-conversion-webhook,mode=max,image-manifest=true,oci-mediatypes=true' || '' }}
       build-amd64: true
       build-arm64: ${{ github.event_name != 'pull_request' }}
       network: host

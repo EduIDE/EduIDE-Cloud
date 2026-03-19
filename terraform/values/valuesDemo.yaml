@@ -24,16 +24,6 @@ hosts:
     landing: try
     instance: ws
 
-landingPage:
-  image: theiacloud/theia-cloud-landing-page:1.2.0-next
-  appDefinition: "theia-cloud-demo"
-  ephemeralStorage: true
-  additionalApps:
-    coffee-editor:
-      label: "Coffee Editor"
-    cdt-cloud-demo:
-      label: "CDT.cloud Blueprint"
-
 keycloak:
   enable: true
   authUrl: "https://keycloak.theia-cloud.io/"

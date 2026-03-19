@@ -25,7 +25,6 @@ eval $(minikube docker-env)
 
 docker build --no-cache -t theiacloud/theia-cloud-service:minikube-ci-e2e -f dockerfiles/service/Dockerfile .
 docker build --no-cache -t theiacloud/theia-cloud-operator:minikube-ci-e2e -f dockerfiles/operator/Dockerfile .
-docker build --no-cache -t theiacloud/theia-cloud-landing-page:minikube-ci-e2e -f dockerfiles/landing-page/Dockerfile .
 docker build --no-cache -t theiacloud/theia-cloud-wondershaper:minikube-ci-e2e -f dockerfiles/wondershaper/Dockerfile .
 docker build --no-cache -t theiacloud/theia-cloud-conversion-webhook:minikube-ci-e2e -f dockerfiles/conversion-webhook/Dockerfile .
 docker build --no-cache -t theiacloud/theia-cloud-demo:latest -f demo/dockerfiles/demo-theia-docker/Dockerfile demo/dockerfiles/demo-theia-docker/.

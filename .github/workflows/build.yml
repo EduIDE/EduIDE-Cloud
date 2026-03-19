@@ -52,22 +52,6 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build-and-push-landing-page:
-    uses: ls1intum/.github/.github/workflows/build-and-push-docker-image.yml@feature/split-build-workflow-modes
-    with:
-      docker-file: dockerfiles/landing-page/Dockerfile
-      image-name: eduide/eduide-cloud/landing-page
-      docker-context: .
-      image-tag: ${{ inputs.image_tag || '' }}
-      execution-mode: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit' }}
-      arc-registry-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.arc_registry_cache || false }}
-      no-cache: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.disable_layer_cache) || false }}
-      cache-from: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && 'type=registry,ref=ghcr.io/eduide/eduide-cloud:build-cache-landing-page' || '' }}
-      cache-to: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && 'type=registry,ref=ghcr.io/eduide/eduide-cloud:build-cache-landing-page,mode=max,image-manifest=true,oci-mediatypes=true' || '' }}
-      build-amd64: true
-      build-arm64: ${{ github.event_name != 'pull_request' }}
-      network: host
-    secrets: inherit
 
   build-and-push-operator:
     uses: ls1intum/.github/.github/workflows/build-and-push-docker-image.yml@feature/split-build-workflow-modes

@@ -5,20 +5,22 @@ import static org.eclipse.theia.cloud.common.util.LogMessageUtil.formatLogMessag
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.function.Consumer;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.theia.cloud.common.k8s.client.TheiaCloudClient;
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinition;
 import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
+import org.eclipse.theia.cloud.common.util.LabelsUtil;
 import org.eclipse.theia.cloud.operator.TheiaCloudOperatorArguments;
 import org.eclipse.theia.cloud.operator.util.K8sUtil;
 
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 
+import io.fabric8.kubernetes.api.model.ObjectMetaBuilder;
+import io.fabric8.kubernetes.api.model.OwnerReference;
+import io.fabric8.kubernetes.api.model.OwnerReferenceBuilder;
 import io.fabric8.kubernetes.api.model.Service;
 import io.fabric8.kubernetes.api.model.gatewayapi.v1.HTTPBackendRef;
 import io.fabric8.kubernetes.api.model.gatewayapi.v1.HTTPBackendRefBuilder;
@@ -30,6 +32,7 @@ import io.fabric8.kubernetes.api.model.gatewayapi.v1.HTTPPathMatchBuilder;
 import io.fabric8.kubernetes.api.model.gatewayapi.v1.HTTPPathModifierBuilder;
 import io.fabric8.kubernetes.api.model.gatewayapi.v1.HTTPRequestRedirectFilterBuilder;
 import io.fabric8.kubernetes.api.model.gatewayapi.v1.HTTPRoute;
+import io.fabric8.kubernetes.api.model.gatewayapi.v1.HTTPRouteBuilder;
 import io.fabric8.kubernetes.api.model.gatewayapi.v1.HTTPRouteFilter;
 import io.fabric8.kubernetes.api.model.gatewayapi.v1.HTTPRouteFilterBuilder;
 import io.fabric8.kubernetes.api.model.gatewayapi.v1.HTTPRouteMatch;
@@ -45,9 +48,8 @@ import io.fabric8.kubernetes.client.KubernetesClientException;
  * Centralized manager for HTTPRoute operations (Gateway API).
  *
  * Caller intent:
- * - find the route for an app definition
- * - expose a session path via redirect + backend route rule
- * - unexpose a session path during cleanup
+ * - find the shared route template for an app definition
+ * - expose a session path via a dedicated session-owned HTTPRoute
  */
 @Singleton
 public class IngressManager {
@@ -60,9 +62,7 @@ public class IngressManager {
      */
     private static final String ENVOY_REQUEST_PATH_EXPRESSION = "%REQ(:PATH)%";
     private static final int HTTP_CONFLICT = 409;
-    private static final int ROUTE_EDIT_MAX_RETRIES = 5;
-    private static final long ROUTE_EDIT_RETRY_BACKOFF_MS = 200L;
-    private static final long ROUTE_EDIT_RETRY_JITTER_MS = 100L;
+    private static final String SESSION_ROUTE_SUFFIX = "-route";
 
     @Inject
     private TheiaCloudClient client;
@@ -74,7 +74,11 @@ public class IngressManager {
     private IngressPathProvider pathProvider;
 
     /**
-     * Gets the HTTPRoute for an app definition.
+     * Gets the shared app-level HTTPRoute for an app definition.
+     *
+     * This route is treated as static configuration managed outside the operator:
+     * it provides the parentRefs and hostnames that every session-specific
+     * HTTPRoute should inherit.
      */
     public Optional<HTTPRoute> getIngress(AppDefinition appDefinition, String correlationId) {
         Optional<HTTPRoute> route = K8sUtil.getExistingHttpRoute(
@@ -90,127 +94,106 @@ public class IngressManager {
     }
 
     /**
-     * Exposes an eager session by adding/updating path rules in the shared HTTPRoute.
+     * Exposes an eager session through a dedicated session-owned HTTPRoute.
      *
      * @return the full URL for the session
      */
     public String addRuleForSession(
-            HTTPRoute route,
+            HTTPRoute routeTemplate,
             Service service,
             AppDefinition appDefinition,
+            Session session,
             int instance,
             String correlationId) {
 
         String path = pathProvider.getPath(appDefinition, instance);
-        return upsertRulesForPath(route, service, appDefinition, path, correlationId);
+        return createOrUpdateSessionRoute(routeTemplate, service, appDefinition, session, path, correlationId);
     }
 
     /**
-     * Exposes a lazy session by adding/updating path rules in the shared HTTPRoute.
+     * Exposes a lazy session through a dedicated session-owned HTTPRoute.
      *
      * @return the full URL for the session
      */
     public String addRuleForSession(
-            HTTPRoute route,
+            HTTPRoute routeTemplate,
             Service service,
             AppDefinition appDefinition,
             Session session,
             String correlationId) {
 
         String path = pathProvider.getPath(appDefinition, session);
-        return upsertRulesForPath(route, service, appDefinition, path, correlationId);
+        return createOrUpdateSessionRoute(routeTemplate, service, appDefinition, session, path, correlationId);
     }
 
-    /**
-     * Removes rules for an eager session path from the shared HTTPRoute.
-     */
-    public void removeRulesForSession(
-            HTTPRoute route,
-            AppDefinition appDefinition,
-            int instance,
-            String correlationId) {
-
-        String path = pathProvider.getPath(appDefinition, instance);
-        removeRulesForPath(route, path, correlationId);
-    }
-
-    /**
-     * Removes rules for a lazy session path from the shared HTTPRoute.
-     */
-    public void removeRulesForSession(
-            HTTPRoute route,
-            AppDefinition appDefinition,
-            Session session,
-            String correlationId) {
-
-        String path = pathProvider.getPath(appDefinition, session);
-        removeRulesForPath(route, path, correlationId);
-    }
-
-    private String upsertRulesForPath(
-            HTTPRoute route,
+    private String createOrUpdateSessionRoute(
+            HTTPRoute routeTemplate,
             Service service,
             AppDefinition appDefinition,
+            Session session,
             String path,
             String correlationId) {
 
-        String routeName = route.getMetadata().getName();
+        String routeName = buildSessionRouteName(session);
         String serviceName = service.getMetadata().getName();
         int port = appDefinition.getSpec().getPort();
-        List<String> hosts = buildRouteHosts(appDefinition);
+        HTTPRoute desiredRoute = buildSessionRoute(routeTemplate, serviceName, port, path, session, appDefinition);
 
         try {
-            editRouteWithRetry(routeName, routeToUpdate -> {
-                HTTPRouteSpec spec = getOrCreateSpec(routeToUpdate);
-                ensureHostnamesPresent(spec, hosts);
-
-                List<HTTPRouteRule> rules = getOrCreateRules(spec);
-                removeRulesMatchingPath(rules, path);
-
-                rules.add(createRedirectRule(path));
-                rules.add(createRouteRule(serviceName, port, path));
-            }, correlationId);
-
-            LOGGER.info(formatLogMessage(correlationId,
-                    "Configured HTTPRoute " + routeName + " for path " + path
-                            + " and backend service " + serviceName));
-            return arguments.getInstancesHost() + ensureTrailingSlash(path);
+            client.httpRoutes().operation().resource(desiredRoute).create();
         } catch (KubernetesClientException e) {
-            LOGGER.error(formatLogMessage(correlationId,
-                    "Failed to configure HTTPRoute " + routeName + " for path " + path), e);
-            throw e;
-        }
-    }
-
-    private void removeRulesForPath(HTTPRoute route, String path, String correlationId) {
-        String routeName = route.getMetadata().getName();
-
-        try {
-            int[] removedRuleCount = new int[] { 0 };
-            editRouteWithRetry(routeName, routeToUpdate -> {
-                HTTPRouteSpec spec = getOrCreateSpec(routeToUpdate);
-                List<HTTPRouteRule> rules = getOrCreateRules(spec);
-                removedRuleCount[0] = removeRulesMatchingPath(rules, path);
-                // hostnames are route-wide and shared across multiple session paths;
-                // removing rules for one path must not delete shared hostnames.
-            }, correlationId);
-
-            if (removedRuleCount[0] > 0) {
-                LOGGER.info(formatLogMessage(correlationId,
-                        "Removed " + removedRuleCount[0] + " HTTPRoute rule(s) for path " + path + " from "
-                                + routeName));
-            } else {
-                LOGGER.debug(formatLogMessage(correlationId,
-                        "No HTTPRoute rules found for path " + path + " in " + routeName));
+            if (e.getCode() != HTTP_CONFLICT) {
+                LOGGER.error(formatLogMessage(correlationId,
+                        "Failed to create session HTTPRoute " + routeName + " for path " + path), e);
+                throw e;
             }
-        } catch (KubernetesClientException e) {
-            LOGGER.error(formatLogMessage(correlationId,
-                    "Failed to remove HTTPRoute rules for path " + path + " from " + routeName), e);
-            throw e;
+
+            // Retries for the same Session should converge on one stable route name.
+            HTTPRoute updatedRoute = client.httpRoutes().edit(correlationId, routeName, existingRoute -> {
+                existingRoute.setSpec(desiredRoute.getSpec());
+                existingRoute.getMetadata().setLabels(desiredRoute.getMetadata().getLabels());
+                existingRoute.getMetadata().setOwnerReferences(desiredRoute.getMetadata().getOwnerReferences());
+            });
+            if (updatedRoute == null) {
+                throw new KubernetesClientException("HTTPRoute " + routeName + " not found for update");
+            }
         }
+
+        LOGGER.info(formatLogMessage(correlationId,
+                "Configured session HTTPRoute " + routeName + " for path " + path
+                        + " and backend service " + serviceName));
+        return arguments.getInstancesHost() + ensureTrailingSlash(path);
     }
 
-    private List<String> buildRouteHosts(AppDefinition appDefinition) {
+    private HTTPRoute buildSessionRoute(HTTPRoute routeTemplate, String serviceName, int port, String path,
+            Session session, AppDefinition appDefinition) {
+        HTTPRouteSpec templateSpec = getOrCreateSpec(routeTemplate);
+        List<String> hosts = buildRouteHosts(appDefinition, templateSpec.getHostnames());
+
+        return new HTTPRouteBuilder()
+                .withMetadata(new ObjectMetaBuilder()
+                        // Use the Session UID so retries and reconciliations keep targeting the same route while
+                        // staying well within Kubernetes object name limits.
+                        .withName(buildSessionRouteName(session))
+                        .withNamespace(client.namespace())
+                        .withLabels(LabelsUtil.createSessionLabels(session, appDefinition))
+                        .withOwnerReferences(buildSessionOwnerReference(session))
+                        .build())
+                .withSpec(new HTTPRouteSpecBuilder()
+                        // Keep gateway attachment and hostname configuration in the shared app-level route so Helm
+                        // remains the single source of truth for ingress topology.
+                        .withParentRefs(templateSpec.getParentRefs())
+                        .withHostnames(hosts)
+                        .withRules(createRedirectRule(path), createRouteRule(serviceName, port, path))
+                        .build())
+                .build();
+    }
+
+    private List<String> buildRouteHosts(AppDefinition appDefinition, List<String> templateHostnames) {
+        if (templateHostnames != null && !templateHostnames.isEmpty()) {
+            return new ArrayList<>(templateHostnames);
+        }
+
         String instancesHost = arguments.getInstancesHost();
         List<String> hosts = new ArrayList<>();
         hosts.add(instancesHost);
@@ -225,23 +208,17 @@ public class IngressManager {
         return hosts;
     }
 
-    private void ensureHostnamesPresent(HTTPRouteSpec spec, List<String> hosts) {
-        List<String> hostnames = spec.getHostnames();
-        if (hostnames == null) {
-            hostnames = new ArrayList<>();
-            spec.setHostnames(hostnames);
-        }
-        for (String host : hosts) {
-            if (!hostnames.contains(host)) {
-                hostnames.add(host);
-            }
-        }
+    private OwnerReference buildSessionOwnerReference(Session session) {
+        return new OwnerReferenceBuilder()
+                .withApiVersion(Session.API)
+                .withKind(Session.KIND)
+                .withName(session.getMetadata().getName())
+                .withUid(session.getMetadata().getUid())
+                .build();
     }
 
-    private int removeRulesMatchingPath(List<HTTPRouteRule> rules, String path) {
-        int initialSize = rules.size();
-        rules.removeIf(rule -> hasPathMatch(rule, path));
-        return initialSize - rules.size();
+    private String buildSessionRouteName(Session session) {
+        return session.getMetadata().getUid() + SESSION_ROUTE_SUFFIX;
     }
 
     private HTTPRouteSpec getOrCreateSpec(HTTPRoute route) {
@@ -251,15 +228,6 @@ public class IngressManager {
             route.setSpec(spec);
         }
         return spec;
-    }
-
-    private List<HTTPRouteRule> getOrCreateRules(HTTPRouteSpec spec) {
-        List<HTTPRouteRule> rules = spec.getRules();
-        if (rules == null) {
-            rules = new ArrayList<>();
-            spec.setRules(rules);
-        }
-        return rules;
     }
 
     /**
@@ -337,66 +305,5 @@ public class IngressManager {
 
     private String ensureTrailingSlash(String value) {
         return value.endsWith("/") ? value : value + "/";
-    }
-
-    private boolean hasPathMatch(HTTPRouteRule rule, String path) {
-        List<HTTPRouteMatch> matches = rule.getMatches();
-        if (matches == null) {
-            return false;
-        }
-        for (HTTPRouteMatch match : matches) {
-            if (match == null) {
-                continue;
-            }
-            HTTPPathMatch pathMatch = match.getPath();
-            if (pathMatch == null || pathMatch.getValue() == null) {
-                continue;
-            }
-            if (normalizePath(path).equals(normalizePath(pathMatch.getValue()))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private void editRouteWithRetry(String routeName, Consumer<HTTPRoute> editor, String correlationId) {
-        for (int attempt = 1; attempt <= ROUTE_EDIT_MAX_RETRIES; attempt++) {
-            try {
-                client.httpRoutes().resource(routeName).edit(routeToUpdate -> {
-                    if (routeToUpdate == null) {
-                        throw new KubernetesClientException("HTTPRoute " + routeName + " not found");
-                    }
-                    editor.accept(routeToUpdate);
-                    return routeToUpdate;
-                });
-                return;
-            } catch (KubernetesClientException e) {
-                if (e.getCode() != HTTP_CONFLICT || attempt == ROUTE_EDIT_MAX_RETRIES) {
-                    throw e;
-                }
-                LOGGER.warn(formatLogMessage(correlationId,
-                        "HTTPRoute edit conflict for " + routeName + " (attempt "
-                                + attempt + "/" + ROUTE_EDIT_MAX_RETRIES + "). Retrying."));
-                try {
-                    long jitter = ThreadLocalRandom.current()
-                            .nextLong(-ROUTE_EDIT_RETRY_JITTER_MS, ROUTE_EDIT_RETRY_JITTER_MS + 1);
-                    long backoffMs = Math.max(0, ROUTE_EDIT_RETRY_BACKOFF_MS + jitter);
-                    Thread.sleep(backoffMs);
-                } catch (InterruptedException interrupted) {
-                    Thread.currentThread().interrupt();
-                    throw e;
-                }
-            }
-        }
-    }
-
-    private String normalizePath(String value) {
-        if (value == null) {
-            return null;
-        }
-        if (value.length() > 1 && value.endsWith("/")) {
-            return value.substring(0, value.length() - 1);
-        }
-        return value;
     }
 }

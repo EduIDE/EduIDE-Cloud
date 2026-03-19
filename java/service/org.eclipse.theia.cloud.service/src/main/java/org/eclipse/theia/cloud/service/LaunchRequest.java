@@ -33,6 +33,9 @@ public class LaunchRequest extends UserScopedServiceRequest {
     @Schema(description = "If true no workspace will be created for the session.", required = false)
     public boolean ephemeral;
 
+    @Schema(description = "If false, ephemeral launches will always create a fresh session instead of reusing an existing one for the same user and app definition.", required = false)
+    public boolean reuseExistingSession = true;
+
     @Schema(description = "Number of minutes to wait for session launch. Default is 3 Minutes.", required = false)
     public int timeout = 3;
 
@@ -61,8 +64,9 @@ public class LaunchRequest extends UserScopedServiceRequest {
     @Override
     public String toString() {
         return "LaunchRequest [user=" + user + ", appDefinition=" + appDefinition + ", workspaceName=" + workspaceName
-                + ", label=" + label + ", ephemeral=" + ephemeral + ", appId=" + appId + ", kind=" + kind + ", timeout="
-                + timeout + ", " + env + "]";
+                + ", label=" + label + ", ephemeral=" + ephemeral + ", reuseExistingSession="
+                + reuseExistingSession + ", appId=" + appId + ", kind=" + kind + ", timeout=" + timeout + ", " + env
+                + "]";
     }
 
 }

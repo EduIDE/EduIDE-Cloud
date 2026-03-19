@@ -94,7 +94,7 @@ public class SessionResource extends BaseResource {
 
         info(correlationId, "Launching session " + request);
         if (request.isEphemeral()) {
-            return k8sUtil.launchEphemeralSession(correlationId, request.appDefinition, user, request.timeout,
+            return k8sUtil.launchEphemeralSession(correlationId, request.appDefinition, user, true, request.timeout,
                     request.env);
         }
 

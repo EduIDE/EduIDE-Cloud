@@ -18,6 +18,7 @@ package org.eclipse.theia.cloud.common.util;
 import static org.eclipse.theia.cloud.common.util.NamingUtil.asValidName;
 
 import java.time.Instant;
+import java.util.UUID;
 
 import org.eclipse.theia.cloud.common.k8s.resource.workspace.Workspace;
 
@@ -31,8 +32,9 @@ public final class WorkspaceUtil {
     }
 
     public static String generateUniqueWorkspaceName(String user, String appDefinitionName) {
-        return asValidName((WORKSPACE_PREFIX + Instant.now().toEpochMilli() + getWorkspaceDescription(appDefinitionName)
-                + "-" + user).toLowerCase(), WORKSPACE_NAME_LIMIT);
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        return asValidName((WORKSPACE_PREFIX + Instant.now().toEpochMilli() + "-" + suffix
+                + getWorkspaceDescription(appDefinitionName) + "-" + user).toLowerCase(), WORKSPACE_NAME_LIMIT);
     }
 
     public static String generateNonUniqueWorkspaceName(String user, String appDefinitionName) {

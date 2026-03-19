@@ -97,8 +97,8 @@ public class RootResource extends BaseResource {
 
             if (request.isEphemeral()) {
                 info(correlationId, "Launching ephemeral session " + request);
-                return k8sUtil.launchEphemeralSession(correlationId, request.appDefinition, user, request.timeout,
-                        request.env);
+                return k8sUtil.launchEphemeralSession(correlationId, request.appDefinition, user,
+                        request.reuseExistingSession, request.timeout, request.env);
             }
 
             if (request.isExistingWorkspace()) {

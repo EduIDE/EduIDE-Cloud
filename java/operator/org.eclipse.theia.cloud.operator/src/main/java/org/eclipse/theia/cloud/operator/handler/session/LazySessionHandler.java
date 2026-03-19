@@ -313,19 +313,6 @@ public class LazySessionHandler implements SessionHandler {
         span.setTag("app_definition", appDefinitionID);
         span.setData("correlation_id", correlationId);
 
-        ISpan appDefSpan = Tracing.childSpan(span, "lazy.find_appdef", "Find app definition");
-        Optional<AppDefinition> appDefOpt = client.appDefinitions().get(appDefinitionID);
-        if (appDefOpt.isEmpty()) {
-            LOGGER.info(formatLogMessage(correlationId,
-                    "No App Definition found. Session-owned resources will be cleaned up by Kubernetes."));
-            appDefSpan.setTag("outcome", "not_found");
-            Tracing.finish(appDefSpan, SpanStatus.NOT_FOUND);
-            span.setTag("outcome", "success");
-            span.setStatus(SpanStatus.OK);
-            return true;
-        }
-        Tracing.finishSuccess(appDefSpan);
-
         // Session-owned resources, including the HTTPRoute, rely on owner references for cleanup.
         span.setTag("outcome", "success");
         span.setStatus(SpanStatus.OK);

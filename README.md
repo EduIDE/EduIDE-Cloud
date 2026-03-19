@@ -32,11 +32,9 @@ Scaling operations for `AppDefinition` resources are exposed through admin endpo
 Access is restricted to callers presenting the `X-Admin-Api-Token` header with the token from `theia.cloud.admin.api.token`.
 In Helm-based deployments, provide this token through a pre-created Kubernetes Secret referenced by `service.adminApiTokenSecret`.
 
-### Sample Dashboard and reusable JS/UI components
+### Reusable JS/UI components
 
-Theia Cloud comes with a basic landing page/dashboard which allows to launch sessions.
-
-We offer a common ts library for the API of the Theia Cloud service, which may be reused by clients to write their own custom dashboards.
+We offer a common ts library for the API of the Theia Cloud service, which may be reused by clients to write custom dashboards.
 
 We plan to offer reusable ui components in the future as well.
 
@@ -87,7 +85,7 @@ We offer three charts:
 
 - `theia-cloud-base` installs cluster wide resources that may be reused by multiple Theia Cloud installations in different namespaces
 - `theia-cloud-crds` (starting with version 0.8.1) installs the custom resource definitions for Theia Cloud and migration servers for older custom resources. This may be reused by multiple Theia Cloud installations in different namespaces.
-- `theia-cloud` installs the Theia Cloud operators, service, and landing-page. It depends on the two above charts.
+- `theia-cloud` installs the Theia Cloud operators and service. It depends on the two above charts.
 
 ### Cluster prerequisites (Gateway API / Envoy Gateway)
 

@@ -19,7 +19,7 @@ RUN --mount=type=cache,target=/root/.m2 \
     cd /conversion/common/maven-conf && \
     mvn clean install --no-transfer-progress && \
     cd /conversion/common/org.eclipse.theia.cloud.common && \
-    mvn clean install --no-transfer-progress&& \
+    mvn clean install --no-transfer-progress && \
     cd /conversion/conversion/org.eclipse.theia.cloud.conversion && \
     mvn clean package -Dmaven.test.skip=true -Dquarkus.package.type=uber-jar --no-transfer-progress
 

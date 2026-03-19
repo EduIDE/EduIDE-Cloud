@@ -53,8 +53,8 @@ jobs:
       image-tag: ${{ inputs.image_tag || '' }}
       execution-mode: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit' }}
       arc-registry-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.arc_registry_cache || false }}
-      cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:build-cache
-      cache-to: type=registry,ref=ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:build-cache,mode=max,image-manifest=true,oci-mediatypes=true
+      cache-from: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && format('type=registry,ref=ghcr.io/{0}/{1}:build-cache-landing-page', github.repository_owner, github.event.repository.name) || '' }}
+      cache-to: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && format('type=registry,ref=ghcr.io/{0}/{1}:build-cache-landing-page,mode=max,image-manifest=true,oci-mediatypes=true', github.repository_owner, github.event.repository.name) || '' }}
       build-amd64: true
       build-arm64: ${{ github.event_name != 'pull_request' }}
       network: host
@@ -69,8 +69,8 @@ jobs:
       image-tag: ${{ inputs.image_tag || '' }}
       execution-mode: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit' }}
       arc-registry-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.arc_registry_cache || false }}
-      cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:build-cache
-      cache-to: type=registry,ref=ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:build-cache,mode=max,image-manifest=true,oci-mediatypes=true
+      cache-from: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && format('type=registry,ref=ghcr.io/{0}/{1}:build-cache-operator', github.repository_owner, github.event.repository.name) || '' }}
+      cache-to: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && format('type=registry,ref=ghcr.io/{0}/{1}:build-cache-operator,mode=max,image-manifest=true,oci-mediatypes=true', github.repository_owner, github.event.repository.name) || '' }}
       build-amd64: true
       build-arm64: ${{ github.event_name != 'pull_request' }}
       network: host
@@ -86,10 +86,26 @@ jobs:
       image-tag: ${{ inputs.image_tag || '' }}
       execution-mode: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit' }}
       arc-registry-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.arc_registry_cache || false }}
-      cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:build-cache
-      cache-to: type=registry,ref=ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:build-cache,mode=max,image-manifest=true,oci-mediatypes=true
+      cache-from: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && format('type=registry,ref=ghcr.io/{0}/{1}:build-cache-service', github.repository_owner, github.event.repository.name) || '' }}
+      cache-to: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && format('type=registry,ref=ghcr.io/{0}/{1}:build-cache-service,mode=max,image-manifest=true,oci-mediatypes=true', github.repository_owner, github.event.repository.name) || '' }}
       build-amd64: true
       build-arm64: ${{ github.event_name != 'pull_request' }}
       network: host
     secrets:
       docker-secrets: ${{ secrets.SENTRY_AUTH_TOKEN != '' && format('SENTRY_AUTH_TOKEN={0}', secrets.SENTRY_AUTH_TOKEN) || '' }}
+
+  build-and-push-conversion-webhook:
+    uses: ls1intum/.github/.github/workflows/build-and-push-docker-image.yml@feature/split-build-workflow-modes
+    with:
+      docker-file: dockerfiles/conversion-webhook/Dockerfile
+      image-name: ${{ github.repository_owner }}/${{ github.event.repository.name }}/conversion-webhook
+      docker-context: .
+      image-tag: ${{ inputs.image_tag || '' }}
+      execution-mode: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit' }}
+      arc-registry-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.arc_registry_cache || false }}
+      cache-from: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && format('type=registry,ref=ghcr.io/{0}/{1}:build-cache-conversion-webhook', github.repository_owner, github.event.repository.name) || '' }}
+      cache-to: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && format('type=registry,ref=ghcr.io/{0}/{1}:build-cache-conversion-webhook,mode=max,image-manifest=true,oci-mediatypes=true', github.repository_owner, github.event.repository.name) || '' }}
+      build-amd64: true
+      build-arm64: ${{ github.event_name != 'pull_request' }}
+      network: host
+    secrets: inherit

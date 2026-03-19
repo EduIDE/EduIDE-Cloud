@@ -15,7 +15,8 @@ RUN apt-get update && apt-get install -y maven
 WORKDIR /conversion
 COPY java/common ./common
 COPY java/conversion ./conversion
-RUN cd /conversion/common/maven-conf && \
+RUN --mount=type=cache,target=/root/.m2 \
+    cd /conversion/common/maven-conf && \
     mvn clean install --no-transfer-progress && \
     cd /conversion/common/org.eclipse.theia.cloud.common && \
     mvn clean install --no-transfer-progress&& \

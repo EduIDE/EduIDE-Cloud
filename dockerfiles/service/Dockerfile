@@ -16,6 +16,7 @@ WORKDIR /service
 COPY java/common ./common
 COPY java/service ./service
 RUN --mount=type=secret,id=SENTRY_AUTH_TOKEN \
+    --mount=type=cache,target=/root/.m2 \
     SENTRY_AUTH_TOKEN_VALUE="$(cat /run/secrets/SENTRY_AUTH_TOKEN 2>/dev/null || true)" && \
     MAVEN_SENTRY_ARGS="" && \
     if [ -n "$SENTRY_AUTH_TOKEN_VALUE" ]; then \
@@ -35,10 +36,10 @@ RUN --mount=type=secret,id=SENTRY_AUTH_TOKEN \
 FROM eclipse-temurin:21-jre-alpine
 RUN apk add --no-cache curl unzip
 WORKDIR /service
-COPY --from=builder /service/service/org.eclipse.theia.cloud.service/target/service-1.2.0-SNAPSHOT-runner.jar .
 RUN curl -fsSL -o sentry-agent.zip https://github.com/getsentry/sentry-java/releases/download/8.29.0/sentry-opentelemetry-agent-8.29.0.zip && \
     unzip -j sentry-agent.zip -d . && \
     rm sentry-agent.zip
+COPY --from=builder /service/service/org.eclipse.theia.cloud.service/target/service-1.2.0-SNAPSHOT-runner.jar .
 
 ENV SERVICE_PORT=8081
 

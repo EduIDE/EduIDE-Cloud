@@ -145,7 +145,7 @@ resource "helm_release" "theia-cloud" {
       value = "${var.ingress_ip}.nip.io"
     },
     {
-      name  = "landingPage.ephemeralStorage"
+      name  = "demoApplication.ephemeralStorage"
       value = var.use_ephemeral_storage
     },
     {
@@ -226,6 +226,5 @@ resource "kubectl_manifest" "theia-cloud-monitor-vscode" {
         notifyAfter: 2
   EOF
 }
-
 
 

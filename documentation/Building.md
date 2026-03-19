@@ -1,6 +1,6 @@
 # Building
 
-Besides the Operator, REST-Service, and the landing page, Theia Cloud also provides a few simple Theia-based demo applications and an init-container running wondershaper which may enable limiting the network bandwidth of a running application.
+Besides the Operator and REST-Service, Theia Cloud also provides a few simple Theia-based demo applications and an init-container running wondershaper which may enable limiting the network bandwidth of a running application.
 
 **Note:** all commands are from the root of the repository.
 
@@ -14,12 +14,6 @@ docker build --no-cache -t theia-cloud-service -f dockerfiles/service/Dockerfile
 
 ```bash
 docker build --no-cache -t theia-cloud-operator -f dockerfiles/operator/Dockerfile .
-```
-
-## Landing page
-
-```bash
-docker build -t theia-cloud-landing-page -f dockerfiles/landing-page/Dockerfile .
 ```
 
 ## Wondershaper

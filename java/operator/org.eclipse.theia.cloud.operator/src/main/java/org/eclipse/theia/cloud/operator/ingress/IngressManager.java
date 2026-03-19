@@ -149,14 +149,14 @@ public class IngressManager {
             }
 
             // Retries for the same Session should converge on one stable route name.
-            client.httpRoutes().edit(correlationId, routeName, existingRoute -> {
-                if (existingRoute == null) {
-                    throw new KubernetesClientException("HTTPRoute " + routeName + " not found");
-                }
+            HTTPRoute updatedRoute = client.httpRoutes().edit(correlationId, routeName, existingRoute -> {
                 existingRoute.setSpec(desiredRoute.getSpec());
                 existingRoute.getMetadata().setLabels(desiredRoute.getMetadata().getLabels());
                 existingRoute.getMetadata().setOwnerReferences(desiredRoute.getMetadata().getOwnerReferences());
             });
+            if (updatedRoute == null) {
+                throw new KubernetesClientException("HTTPRoute " + routeName + " not found for update");
+            }
         }
 
         LOGGER.info(formatLogMessage(correlationId,

@@ -9,6 +9,9 @@ on:
     branches:
       - main
 
+  schedule:
+    - cron: '0 2 * * *'
+
   release:
     types:
       - published
@@ -34,6 +37,11 @@ on:
         required: false
         default: false
         type: boolean
+      disable_layer_cache:
+        description: "Disable Docker layer cache (--no-cache) for stress testing while keeping BuildKit mount caches"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -53,6 +61,7 @@ jobs:
       image-tag: ${{ inputs.image_tag || '' }}
       execution-mode: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit' }}
       arc-registry-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.arc_registry_cache || false }}
+      no-cache: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.disable_layer_cache) || false }}
       cache-from: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && format('type=registry,ref=ghcr.io/{0}/{1}:build-cache-landing-page', github.repository_owner, github.event.repository.name) || '' }}
       cache-to: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && format('type=registry,ref=ghcr.io/{0}/{1}:build-cache-landing-page,mode=max,image-manifest=true,oci-mediatypes=true', github.repository_owner, github.event.repository.name) || '' }}
       build-amd64: true
@@ -69,6 +78,7 @@ jobs:
       image-tag: ${{ inputs.image_tag || '' }}
       execution-mode: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit' }}
       arc-registry-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.arc_registry_cache || false }}
+      no-cache: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.disable_layer_cache) || false }}
       cache-from: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && format('type=registry,ref=ghcr.io/{0}/{1}:build-cache-operator', github.repository_owner, github.event.repository.name) || '' }}
       cache-to: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && format('type=registry,ref=ghcr.io/{0}/{1}:build-cache-operator,mode=max,image-manifest=true,oci-mediatypes=true', github.repository_owner, github.event.repository.name) || '' }}
       build-amd64: true
@@ -86,6 +96,7 @@ jobs:
       image-tag: ${{ inputs.image_tag || '' }}
       execution-mode: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit' }}
       arc-registry-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.arc_registry_cache || false }}
+      no-cache: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.disable_layer_cache) || false }}
       cache-from: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && format('type=registry,ref=ghcr.io/{0}/{1}:build-cache-service', github.repository_owner, github.event.repository.name) || '' }}
       cache-to: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && format('type=registry,ref=ghcr.io/{0}/{1}:build-cache-service,mode=max,image-manifest=true,oci-mediatypes=true', github.repository_owner, github.event.repository.name) || '' }}
       build-amd64: true
@@ -103,6 +114,7 @@ jobs:
       image-tag: ${{ inputs.image_tag || '' }}
       execution-mode: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit' }}
       arc-registry-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.arc_registry_cache || false }}
+      no-cache: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.disable_layer_cache) || false }}
       cache-from: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && format('type=registry,ref=ghcr.io/{0}/{1}:build-cache-conversion-webhook', github.repository_owner, github.event.repository.name) || '' }}
       cache-to: ${{ (github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit') == 'github-runners' && format('type=registry,ref=ghcr.io/{0}/{1}:build-cache-conversion-webhook,mode=max,image-manifest=true,oci-mediatypes=true', github.repository_owner, github.event.repository.name) || '' }}
       build-amd64: true

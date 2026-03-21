@@ -178,7 +178,7 @@ public class LazySessionHandler implements SessionHandler {
         }
         Tracing.finishSuccess(limitsSpan);
 
-        // Get HTTPRoute
+        // Get shared HTTPRoute template
         ISpan ingressSpan = Tracing.childSpan(span, "lazy.get_route", "Get HTTPRoute for app definition");
         Optional<HTTPRoute> routeOpt = ingressManager.getIngress(appDef, correlationId);
         if (routeOpt.isEmpty()) {
@@ -284,7 +284,7 @@ public class LazySessionHandler implements SessionHandler {
                 + "; session will continue without sidecar support."));
         }
 
-        // Add HTTPRoute rule
+        // Create the dedicated session HTTPRoute.
         ISpan ingressRuleSpan = Tracing.childSpan(span, "lazy.add_route_rule", "Add HTTPRoute rule");
         String host;
         try {
@@ -336,50 +336,11 @@ public class LazySessionHandler implements SessionHandler {
         span.setTag("session.strategy", "lazy");
         span.setTag("app_definition", appDefinitionID);
         span.setData("correlation_id", correlationId);
-        ISpan appDefSpan = Tracing.childSpan(span, "lazy.find_appdef", "Find app definition");
-        Optional<AppDefinition> appDefOpt = client.appDefinitions().get(appDefinitionID);
-        if (appDefOpt.isEmpty()) {
-            LOGGER.error(formatLogMessage(correlationId,
-                    "No App Definition found. Cannot clean up ingress for session " + sessionSpec.getName()));
-            appDefSpan.setTag("outcome", "not_found");
-            Tracing.finish(appDefSpan, SpanStatus.NOT_FOUND);
-            span.setTag("outcome", "appdef_not_found");
-            Tracing.finish(span, SpanStatus.NOT_FOUND);
-            return false;
-        }
-        AppDefinition appDef = appDefOpt.get();
-        Tracing.finishSuccess(appDefSpan);
 
-        ISpan ingressSpan = Tracing.childSpan(span, "lazy.get_route", "Get HTTPRoute for cleanup");
-        Optional<HTTPRoute> routeOpt = ingressManager.getIngress(appDef, correlationId);
-        if (routeOpt.isEmpty()) {
-            LOGGER.error(formatLogMessage(correlationId, "No HTTPRoute found for app definition."));
-            ingressSpan.setTag("outcome", "not_found");
-            Tracing.finish(ingressSpan, SpanStatus.NOT_FOUND);
-            span.setTag("outcome", "route_not_found");
-            Tracing.finish(span, SpanStatus.NOT_FOUND);
-            return false;
-        }
-        Tracing.finishSuccess(ingressSpan);
+        sidecarManager.deleteSidecars(session, correlationId);
 
-        // Remove HTTPRoute rules
-        ISpan removeRulesSpan = Tracing.childSpan(span, "lazy.remove_route_rules", "Remove HTTPRoute rules");
-        try {
-            ingressManager.removeRulesForSession(routeOpt.get(), appDef, session, correlationId);
-            Tracing.finishSuccess(removeRulesSpan);
-            LOGGER.info(formatLogMessage(correlationId, "Successfully cleaned up HTTPRoute rules for session"));
-            // Cleanup language server resources for lazy sessions.
-            sidecarManager.deleteSidecars(session, correlationId);
-            span.setTag("outcome", "success");
-            return true;
-        } catch (KubernetesClientException e) {
-            LOGGER.error(formatLogMessage(correlationId, "Failed to remove HTTPRoute rules for session"), e);
-            removeRulesSpan.setTag("outcome", "failed");
-            Tracing.finishError(removeRulesSpan, e);
-            span.setTag("outcome", "remove_rules_failed");
-            Tracing.finish(span, SpanStatus.INTERNAL_ERROR);
-            return false;
-        }
+        span.setTag("outcome", "success");
+        return true;
     }
 
     // ========== Helper Methods ==========

@@ -16,6 +16,7 @@ WORKDIR /operator
 COPY java/common ./common
 COPY java/operator ./operator
 RUN --mount=type=secret,id=SENTRY_AUTH_TOKEN \
+    --mount=type=cache,target=/root/.m2 \
     SENTRY_AUTH_TOKEN_VALUE="$(cat /run/secrets/SENTRY_AUTH_TOKEN 2>/dev/null || true)" && \
     MAVEN_SENTRY_ARGS="" && \
     if [ -n "$SENTRY_AUTH_TOKEN_VALUE" ]; then \
@@ -40,10 +41,10 @@ RUN mkdir /templates
 WORKDIR /log-config
 COPY java/operator/org.eclipse.theia.cloud.defaultoperator/log4j2.xml .
 WORKDIR /operator
-COPY --from=builder /operator/operator/org.eclipse.theia.cloud.defaultoperator/target/defaultoperator-1.2.0-SNAPSHOT-jar-with-dependencies.jar .
 RUN curl -fsSL -o sentry-agent.zip https://github.com/getsentry/sentry-java/releases/download/8.29.0/sentry-opentelemetry-agent-8.29.0.zip && \
     unzip -j sentry-agent.zip -d . && \
     rm sentry-agent.zip
+COPY --from=builder /operator/operator/org.eclipse.theia.cloud.defaultoperator/target/defaultoperator-1.2.0-SNAPSHOT-jar-with-dependencies.jar .
 
 # If set to true, enables Sentry Java agent flags.
 ENV SENTRY_ENABLE=false

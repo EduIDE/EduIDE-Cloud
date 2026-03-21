@@ -239,12 +239,12 @@ public class EagerSessionHandler implements SessionHandler {
                 }
             }
 
-            // Add HTTPRoute rule
+            // Create the dedicated session HTTPRoute after the pool instance is fully assigned.
             ISpan ingressRuleSpan = Tracing.childSpan(span, "eager.add_route_rule", "Add HTTPRoute rule");
             String host;
             try {
                 host = ingressManager.addRuleForSession(route, instance.getExternalService(), appDef,
-                        instance.getInstanceId(), correlationId);
+                        session, instance.getInstanceId(), correlationId);
                 ingressRuleSpan.setData("host", host);
                 Tracing.finishSuccess(ingressRuleSpan);
             } catch (KubernetesClientException e) {
@@ -300,20 +300,6 @@ public class EagerSessionHandler implements SessionHandler {
             AppDefinition appDef = appDefOpt.get();
             Tracing.finishSuccess(appDefSpan);
 
-            // Find HTTPRoute
-            ISpan ingressSpan = Tracing.childSpan(span, "eager.find_route", "Find HTTPRoute");
-            Optional<HTTPRoute> routeOpt = ingressManager.getIngress(appDef, correlationId);
-            if (routeOpt.isEmpty()) {
-                LOGGER.error(formatLogMessage(correlationId,
-                        "No HTTPRoute for app definition " + appDefinitionID + " found."));
-                ingressSpan.setTag("outcome", "not_found");
-                Tracing.finish(ingressSpan, SpanStatus.NOT_FOUND);
-                span.setTag("outcome", "failure");
-                Tracing.finish(span, SpanStatus.INTERNAL_ERROR);
-                return false;
-            }
-            Tracing.finishSuccess(ingressSpan);
-
             // Get instance ID from session annotation
             Integer instanceId = getInstanceIdFromAnnotation(session);
             if (instanceId == null) {
@@ -325,20 +311,6 @@ public class EagerSessionHandler implements SessionHandler {
                 return false;
             }
             span.setData("instance_id", instanceId);
-
-            // Remove HTTPRoute rule
-            ISpan removeIngressSpan = Tracing.childSpan(span, "eager.remove_route_rule", "Remove HTTPRoute rule");
-            removeIngressSpan.setData("instance_id", instanceId);
-            try {
-                ingressManager.removeRulesForSession(routeOpt.get(), appDef, instanceId, correlationId);
-                Tracing.finishSuccess(removeIngressSpan);
-            } catch (KubernetesClientException e) {
-                LOGGER.error(formatLogMessage(correlationId, "Error while removing HTTPRoute rule"), e);
-                Tracing.finishError(removeIngressSpan, e);
-                span.setTag("outcome", "failure");
-                Tracing.finish(span, SpanStatus.INTERNAL_ERROR);
-                return false;
-            }
 
             sidecarManager.restartPrewarmedSidecarPods(appDef, instanceId, correlationId);
 

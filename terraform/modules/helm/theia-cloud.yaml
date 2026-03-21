@@ -24,10 +24,6 @@ hosts:
     landing: trynow
     instance: instances
 
-landingPage:
-  appDefinition: "theia-cloud-demo"
-  ephemeralStorage: false
-
 keycloak:
   enable: true
   realm: "TheiaCloud"

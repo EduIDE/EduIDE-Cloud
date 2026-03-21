@@ -25,11 +25,6 @@ hosts:
     landing: try
     instance: ws
 
-landingPage:
-  image: theiacloud/theia-cloud-landing-page:1.2.0-next
-  appDefinition: "theia-cloud-demo"
-  ephemeralStorage: true
-
 keycloak:
   enable: true
   authUrl: "https://keycloak.34.141.62.32.nip.io/"

@@ -59,7 +59,7 @@ jobs:
       docker-file: dockerfiles/operator/Dockerfile
       image-name: eduide/eduide-cloud/operator
       docker-context: .
-      image-tag: ${{ inputs.image_tag || '' }}
+      image-tag: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || '' }}
       execution-mode: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit' }}
       arc-registry-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.arc_registry_cache || false }}
       no-cache: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.disable_layer_cache) || false }}
@@ -77,7 +77,7 @@ jobs:
       docker-file: dockerfiles/service/Dockerfile
       image-name: eduide/eduide-cloud/service
       docker-context: .
-      image-tag: ${{ inputs.image_tag || '' }}
+      image-tag: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || '' }}
       execution-mode: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit' }}
       arc-registry-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.arc_registry_cache || false }}
       no-cache: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.disable_layer_cache) || false }}
@@ -95,7 +95,7 @@ jobs:
       docker-file: dockerfiles/conversion-webhook/Dockerfile
       image-name: eduide/eduide-cloud/conversion-webhook
       docker-context: .
-      image-tag: ${{ inputs.image_tag || '' }}
+      image-tag: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || '' }}
       execution-mode: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_mode || 'self-hosted-buildkit' }}
       arc-registry-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.arc_registry_cache || false }}
       no-cache: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.disable_layer_cache) || false }}

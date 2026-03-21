@@ -1,4 +1,4 @@
-FROM eclipse-temurin:21-jdk-jammy AS builder
+FROM eclipse-temurin:21-jdk@sha256:3b0a98dfbdf1067c20a7854cec159551777d2ee1381bc76cd4bd0719f543b148 AS builder
 # Accept APT_HTTP_PROXY build-arg for caching
 ARG APT_HTTP_PROXY
 # Configure apt proxy if provided (hybrid: works on ARC and GitHub runners)

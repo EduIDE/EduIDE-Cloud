@@ -35,7 +35,7 @@ RUN --mount=type=secret,id=SENTRY_AUTH_TOKEN \
     cd /operator/operator/org.eclipse.theia.cloud.defaultoperator && \
     mvn clean verify --no-transfer-progress $MAVEN_SENTRY_ARGS
 
-FROM eclipse-temurin:21-jre-alpine
+FROM eclipse-temurin:21-jre-alpine@sha256:6ad8ed080d9be96b61438ec3ce99388e294af216ed57356000c06070e85c5d5d
 RUN apk add --no-cache curl unzip
 RUN mkdir /templates
 WORKDIR /log-config

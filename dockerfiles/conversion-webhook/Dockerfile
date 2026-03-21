@@ -23,7 +23,7 @@ RUN --mount=type=cache,target=/root/.m2 \
     cd /conversion/conversion/org.eclipse.theia.cloud.conversion && \
     mvn clean package -Dmaven.test.skip=true -Dquarkus.package.type=uber-jar --no-transfer-progress
 
-FROM eclipse-temurin:21-jre-alpine
+FROM eclipse-temurin:21-jre-alpine@sha256:6ad8ed080d9be96b61438ec3ce99388e294af216ed57356000c06070e85c5d5d
 WORKDIR /conversion
 COPY --from=builder /conversion/conversion/org.eclipse.theia.cloud.conversion/target/conversion-webhook-1.2.0-SNAPSHOT-runner.jar .
 

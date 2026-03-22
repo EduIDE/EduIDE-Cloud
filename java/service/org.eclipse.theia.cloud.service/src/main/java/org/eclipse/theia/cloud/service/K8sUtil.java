@@ -121,16 +121,7 @@ public final class K8sUtil {
             return false;
         }
 
-        if (spec.getSidecars() != null && !spec.getSidecars().isEmpty()) {
-            return true;
-        }
-
-        if (spec.getOptions() == null) {
-            return false;
-        }
-
-        String legacyLangserverImage = spec.getOptions().get("langserver-image");
-        return legacyLangserverImage != null && !legacyLangserverImage.isBlank();
+        return spec.getSidecars() != null && !spec.getSidecars().isEmpty();
     }
 
     public String launchWorkspaceSession(String correlationId, UserWorkspace workspace, int timeout,

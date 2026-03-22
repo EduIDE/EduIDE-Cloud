@@ -451,20 +451,6 @@ class SessionResourceTests {
         assertEquals(Status.BAD_REQUEST.getStatusCode(), exception.getResponse().getStatus());
     }
 
-    @Test
-    void start_ephemeralWithLegacyLangserverOption_throwEphemeralSessionNotSupportedWithSidecars() throws Exception {
-        mockUser(false, TEST_USER);
-
-        SessionStartRequest request = new SessionStartRequest(APP_ID, TEST_USER, TEST_APP_DEFINITION, 3);
-        AppDefinition appDef = appDefinitionWithLegacyLangserverOption();
-        Mockito.when(k8sUtil.getAppDefinition(TEST_APP_DEFINITION)).thenReturn(Optional.of(appDef));
-
-        TheiaCloudWebException exception = assertThrows(TheiaCloudWebException.class, () -> fixture.start(request));
-
-        Mockito.verify(k8sUtil, never()).launchEphemeralSession(anyString(), anyString(), anyString(), anyInt(), any());
-        assertEquals(Status.BAD_REQUEST.getStatusCode(), exception.getResponse().getStatus());
-    }
-
     // ---
     // Utility methods
     // ---
@@ -499,14 +485,6 @@ class SessionResourceTests {
         AppDefinition appDef = new AppDefinition();
         AppDefinitionSpec spec = new AppDefinitionSpec();
         setField(spec, "sidecars", List.of(new SidecarSpec()));
-        appDef.setSpec(spec);
-        return appDef;
-    }
-
-    private AppDefinition appDefinitionWithLegacyLangserverOption() throws Exception {
-        AppDefinition appDef = new AppDefinition();
-        AppDefinitionSpec spec = new AppDefinitionSpec();
-        setField(spec, "options", java.util.Map.of("langserver-image", "dummy-langserver-image"));
         appDef.setSpec(spec);
         return appDef;
     }

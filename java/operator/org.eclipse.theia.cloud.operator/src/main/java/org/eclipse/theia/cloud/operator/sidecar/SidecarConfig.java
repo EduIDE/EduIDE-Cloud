@@ -10,15 +10,13 @@
 package org.eclipse.theia.cloud.operator.sidecar;
 
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinition;
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.SidecarSpec;
 
 /**
  * Immutable configuration for a single sidecar container.
- * Derived from either {@link SidecarSpec} (v1beta11 CRD) or legacy AppDefinition options.
+ * Derived from {@link SidecarSpec} (v1beta11 CRD).
  */
 public record SidecarConfig(
     String name,
@@ -35,9 +33,6 @@ public record SidecarConfig(
     /** Default port all sidecar containers should use internally. */
     public static final int DEFAULT_PORT = 5000;
 
-    /** Legacy AppDefinition option key for language server image. */
-    public static final String OPTION_LS_IMAGE = "langserver-image";
-
     /**
      * Creates a SidecarConfig from a v1beta11 {@link SidecarSpec}, applying defaults for missing fields.
      */
@@ -52,25 +47,6 @@ public record SidecarConfig(
             spec.getCpuRequest() != null && !spec.getCpuRequest().isBlank() ? spec.getCpuRequest() : "100m",
             spec.getMemoryRequest() != null && !spec.getMemoryRequest().isBlank() ? spec.getMemoryRequest() : "256Mi",
             spec.isMountWorkspace()
-        );
-    }
-
-    /**
-     * Creates a SidecarConfig from legacy AppDefinition options map.
-     * Used for backward compatibility with v1beta10 AppDefinitions that have
-     * {@code options["langserver-image"]} set.
-     */
-    public static SidecarConfig fromLegacyOptions(Map<String, String> options) {
-        return new SidecarConfig(
-            "langserver",
-            options.get(OPTION_LS_IMAGE),
-            DEFAULT_PORT,
-            List.of(),
-            options.getOrDefault("langserver-cpu-limit", "500m"),
-            options.getOrDefault("langserver-memory-limit", "1Gi"),
-            options.getOrDefault("langserver-cpu-request", "100m"),
-            options.getOrDefault("langserver-memory-request", "256Mi"),
-            true
         );
     }
 
@@ -92,47 +68,31 @@ public record SidecarConfig(
 
     /**
      * Checks if the given AppDefinition has any sidecar configuration
-     * (either v1beta11 sidecars list or legacy options).
+     * (v1beta11 sidecars list).
      */
     public static boolean hasSidecars(AppDefinition appDef) {
         if (appDef == null || appDef.getSpec() == null) {
             return false;
         }
-        // Check v1beta11 sidecars list
+
         List<SidecarSpec> sidecars = appDef.getSpec().getSidecars();
-        if (sidecars != null && !sidecars.isEmpty()) {
-            return true;
-        }
-        // Fallback: check legacy options
-        Map<String, String> options = appDef.getSpec().getOptions();
-        if (options == null) {
-            return false;
-        }
-        String lsImage = options.get(OPTION_LS_IMAGE);
-        return lsImage != null && !lsImage.isBlank();
+        return sidecars != null && !sidecars.isEmpty();
     }
 
     /**
      * Extracts the list of SidecarConfigs from an AppDefinition.
-     * Checks spec.sidecars first; falls back to legacy options.
+     * Uses spec.sidecars only.
      */
     public static List<SidecarConfig> getSidecarConfigs(AppDefinition appDef) {
         if (appDef == null || appDef.getSpec() == null) {
             return List.of();
         }
-        // v1beta11 path
+
         List<SidecarSpec> sidecars = appDef.getSpec().getSidecars();
         if (sidecars != null && !sidecars.isEmpty()) {
             return sidecars.stream().map(SidecarConfig::fromSpec).toList();
         }
-        // Legacy path
-        Map<String, String> options = appDef.getSpec().getOptions();
-        if (options != null) {
-            String lsImage = options.get(OPTION_LS_IMAGE);
-            if (lsImage != null && !lsImage.isBlank()) {
-                return List.of(fromLegacyOptions(options));
-            }
-        }
+
         return List.of();
     }
 }

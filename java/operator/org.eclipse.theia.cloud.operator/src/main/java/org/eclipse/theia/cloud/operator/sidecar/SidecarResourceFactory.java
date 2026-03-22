@@ -70,7 +70,7 @@ public class SidecarResourceFactory {
      * Lazy session naming: {@code <session-name>-<sidecar-name>}
      */
     public static String getLazyResourceName(Session session, SidecarConfig config) {
-        return session.getMetadata().getName() + "-" + config.name();
+        return NamingUtil.createNameWithSuffix(session, config.name());
     }
 
     /**
@@ -80,7 +80,7 @@ public class SidecarResourceFactory {
      * so this returns the same result as the Session-based overload.
      */
     public static String getLazyResourceName(String sessionOrDeploymentName, SidecarConfig config) {
-        return sessionOrDeploymentName + "-" + config.name();
+        return NamingUtil.asValidName(sessionOrDeploymentName + "-" + config.name(), 63);
     }
 
     /**

@@ -13,6 +13,7 @@ import static org.eclipse.theia.cloud.common.util.LogMessageUtil.formatLogMessag
 
 import java.io.IOException;
 import java.net.URISyntaxException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -22,19 +23,26 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.theia.cloud.common.k8s.client.TheiaCloudClient;
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinition;
+import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinitionSpec;
 import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
 import org.eclipse.theia.cloud.operator.TheiaCloudOperatorArguments;
 import org.eclipse.theia.cloud.operator.bandwidth.BandwidthLimiter;
 import org.eclipse.theia.cloud.operator.handler.AddedHandlerUtil;
 import org.eclipse.theia.cloud.operator.ingress.IngressPathProvider;
 import org.eclipse.theia.cloud.operator.replacements.DeploymentTemplateReplacements;
+import org.eclipse.theia.cloud.operator.sidecar.SidecarManager;
 import org.eclipse.theia.cloud.operator.util.OwnershipManager.OwnerContext;
 
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 
 import io.fabric8.kubernetes.api.model.ConfigMap;
+import io.fabric8.kubernetes.api.model.Container;
+import io.fabric8.kubernetes.api.model.PersistentVolumeClaimVolumeSource;
+import io.fabric8.kubernetes.api.model.PodSpec;
 import io.fabric8.kubernetes.api.model.Service;
+import io.fabric8.kubernetes.api.model.Volume;
+import io.fabric8.kubernetes.api.model.VolumeMount;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
 
 import static org.eclipse.theia.cloud.operator.pool.PrewarmedResourcePool.APPDEFINITION_GENERATION_LABEL;
@@ -62,6 +70,9 @@ public class K8sResourceFactory {
 
     @Inject
     private DeploymentTemplateReplacements deploymentReplacements;
+
+    @Inject
+    private SidecarManager sidecarManager;
 
     // ========== Service Creation ==========
 
@@ -139,6 +150,11 @@ public class K8sResourceFactory {
      */
     public Optional<Deployment> createDeploymentForEagerInstance(AppDefinition appDef, int instance,
             Map<String, String> labels, String correlationId) {
+        return createDeploymentForEagerInstance(appDef, instance, Optional.empty(), labels, correlationId);
+    }
+
+    public Optional<Deployment> createDeploymentForEagerInstance(AppDefinition appDef, int instance,
+            Optional<String> pvcName, Map<String, String> labels, String correlationId) {
 
         Map<String, String> replacements = deploymentReplacements.getReplacements(client.namespace(), appDef, instance);
 
@@ -150,18 +166,18 @@ public class K8sResourceFactory {
         return createDeployment(template, replacements, OwnerContext.of(appDef.getMetadata().getName(),
                 appDef.getMetadata().getUid(), AppDefinition.API, AppDefinition.KIND), labelsWithGeneration,
                 deployment -> {
+                    if (pvcName.isPresent()) {
+                        addVolumeClaim(deployment, pvcName.get(), appDef.getSpec());
+                    }
                     bandwidthLimiter.limit(deployment, appDef.getSpec().getDownlinkLimit(),
                             appDef.getSpec().getUplinkLimit(), correlationId);
                     AddedHandlerUtil.removeEmptyResources(deployment);
                     if (appDef.getSpec().getPullSecret() != null && !appDef.getSpec().getPullSecret().isEmpty()) {
                         AddedHandlerUtil.addImagePullSecret(deployment, appDef.getSpec().getPullSecret());
                     }
+                    sidecarManager.injectPrewarmedSidecarEnvVars(deployment, appDef, instance, correlationId);
                 }, correlationId);
     }
-
-    /**
-     * Creates a deployment for a lazy session.
-     */
     public Optional<Deployment> createDeploymentForLazySession(Session session, AppDefinition appDef,
             Optional<String> pvName, Map<String, String> labels, Consumer<Deployment> volumeHandler,
             String correlationId) {
@@ -275,6 +291,40 @@ public class K8sResourceFactory {
                 configMap -> configMap.setData(java.util.Collections.singletonMap(
                         AddedHandlerUtil.FILENAME_AUTHENTICATED_EMAILS_LIST, session.getSpec().getUser())),
                 correlationId);
+    }
+
+    // ========== Volume Claim ==========
+
+    private void addVolumeClaim(Deployment deployment, String pvcName, AppDefinitionSpec appDefSpec) {
+        PodSpec podSpec = deployment.getSpec().getTemplate().getSpec();
+
+        Volume volume = new Volume();
+        volume.setName("user-data");
+        PersistentVolumeClaimVolumeSource pvcSource = new PersistentVolumeClaimVolumeSource();
+        pvcSource.setClaimName(pvcName);
+        volume.setPersistentVolumeClaim(pvcSource);
+
+        java.util.List<Volume> volumes = podSpec.getVolumes();
+        if (volumes == null) {
+            volumes = new ArrayList<>();
+            podSpec.setVolumes(volumes);
+        }
+        volumes.add(volume);
+
+        Container theiaContainer = TheiaCloudPersistentVolumeUtil.getTheiaContainer(podSpec, appDefSpec);
+
+        String mountPath = TheiaCloudPersistentVolumeUtil.getMountPath(appDefSpec);
+
+        VolumeMount volumeMount = new VolumeMount();
+        volumeMount.setName("user-data");
+        volumeMount.setMountPath(mountPath);
+
+        java.util.List<VolumeMount> volumeMounts = theiaContainer.getVolumeMounts();
+        if (volumeMounts == null) {
+            volumeMounts = new ArrayList<>();
+            theiaContainer.setVolumeMounts(volumeMounts);
+        }
+        volumeMounts.add(volumeMount);
     }
 
     // ========== Generic Creation Methods ==========

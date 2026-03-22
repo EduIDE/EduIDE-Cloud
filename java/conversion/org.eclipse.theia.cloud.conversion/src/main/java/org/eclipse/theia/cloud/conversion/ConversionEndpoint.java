@@ -16,6 +16,7 @@
 package org.eclipse.theia.cloud.conversion;
 
 import org.eclipse.theia.cloud.conversion.mappers.appdefinition.AppDefinitionV1beta10Mapper;
+import org.eclipse.theia.cloud.conversion.mappers.appdefinition.AppDefinitionV1beta11Mapper;
 import org.eclipse.theia.cloud.conversion.mappers.appdefinition.AppDefinitionV1beta8Mapper;
 import org.eclipse.theia.cloud.conversion.mappers.appdefinition.AppDefinitionV1beta9Mapper;
 import org.eclipse.theia.cloud.conversion.mappers.session.SessionV1beta6Mapper;
@@ -48,6 +49,7 @@ public class ConversionEndpoint {
         appDefinitionController.registerMapper(new AppDefinitionV1beta8Mapper());
         appDefinitionController.registerMapper(new AppDefinitionV1beta9Mapper());
         appDefinitionController.registerMapper(new AppDefinitionV1beta10Mapper());
+        appDefinitionController.registerMapper(new AppDefinitionV1beta11Mapper());
 
         this.workspaceController = new ConversionController();
         workspaceController.registerMapper(new WorkspaceV1beta3Mapper());

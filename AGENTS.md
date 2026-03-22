@@ -148,11 +148,15 @@ Always finalize spans in `finally` or catch blocks — never leave them open.
 - Use `TheiaCloudPersistentVolumeUtil.getTheiaContainer(podSpec, appDefSpec)` to locate the Theia container (never match by container name directly).
 - Fabric8 `.edit()` lambdas cannot return values; use `AtomicBoolean` / `AtomicReference` to communicate state out of the lambda.
 
-### Language Server Specifics (operator module)
+### Sidecar Specifics (operator module)
 
-- LS operations are **best-effort**: if `createLanguageServer()` returns `false`, log a warning but continue the session flow without patching env vars into Theia.
-- `javascript`/`node`/`-js-` image substrings must be checked **before** `java`/`jdt` to avoid misclassification (`"javascript".contains("java") == true`).
-- Rollback orphaned K8s resources via `factory.deleteResources(session, correlationId)`, not via the K8s client directly.
+- Sidecar operations are **best-effort**: if `createSidecars()` returns `false`, log a warning but continue the session flow.
+- Sidecar configuration is read from `AppDefinitionSpec.getSidecars()` (v1beta11 CRD) with legacy fallback to `options["langserver-image"]`.
+- No hardcoded language detection — sidecar names and languages are fully user-defined in the CRD.
+- Sidecar resources (Deployment + Service) are created via Fabric8 builders in `SidecarResourceFactory` — no YAML templates.
+- Rollback orphaned sidecar resources via `factory.deleteResources(session, correlationId)`, not via the K8s client directly.
+- Eager path: sidecar Deployment+Service must be created **before** Theia Deployment so K8s DNS resolves service names at pod startup.
+- Session release (eager): only restart sidecar Pods (`restartPrewarmedSidecarPods`), do **not** delete Deployment+Service — they are reused by the pool.
 
 ---
 

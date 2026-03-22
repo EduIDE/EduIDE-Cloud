@@ -29,6 +29,7 @@ import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinition;
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinitionSpec;
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinitionStatus;
 import org.eclipse.theia.cloud.operator.ingress.IngressPathProvider;
+import org.eclipse.theia.cloud.operator.sidecar.SidecarManager;
 import org.eclipse.theia.cloud.operator.util.TheiaCloudIngressUtil;
 
 import com.google.inject.Inject;
@@ -42,6 +43,9 @@ public class LazyStartAppDefinitionHandler implements AppDefinitionHandler {
 
     @Inject
     protected IngressPathProvider ingressPathProvider;
+
+    @Inject
+    protected SidecarManager sidecarManager;
 
     @Override
     public boolean appDefinitionAdded(AppDefinition appDefinition, String correlationId) {
@@ -108,6 +112,14 @@ public class LazyStartAppDefinitionHandler implements AppDefinitionHandler {
             return false;
         } else {
             LOGGER.trace(formatLogMessage(correlationId, "HTTPRoute available already"));
+        }
+
+        if (!sidecarManager.validateUniqueSidecarNames(appDefinition, correlationId)) {
+            client.appDefinitions().updateStatus(correlationId, appDefinition, s -> {
+                s.setOperatorStatus(OperatorStatus.ERROR);
+                s.setOperatorMessage("Duplicate sidecar names found in AppDefinition; sidecar names must be unique.");
+            });
+            return false;
         }
 
         client.appDefinitions().updateStatus(correlationId, appDefinition, s -> {

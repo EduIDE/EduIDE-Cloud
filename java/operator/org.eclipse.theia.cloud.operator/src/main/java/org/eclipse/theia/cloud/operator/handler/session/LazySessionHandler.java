@@ -37,6 +37,7 @@ import org.eclipse.theia.cloud.common.util.WorkspaceUtil;
 import org.eclipse.theia.cloud.operator.TheiaCloudOperatorArguments;
 import org.eclipse.theia.cloud.operator.handler.AddedHandlerUtil;
 import org.eclipse.theia.cloud.operator.ingress.IngressManager;
+import org.eclipse.theia.cloud.operator.sidecar.SidecarManager;
 import org.eclipse.theia.cloud.operator.util.K8sResourceFactory;
 import org.eclipse.theia.cloud.operator.util.K8sUtil;
 import org.eclipse.theia.cloud.operator.util.TheiaCloudK8sUtil;
@@ -82,6 +83,9 @@ public class LazySessionHandler implements SessionHandler {
 
     @Inject
     protected IngressManager ingressManager;
+
+    @Inject
+    protected SidecarManager sidecarManager;
 
     @Override
     public boolean sessionAdded(Session session, String correlationId, ISpan parentSpan) {
@@ -266,9 +270,19 @@ public class LazySessionHandler implements SessionHandler {
         deploymentSpan.setData("has_storage", storageName.isPresent());
         resourceFactory.createDeploymentForLazySession(
                 session, appDef, storageName, labels,
-                deployment -> storageName.ifPresent(name -> addVolumeClaim(deployment, name, appDefSpec)),
+                deployment -> {
+                    storageName.ifPresent(name -> addVolumeClaim(deployment, name, appDefSpec));
+                    sidecarManager.injectSidecarEnvVars(deployment, appDef, correlationId);
+                },
                 correlationId);
         Tracing.finishSuccess(deploymentSpan);
+
+        // Sidecar setup is best-effort: the session remains usable even if sidecar creation fails.
+        if (!sidecarManager.createSidecars(session, appDef, storageName, correlationId)) {
+            LOGGER.warn(formatLogMessage(correlationId,
+                "Sidecar creation failed for session " + session.getMetadata().getName()
+                + "; session will continue without sidecar support."));
+        }
 
         // Create the dedicated session HTTPRoute.
         ISpan ingressRuleSpan = Tracing.childSpan(span, "lazy.add_route_rule", "Add HTTPRoute rule");
@@ -299,7 +313,17 @@ public class LazySessionHandler implements SessionHandler {
 
     @Override
     public synchronized boolean sessionDeleted(Session session, String correlationId, ISpan parentSpan) {
-        return doSessionDeleted(session, correlationId, parentSpan);
+        ISpan span = Tracing.childSpan(parentSpan, "lazy.cleanup", "Lazy session cleanup");
+        try {
+            boolean success = doSessionDeleted(session, correlationId, span);
+            if (success) {
+                Tracing.finishSuccess(span);
+            }
+            return success;
+        } catch (Exception e) {
+            Tracing.finishError(span, e);
+            throw e;
+        }
     }
 
     protected boolean doSessionDeleted(Session session, String correlationId, ISpan span) {
@@ -313,9 +337,9 @@ public class LazySessionHandler implements SessionHandler {
         span.setTag("app_definition", appDefinitionID);
         span.setData("correlation_id", correlationId);
 
-        // Session-owned resources, including the HTTPRoute, rely on owner references for cleanup.
+        sidecarManager.deleteSidecars(session, correlationId);
+
         span.setTag("outcome", "success");
-        span.setStatus(SpanStatus.OK);
         return true;
     }
 

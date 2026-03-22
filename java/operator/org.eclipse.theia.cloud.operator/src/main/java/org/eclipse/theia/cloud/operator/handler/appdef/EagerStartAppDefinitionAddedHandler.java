@@ -7,6 +7,7 @@ import org.apache.logging.log4j.Logger;
 import org.eclipse.theia.cloud.common.k8s.client.TheiaCloudClient;
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinition;
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinitionSpec;
+import org.eclipse.theia.cloud.operator.sidecar.SidecarManager;
 import org.eclipse.theia.cloud.operator.pool.PrewarmedResourcePool;
 import org.eclipse.theia.cloud.common.tracing.Tracing;
 import io.sentry.Sentry;
@@ -31,6 +32,9 @@ public class EagerStartAppDefinitionAddedHandler implements AppDefinitionHandler
 
     @Inject
     private PrewarmedResourcePool pool;
+
+    @Inject
+    private SidecarManager sidecarManager;
 
     @Override
     public boolean appDefinitionAdded(AppDefinition appDefinition, String correlationId) {
@@ -64,6 +68,18 @@ public class EagerStartAppDefinitionAddedHandler implements AppDefinitionHandler
                 return false;
             }
             Tracing.finishSuccess(ingressSpan);
+
+            ISpan sidecarValidationSpan = Tracing.childSpan(tx, "appdef.validate_sidecars",
+                    "Validate sidecar configuration");
+            if (!sidecarManager.validateUniqueSidecarNames(appDefinition, correlationId)) {
+                sidecarValidationSpan.setTag("outcome", "invalid");
+                Tracing.finish(sidecarValidationSpan, SpanStatus.INVALID_ARGUMENT);
+                tx.setTag("error.reason", "duplicate_sidecar_names");
+                tx.setTag("outcome", "failure");
+                Tracing.finish(tx, SpanStatus.INVALID_ARGUMENT);
+                return false;
+            }
+            Tracing.finishSuccess(sidecarValidationSpan);
 
             LOGGER.trace(formatLogMessage(correlationId, "HTTPRoute available"));
 
@@ -152,6 +168,18 @@ public class EagerStartAppDefinitionAddedHandler implements AppDefinitionHandler
                 return false;
             }
             Tracing.finishSuccess(ingressSpan);
+
+            ISpan sidecarValidationSpan = Tracing.childSpan(tx, "appdef.validate_sidecars",
+                    "Validate sidecar configuration");
+            if (!sidecarManager.validateUniqueSidecarNames(appDefinition, correlationId)) {
+                sidecarValidationSpan.setTag("outcome", "invalid");
+                Tracing.finish(sidecarValidationSpan, SpanStatus.INVALID_ARGUMENT);
+                tx.setTag("error.reason", "duplicate_sidecar_names");
+                tx.setTag("outcome", "failure");
+                Tracing.finish(tx, SpanStatus.INVALID_ARGUMENT);
+                return false;
+            }
+            Tracing.finishSuccess(sidecarValidationSpan);
 
             // Reconcile pool to target instance count
             ISpan reconcileSpan = Tracing.childSpan(tx, "appdef.reconcile_pool", "Reconcile pool to target");

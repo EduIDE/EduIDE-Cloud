@@ -54,6 +54,7 @@ import io.sentry.Sentry;
 import com.google.inject.Inject;
 
 import io.fabric8.kubernetes.client.Watcher;
+import io.fabric8.kubernetes.client.KubernetesClientException;
 
 public class BasicTheiaCloudOperator implements TheiaCloudOperator {
 
@@ -61,6 +62,8 @@ public class BasicTheiaCloudOperator implements TheiaCloudOperator {
     private static final ScheduledExecutorService WATCH_EXECUTOR = Executors.newSingleThreadScheduledExecutor();
     private static final int SESSION_EVENT_QUEUE_SIZE = 1000;
     private static final long SESSION_EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS = 30L;
+    private static final int APPDEF_INIT_MAX_RETRIES = 10;
+    private static final long APPDEF_INIT_RETRY_DELAY_MS = 1000L;
 
     private static final Logger LOGGER = LogManager.getLogger(BasicTheiaCloudOperator.class);
 
@@ -126,17 +129,54 @@ public class BasicTheiaCloudOperator implements TheiaCloudOperator {
     }
 
     protected SpecWatch<AppDefinition> initAppDefinitionsAndWatchForChanges() {
+        for (int attempt = 1; attempt <= APPDEF_INIT_MAX_RETRIES; attempt++) {
+            try {
+                resourceClient.appDefinitions().list().forEach(this::initAppDefinition);
+                SpecWatch<AppDefinition> watcher = new SpecWatch<>(appDefinitionCache, this::handleAppDefnitionEvent,
+                        "App Definition", COR_ID_APPDEFINITIONPREFIX);
+                resourceClient.appDefinitions().operation().watch(watcher);
+                return watcher;
+            } catch (Exception e) {
+                boolean retryable = isRetryableAppDefinitionInitError(e);
+                if (retryable && attempt < APPDEF_INIT_MAX_RETRIES) {
+                    LOGGER.warn(formatLogMessage(TheiaCloudOperatorLauncher.COR_ID_INIT,
+                            "AppDefinition watch init failed with retryable error (attempt " + attempt
+                                    + "/" + APPDEF_INIT_MAX_RETRIES + "), retrying in "
+                                    + APPDEF_INIT_RETRY_DELAY_MS + "ms"),
+                            e);
+                    sleepQuietly(APPDEF_INIT_RETRY_DELAY_MS);
+                    continue;
+                }
+
+                LOGGER.error(formatLogMessage(TheiaCloudOperatorLauncher.COR_ID_INIT,
+                        "Error while initializing app definitions watch"), e);
+                System.exit(-1);
+                throw new IllegalStateException();
+            }
+        }
+
+        throw new IllegalStateException("Unreachable");
+    }
+
+    private boolean isRetryableAppDefinitionInitError(Exception e) {
+        Throwable current = e;
+        while (current != null) {
+            if (current instanceof KubernetesClientException kce) {
+                if (kce.getCode() == 429 && kce.getMessage() != null
+                        && kce.getMessage().contains("storage is (re)initializing")) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private void sleepQuietly(long millis) {
         try {
-            resourceClient.appDefinitions().list().forEach(this::initAppDefinition);
-            SpecWatch<AppDefinition> watcher = new SpecWatch<>(appDefinitionCache, this::handleAppDefnitionEvent,
-                    "App Definition", COR_ID_APPDEFINITIONPREFIX);
-            resourceClient.appDefinitions().operation().watch(watcher);
-            return watcher;
-        } catch (Exception e) {
-            LOGGER.error(formatLogMessage(TheiaCloudOperatorLauncher.COR_ID_INIT,
-                    "Error while initializing app definitions watch"), e);
-            System.exit(-1);
-            throw new IllegalStateException();
+            Thread.sleep(millis);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
         }
     }
 

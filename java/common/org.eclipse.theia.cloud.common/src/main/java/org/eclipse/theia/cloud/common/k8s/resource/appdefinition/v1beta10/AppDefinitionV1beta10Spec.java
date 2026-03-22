@@ -14,19 +14,19 @@
  *
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
-package org.eclipse.theia.cloud.common.k8s.resource.appdefinition;
+package org.eclipse.theia.cloud.common.k8s.resource.appdefinition.v1beta10;
 
 import java.util.List;
 import java.util.Map;
 
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.hub.AppDefinitionHub;
-import org.eclipse.theia.cloud.common.serialization.SensitiveData;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 
+@Deprecated
 @JsonDeserialize()
-public class AppDefinitionSpec {
+public class AppDefinitionV1beta10Spec {
 
     @JsonProperty("name")
     private String name;
@@ -38,7 +38,6 @@ public class AppDefinitionSpec {
     private String imagePullPolicy;
 
     @JsonProperty("pullSecret")
-    @SensitiveData
     private String pullSecret;
 
     @JsonProperty("uid")
@@ -72,10 +71,10 @@ public class AppDefinitionSpec {
     private String limitsCpu;
 
     @JsonProperty("downlinkLimit")
-    private int downlinkLimit;// kilobits per second
+    private int downlinkLimit;
 
     @JsonProperty("uplinkLimit")
-    private int uplinkLimit;// kilobits per second
+    private int uplinkLimit;
 
     @JsonProperty("mountPath")
     private String mountPath;
@@ -89,29 +88,23 @@ public class AppDefinitionSpec {
     @JsonProperty("ingressHostnamePrefixes")
     private List<String> ingressHostnamePrefixes;
 
-    @JsonProperty("sidecars")
-    private List<SidecarSpec> sidecars;
-
-    /**
-     * Default constructor.
-     */
-    public AppDefinitionSpec() {
+    public AppDefinitionV1beta10Spec() {
     }
 
-    public AppDefinitionSpec(AppDefinitionHub fromHub) {
-        this.name = fromHub.getName().orElse(null); // required
-        this.image = fromHub.getImage().orElse(null); // required
+    public AppDefinitionV1beta10Spec(AppDefinitionHub fromHub) {
+        this.name = fromHub.getName().orElse(null);
+        this.image = fromHub.getImage().orElse(null);
         this.imagePullPolicy = fromHub.getImagePullPolicy().orElse(null);
         this.pullSecret = fromHub.getPullSecret().orElse(null);
-        this.uid = fromHub.getUid().orElse(0); // required
-        this.port = fromHub.getPort().orElse(0); // required
-        this.ingressname = fromHub.getIngressname().orElse(null); // required
-        this.minInstances = fromHub.getMinInstances().orElse(0); // required
-        this.maxInstances = fromHub.getMaxInstances().orElse(0); // required
-        this.requestsMemory = fromHub.getRequestsMemory().orElse(null); // required
-        this.requestsCpu = fromHub.getRequestsCpu().orElse(null); // required
-        this.limitsMemory = fromHub.getLimitsMemory().orElse(null); // required
-        this.limitsCpu = fromHub.getLimitsCpu().orElse(null); // required
+        this.uid = fromHub.getUid().orElse(0);
+        this.port = fromHub.getPort().orElse(0);
+        this.ingressname = fromHub.getIngressname().orElse(null);
+        this.minInstances = fromHub.getMinInstances().orElse(0);
+        this.maxInstances = fromHub.getMaxInstances().isPresent() ? fromHub.getMaxInstances().getAsInt() : null;
+        this.requestsMemory = fromHub.getRequestsMemory().orElse(null);
+        this.requestsCpu = fromHub.getRequestsCpu().orElse(null);
+        this.limitsMemory = fromHub.getLimitsMemory().orElse(null);
+        this.limitsCpu = fromHub.getLimitsCpu().orElse(null);
         this.downlinkLimit = fromHub.getDownlinkLimit().orElse(0);
         this.uplinkLimit = fromHub.getUplinkLimit().orElse(0);
         this.mountPath = fromHub.getMountPath().orElse(null);
@@ -120,7 +113,6 @@ public class AppDefinitionSpec {
 
         this.options = fromHub.getOptions().orElse(null);
         this.ingressHostnamePrefixes = fromHub.getIngressHostnamePrefixes().orElse(null);
-        this.sidecars = fromHub.getSidecars().orElse(null);
 
         int monitorPort = fromHub.getMonitorPort().orElse(0);
         if (monitorPort > 0) {
@@ -224,17 +216,12 @@ public class AppDefinitionSpec {
         return ingressHostnamePrefixes;
     }
 
-    public List<SidecarSpec> getSidecars() {
-        return sidecars;
-    }
-
     @Override
     public String toString() {
-        final String redactedPullSecret = "***";
-        return "AppDefinitionSpec [name=" + name + ", image=" + image + ", imagePullPolicy=" + imagePullPolicy
-                + ", pullSecret=" + redactedPullSecret + ", uid=" + uid + ", port=" + port + ", ingressname="
-                + ingressname + ", minInstances=" + minInstances + ", maxInstances=" + maxInstances + ", timeout="
-                + timeout + ", requestsMemory=" + requestsMemory + ", requestsCpu=" + requestsCpu + ", limitsMemory="
+        return "AppDefinitionV1beta10Spec [name=" + name + ", image=" + image + ", imagePullPolicy=" + imagePullPolicy
+                + ", pullSecret=***, uid=" + uid + ", port=" + port + ", ingressname=" + ingressname
+                + ", minInstances=" + minInstances + ", maxInstances=" + maxInstances + ", timeout=" + timeout
+                + ", requestsMemory=" + requestsMemory + ", requestsCpu=" + requestsCpu + ", limitsMemory="
                 + limitsMemory + ", limitsCpu=" + limitsCpu + ", downlinkLimit=" + downlinkLimit + ", uplinkLimit="
                 + uplinkLimit + ", mountPath=" + mountPath + "]";
     }

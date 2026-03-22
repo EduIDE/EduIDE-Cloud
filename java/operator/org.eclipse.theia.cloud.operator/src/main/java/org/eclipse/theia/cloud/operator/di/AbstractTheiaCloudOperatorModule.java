@@ -48,6 +48,8 @@ import org.eclipse.theia.cloud.operator.pv.MinikubePersistentVolumeCreator;
 import org.eclipse.theia.cloud.operator.pv.PersistentVolumeCreator;
 import org.eclipse.theia.cloud.operator.replacements.DefaultDeploymentTemplateReplacements;
 import org.eclipse.theia.cloud.operator.databridge.AsyncDataInjector;
+import org.eclipse.theia.cloud.operator.sidecar.SidecarManager;
+import org.eclipse.theia.cloud.operator.sidecar.SidecarResourceFactory;
 import org.eclipse.theia.cloud.operator.replacements.DefaultPersistentVolumeTemplateReplacements;
 import org.eclipse.theia.cloud.operator.replacements.DeploymentTemplateReplacements;
 import org.eclipse.theia.cloud.operator.replacements.PersistentVolumeTemplateReplacements;
@@ -85,6 +87,8 @@ public abstract class AbstractTheiaCloudOperatorModule extends AbstractModule {
         configure(MultiBinding.create(OperatorPlugin.class), this::bindOperatorPlugins);
         bind(MonitorMessagingService.class).to(bindMonitorMessagingService()).in(Singleton.class);
         bind(DataBridgeClient.class).toProvider(DataBridgeClientProvider.class).in(Singleton.class);
+        bind(SidecarResourceFactory.class).in(Singleton.class);
+        bind(SidecarManager.class).in(Singleton.class);
         bind(SessionEnvCollector.class).in(Singleton.class);
         bind(AsyncDataInjector.class).in(Singleton.class);
         bind(TheiaCloudOperatorArguments.class).toInstance(arguments);

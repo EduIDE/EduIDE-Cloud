@@ -1,4 +1,5 @@
 org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinition
+org.eclipse.theia.cloud.common.k8s.resource.appdefinition.v1beta10.AppDefinitionV1beta10
 org.eclipse.theia.cloud.common.k8s.resource.appdefinition.v1beta9.AppDefinitionV1beta9
 org.eclipse.theia.cloud.common.k8s.resource.appdefinition.v1beta8.AppDefinitionV1beta8
 org.eclipse.theia.cloud.common.k8s.resource.session.Session

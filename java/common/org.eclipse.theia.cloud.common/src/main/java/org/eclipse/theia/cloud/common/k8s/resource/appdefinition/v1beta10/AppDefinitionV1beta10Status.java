@@ -13,26 +13,33 @@
  *
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
-package org.eclipse.theia.cloud.conversion.mappers.appdefinition;
+package org.eclipse.theia.cloud.common.k8s.resource.appdefinition.v1beta10;
 
+import org.eclipse.theia.cloud.common.k8s.resource.ResourceStatus;
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.hub.AppDefinitionHub;
-import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.v1beta10.AppDefinitionV1beta10;
 
-import io.javaoperatorsdk.webhook.conversion.Mapper;
-import io.javaoperatorsdk.webhook.conversion.TargetVersion;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 
-@SuppressWarnings("deprecation")
-@TargetVersion("v1beta10")
-public class AppDefinitionV1beta10Mapper implements Mapper<AppDefinitionV1beta10, AppDefinitionHub> {
+@Deprecated
+@JsonDeserialize
+public class AppDefinitionV1beta10Status extends ResourceStatus {
 
-    @Override
-    public AppDefinitionHub toHub(AppDefinitionV1beta10 resource) {
-        return new AppDefinitionHub(resource);
+    public AppDefinitionV1beta10Status() {
+    }
+
+    public AppDefinitionV1beta10Status(AppDefinitionHub fromHub) {
+        if (fromHub.getOperatorMessage().isPresent()) {
+            this.setOperatorMessage(fromHub.getOperatorMessage().get());
+        }
+        if (fromHub.getOperatorStatus().isPresent()) {
+            this.setOperatorStatus(fromHub.getOperatorStatus().get());
+        }
     }
 
     @Override
-    public AppDefinitionV1beta10 fromHub(AppDefinitionHub hub) {
-        return new AppDefinitionV1beta10(hub);
+    public String toString() {
+        return "AppDefinitionV1beta10Status [getOperatorStatus()=" + getOperatorStatus() + ", getOperatorMessage()="
+                + getOperatorMessage() + "]";
     }
 
 }

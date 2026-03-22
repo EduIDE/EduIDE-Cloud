@@ -1270,6 +1270,8 @@ public class PrewarmedResourcePool {
     // ========== PVC Management ==========
 
     private static final String TEMPLATE_PERSISTENTVOLUMECLAIM_YAML = "/templatePersistentVolumeClaim.yaml";
+    private static final int PVC_DELETION_WAIT_ATTEMPTS = 30;
+    private static final long PVC_DELETION_WAIT_MILLIS = 1000;
 
     static String getInstancePvcName(AppDefinition appDef, int instanceId) {
         return NamingUtil.createNameWithSuffix(appDef, instanceId, "pvc");
@@ -1284,10 +1286,25 @@ public class PrewarmedResourcePool {
     private Optional<String> createInstancePvc(AppDefinition appDef, int instanceId, String correlationId) {
         String pvcName = getInstancePvcName(appDef, instanceId);
 
-        if (client.persistentVolumeClaimsClient().has(pvcName)) {
+        Optional<io.fabric8.kubernetes.api.model.PersistentVolumeClaim> existingPvc = client
+                .persistentVolumeClaimsClient().get(pvcName);
+        if (existingPvc.isPresent()
+                && existingPvc.get().getMetadata() != null
+                && existingPvc.get().getMetadata().getDeletionTimestamp() == null) {
             LOGGER.info(formatLogMessage(correlationId,
                     "PVC " + pvcName + " already exists for instance " + instanceId));
             return Optional.of(pvcName);
+        }
+
+        if (existingPvc.isPresent()) {
+            LOGGER.warn(formatLogMessage(correlationId,
+                    "PVC " + pvcName + " is terminating for instance " + instanceId
+                            + ". Waiting for deletion before recreation."));
+            if (!waitUntilPvcDeleted(pvcName, correlationId)) {
+                LOGGER.error(formatLogMessage(correlationId,
+                        "PVC " + pvcName + " is still present/terminating after waiting. Skipping recreation."));
+                return Optional.empty();
+            }
         }
 
         ISpan span = Tracing.childSpan("pool.create_pvc", "Create instance PVC");
@@ -1357,5 +1374,24 @@ public class PrewarmedResourcePool {
         } catch (KubernetesClientException e) {
             LOGGER.warn(formatLogMessage(correlationId, "Failed to delete PVC " + pvcName), e);
         }
+    }
+
+    private boolean waitUntilPvcDeleted(String pvcName, String correlationId) {
+        for (int attempt = 1; attempt <= PVC_DELETION_WAIT_ATTEMPTS; attempt++) {
+            if (client.persistentVolumeClaimsClient().get(pvcName).isEmpty()) {
+                return true;
+            }
+
+            try {
+                Thread.sleep(PVC_DELETION_WAIT_MILLIS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                LOGGER.warn(formatLogMessage(correlationId,
+                        "Interrupted while waiting for PVC deletion: " + pvcName), e);
+                return false;
+            }
+        }
+
+        return client.persistentVolumeClaimsClient().get(pvcName).isEmpty();
     }
 }

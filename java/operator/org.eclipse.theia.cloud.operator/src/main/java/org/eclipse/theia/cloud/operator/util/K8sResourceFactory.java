@@ -197,8 +197,8 @@ public class K8sResourceFactory {
                     }
                     podLabels.putAll(labels);
 
-                    // Handle volume if provided
-                    if (pvName.isPresent() && volumeHandler != null) {
+                    // Execute deployment handlers (volume, sidecars, etc.)
+                    if (volumeHandler != null) {
                         volumeHandler.accept(deployment);
                     }
 

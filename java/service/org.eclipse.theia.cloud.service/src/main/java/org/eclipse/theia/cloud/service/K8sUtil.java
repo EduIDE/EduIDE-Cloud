@@ -35,6 +35,7 @@ import org.eclipse.theia.cloud.common.k8s.resource.session.SessionStatus;
 import org.eclipse.theia.cloud.common.k8s.resource.workspace.Workspace;
 import org.eclipse.theia.cloud.common.k8s.resource.workspace.WorkspaceSpec;
 import org.eclipse.theia.cloud.common.util.CustomResourceUtil;
+import org.eclipse.theia.cloud.common.util.LogMessageUtil;
 import org.eclipse.theia.cloud.service.session.SessionPerformance;
 import org.eclipse.theia.cloud.service.workspace.UserWorkspace;
 import org.jboss.logging.Logger;
@@ -49,6 +50,7 @@ import io.fabric8.kubernetes.api.model.metrics.v1beta1.PodMetrics;
 import io.fabric8.kubernetes.client.KubernetesClientException;
 import io.fabric8.kubernetes.client.NamespacedKubernetesClient;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.ws.rs.core.Response.Status;
 
 @ApplicationScoped
 public final class K8sUtil {
@@ -99,10 +101,36 @@ public final class K8sUtil {
 
     public String launchEphemeralSession(String correlationId, String appDefinition, String user, int timeout,
             EnvironmentVars env) {
+        Optional<AppDefinition> appDef = CLIENT.appDefinitions().get(appDefinition);
+        if (appDef.isPresent() && hasSidecarConfiguration(appDef.get().getSpec())) {
+            logger.error(LogMessageUtil.formatLogMessage(correlationId,
+                    "Refusing ephemeral session launch for app definition '" + appDefinition
+                            + "' because sidecars are enabled. Use workspace-backed session launch."));
+            throw new TheiaCloudWebException(Status.BAD_REQUEST,
+                    "Ephemeral sessions are not supported for sidecar-enabled app definitions. Use a workspace-backed session.");
+        }
+
         SessionSpec sessionSpec = new SessionSpec(getSessionName(user, appDefinition, false), appDefinition, user);
         sessionSpec = sessionSpecWithEnv(sessionSpec, env);
 
         return launchSession(correlationId, sessionSpec, timeout);
+    }
+
+    private boolean hasSidecarConfiguration(AppDefinitionSpec spec) {
+        if (spec == null) {
+            return false;
+        }
+
+        if (spec.getSidecars() != null && !spec.getSidecars().isEmpty()) {
+            return true;
+        }
+
+        if (spec.getOptions() == null) {
+            return false;
+        }
+
+        String legacyLangserverImage = spec.getOptions().get("langserver-image");
+        return legacyLangserverImage != null && !legacyLangserverImage.isBlank();
     }
 
     public String launchWorkspaceSession(String correlationId, UserWorkspace workspace, int timeout,

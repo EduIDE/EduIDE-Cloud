@@ -151,12 +151,18 @@ Always finalize spans in `finally` or catch blocks — never leave them open.
 ### Sidecar Specifics (operator module)
 
 - Sidecar operations are **best-effort**: if `createSidecars()` returns `false`, log a warning but continue the session flow.
-- Sidecar configuration is read from `AppDefinitionSpec.getSidecars()` (v1beta11 CRD) with legacy fallback to `options["langserver-image"]`.
+- Sidecar configuration is read from `AppDefinitionSpec.getSidecars()` (v1beta11 CRD) **only**. Do not reintroduce `options["langserver-image"]` fallback.
 - No hardcoded language detection — sidecar names and languages are fully user-defined in the CRD.
 - Sidecar resources (Deployment + Service) are created via Fabric8 builders in `SidecarResourceFactory` — no YAML templates.
 - Rollback orphaned sidecar resources via `factory.deleteResources(session, correlationId)`, not via the K8s client directly.
 - Eager path: sidecar Deployment+Service must be created **before** Theia Deployment so K8s DNS resolves service names at pod startup.
 - Session release (eager): only restart sidecar Pods (`restartPrewarmedSidecarPods`), do **not** delete Deployment+Service — they are reused by the pool.
+- Lazy path: use the same naming source for injected sidecar host env vars and created Service names (session-based naming) to avoid DNS mismatch.
+
+### Session Launch Rules (service module)
+
+- Ephemeral session launch is **not supported** for sidecar-enabled app definitions. Return `400 Bad Request` and instruct callers to use workspace-backed session launch.
+- Sidecar-enabled sessions should be workspace-backed so Theia and sidecar can operate on shared persistent storage.
 
 ---
 

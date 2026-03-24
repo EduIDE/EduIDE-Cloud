@@ -272,7 +272,7 @@ public class LazySessionHandler implements SessionHandler {
                 session, appDef, storageName, labels,
                 deployment -> {
                     storageName.ifPresent(name -> addVolumeClaim(deployment, name, appDefSpec));
-                    sidecarManager.injectSidecarEnvVars(deployment, appDef, correlationId);
+                    sidecarManager.injectSidecarEnvVars(session, deployment, appDef, correlationId);
                 },
                 correlationId);
         Tracing.finishSuccess(deploymentSpan);

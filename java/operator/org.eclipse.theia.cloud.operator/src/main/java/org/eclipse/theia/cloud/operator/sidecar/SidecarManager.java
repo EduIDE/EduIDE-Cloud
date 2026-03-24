@@ -176,6 +176,7 @@ public class SidecarManager {
      * so the Theia pod starts with env vars already set — no restart needed.
      */
     public void injectSidecarEnvVars(
+            Session session,
             Deployment theiaDeployment,
             AppDefinition appDef,
             String correlationId) {
@@ -212,8 +213,7 @@ public class SidecarManager {
             }
 
             for (SidecarConfig config : configs) {
-                String serviceName = SidecarResourceFactory
-                        .getLazyResourceName(theiaDeployment.getMetadata().getName(), config);
+                String serviceName = SidecarResourceFactory.getLazyResourceName(session, config);
                 envVars.add(new EnvVarBuilder()
                     .withName(config.hostEnvVar())
                     .withValue(serviceName)
@@ -225,7 +225,7 @@ public class SidecarManager {
             }
 
             String configJson = serializeSidecarConfigJson(configs,
-                    config -> SidecarResourceFactory.getLazyResourceName(theiaDeployment.getMetadata().getName(), config));
+                    config -> SidecarResourceFactory.getLazyResourceName(session, config));
 
             envVars.add(new EnvVarBuilder()
                 .withName("SIDECAR_CONFIG")

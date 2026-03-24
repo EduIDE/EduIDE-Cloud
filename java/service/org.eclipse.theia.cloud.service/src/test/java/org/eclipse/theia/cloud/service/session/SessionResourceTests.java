@@ -24,10 +24,14 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Optional;
 
+import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinition;
+import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinitionSpec;
+import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.SidecarSpec;
 import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
 import org.eclipse.theia.cloud.common.k8s.resource.session.SessionSpec;
 import org.eclipse.theia.cloud.common.util.TheiaCloudError;
@@ -433,6 +437,20 @@ class SessionResourceTests {
         TestUtil.assertNoAnonymousAccessAnnotations(method);
     }
 
+    @Test
+    void start_ephemeralWithSidecars_throwEphemeralSessionNotSupportedWithSidecars() throws Exception {
+        mockUser(false, TEST_USER);
+
+        SessionStartRequest request = new SessionStartRequest(APP_ID, TEST_USER, TEST_APP_DEFINITION, 3);
+        AppDefinition appDef = appDefinitionWithSidecars();
+        Mockito.when(k8sUtil.getAppDefinition(TEST_APP_DEFINITION)).thenReturn(Optional.of(appDef));
+
+        TheiaCloudWebException exception = assertThrows(TheiaCloudWebException.class, () -> fixture.start(request));
+
+        Mockito.verify(k8sUtil, never()).launchEphemeralSession(anyString(), anyString(), anyString(), anyInt(), any());
+        assertEquals(Status.BAD_REQUEST.getStatusCode(), exception.getResponse().getStatus());
+    }
+
     // ---
     // Utility methods
     // ---
@@ -461,5 +479,19 @@ class SessionResourceTests {
         Mockito.when(spec.getName()).thenReturn(TEST_SESSION);
         Mockito.when(spec.getUser()).thenReturn(TEST_USER);
         return mockSession(spec);
+    }
+
+    private AppDefinition appDefinitionWithSidecars() throws Exception {
+        AppDefinition appDef = new AppDefinition();
+        AppDefinitionSpec spec = new AppDefinitionSpec();
+        setField(spec, "sidecars", List.of(new SidecarSpec()));
+        appDef.setSpec(spec);
+        return appDef;
+    }
+
+    private void setField(Object target, String fieldName, Object value) throws Exception {
+        Field field = target.getClass().getDeclaredField(fieldName);
+        field.setAccessible(true);
+        field.set(target, value);
     }
 }

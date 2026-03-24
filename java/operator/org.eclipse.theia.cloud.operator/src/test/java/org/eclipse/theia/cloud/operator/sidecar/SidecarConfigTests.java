@@ -13,9 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinition;
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinitionSpec;
@@ -86,39 +84,6 @@ class SidecarConfigTests {
         assertEquals("256Mi", config.memoryRequest());
     }
 
-    // ========== fromLegacyOptions ==========
-
-    @Test
-    void fromLegacyOptions_minimalOptions() {
-        Map<String, String> options = new HashMap<>();
-        options.put("langserver-image", "ghcr.io/ls1intum/theia/langserver-java:latest");
-
-        SidecarConfig config = SidecarConfig.fromLegacyOptions(options);
-
-        assertEquals("langserver", config.name());
-        assertEquals("ghcr.io/ls1intum/theia/langserver-java:latest", config.image());
-        assertEquals(SidecarConfig.DEFAULT_PORT, config.containerPort());
-        assertEquals(List.of(), config.languages());
-        assertTrue(config.mountWorkspace());
-    }
-
-    @Test
-    void fromLegacyOptions_customResourceLimits() {
-        Map<String, String> options = new HashMap<>();
-        options.put("langserver-image", "img:latest");
-        options.put("langserver-cpu-limit", "2");
-        options.put("langserver-memory-limit", "4Gi");
-        options.put("langserver-cpu-request", "500m");
-        options.put("langserver-memory-request", "1Gi");
-
-        SidecarConfig config = SidecarConfig.fromLegacyOptions(options);
-
-        assertEquals("2", config.cpuLimit());
-        assertEquals("4Gi", config.memoryLimit());
-        assertEquals("500m", config.cpuRequest());
-        assertEquals("1Gi", config.memoryRequest());
-    }
-
     // ========== Env var naming ==========
 
     @Test
@@ -171,18 +136,6 @@ class SidecarConfigTests {
         assertTrue(SidecarConfig.hasSidecars(appDef));
     }
 
-    @Test
-    void hasSidecars_legacyFallback() {
-        AppDefinition appDef = createAppDefWithOptions(Map.of("langserver-image", "img:latest"));
-        assertTrue(SidecarConfig.hasSidecars(appDef));
-    }
-
-    @Test
-    void hasSidecars_legacyBlankImage() {
-        AppDefinition appDef = createAppDefWithOptions(Map.of("langserver-image", "  "));
-        assertFalse(SidecarConfig.hasSidecars(appDef));
-    }
-
     // ========== getSidecarConfigs ==========
 
     @Test
@@ -196,30 +149,6 @@ class SidecarConfigTests {
         assertEquals(2, configs.size());
         assertEquals("java-ls", configs.get(0).name());
         assertEquals("rust-ls", configs.get(1).name());
-    }
-
-    @Test
-    void getSidecarConfigs_legacyFallback() {
-        AppDefinition appDef = createAppDefWithOptions(Map.of("langserver-image", "img:latest"));
-
-        List<SidecarConfig> configs = SidecarConfig.getSidecarConfigs(appDef);
-
-        assertEquals(1, configs.size());
-        assertEquals("langserver", configs.get(0).name());
-        assertEquals("img:latest", configs.get(0).image());
-    }
-
-    @Test
-    void getSidecarConfigs_prefersSpecOverLegacy() {
-        SidecarSpec spec = createSpec("java-ls", "new-img:latest", 5000, List.of("java"), null, null, null, null, true);
-        AppDefinition appDef = createAppDefWithSidecars(List.of(spec));
-        // Also add legacy options — should be ignored
-        setFieldUnchecked(appDef.getSpec(), "options", Map.of("langserver-image", "old-img:latest"));
-
-        List<SidecarConfig> configs = SidecarConfig.getSidecarConfigs(appDef);
-
-        assertEquals(1, configs.size());
-        assertEquals("new-img:latest", configs.get(0).image());
     }
 
     @Test
@@ -272,11 +201,4 @@ class SidecarConfigTests {
         return appDef;
     }
 
-    private AppDefinition createAppDefWithOptions(Map<String, String> options) {
-        AppDefinition appDef = new AppDefinition();
-        AppDefinitionSpec spec = new AppDefinitionSpec();
-        setFieldUnchecked(spec, "options", options);
-        appDef.setSpec(spec);
-        return appDef;
-    }
 }

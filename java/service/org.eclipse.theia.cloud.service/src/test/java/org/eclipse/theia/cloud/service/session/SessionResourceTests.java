@@ -434,7 +434,7 @@ class SessionResourceTests {
     }
 
     @Test
-    void start_ephemeralWithSidecars_throwEphemeralSessionNotSupportedWithSidecars() throws Exception {
+    void start_ephemeralLaunchFailure_propagatesBadRequest() throws Exception {
         mockUser(false, TEST_USER);
 
         SessionStartRequest request = new SessionStartRequest(APP_ID, TEST_USER, TEST_APP_DEFINITION, 3);

@@ -228,6 +228,24 @@ public class AppDefinitionSpec {
         return sidecars;
     }
 
+    public boolean hasSidecars() {
+        return sidecars != null && !sidecars.isEmpty();
+    }
+
+    public boolean requiresSharedWorkspace() {
+        if (sidecars == null) {
+            return false;
+        }
+
+        for (SidecarSpec sidecar : sidecars) {
+            if (sidecar != null && sidecar.isMountWorkspace()) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     @Override
     public String toString() {
         final String redactedPullSecret = "***";

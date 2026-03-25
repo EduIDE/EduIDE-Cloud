@@ -84,7 +84,7 @@ public class SidecarSpec {
     }
 
     public boolean isMountWorkspace() {
-        return mountWorkspace == null ? true : mountWorkspace;
+        return mountWorkspace == null ? false : mountWorkspace;
     }
 
     @Override

@@ -84,6 +84,15 @@ class SidecarConfigTests {
         assertEquals("256Mi", config.memoryRequest());
     }
 
+    @Test
+    void fromSpec_mountWorkspaceDefaultsToFalse() {
+        SidecarSpec spec = createSpec("langserver", "img:latest", 5000, List.of(), null, null, null, null, null);
+
+        SidecarConfig config = SidecarConfig.fromSpec(spec);
+
+        assertFalse(config.mountWorkspace());
+    }
+
     // ========== Env var naming ==========
 
     @Test
@@ -136,6 +145,22 @@ class SidecarConfigTests {
         assertTrue(SidecarConfig.hasSidecars(appDef));
     }
 
+    @Test
+    void requiresSharedWorkspace_falseWhenNoSidecarMountsWorkspace() {
+        SidecarSpec spec = createSpec("langserver", "img:latest", 5000, List.of("java"), null, null, null, null, false);
+        AppDefinition appDef = createAppDefWithSidecars(List.of(spec));
+
+        assertFalse(SidecarConfig.requiresSharedWorkspace(appDef));
+    }
+
+    @Test
+    void requiresSharedWorkspace_trueWhenSidecarMountsWorkspace() {
+        SidecarSpec spec = createSpec("langserver", "img:latest", 5000, List.of("java"), null, null, null, null, true);
+        AppDefinition appDef = createAppDefWithSidecars(List.of(spec));
+
+        assertTrue(SidecarConfig.requiresSharedWorkspace(appDef));
+    }
+
     // ========== getSidecarConfigs ==========
 
     @Test
@@ -169,7 +194,7 @@ class SidecarConfigTests {
     }
 
     private SidecarSpec createSpec(String name, String image, int port, List<String> languages,
-            String cpuLimit, String memoryLimit, String cpuRequest, String memoryRequest, boolean mountWorkspace) {
+            String cpuLimit, String memoryLimit, String cpuRequest, String memoryRequest, Boolean mountWorkspace) {
         SidecarSpec spec = new SidecarSpec();
         setFieldUnchecked(spec, "name", name);
         setFieldUnchecked(spec, "image", image);

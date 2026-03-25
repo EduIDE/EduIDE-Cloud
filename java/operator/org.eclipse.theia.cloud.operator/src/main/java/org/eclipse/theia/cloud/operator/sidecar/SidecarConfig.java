@@ -75,8 +75,18 @@ public record SidecarConfig(
             return false;
         }
 
-        List<SidecarSpec> sidecars = appDef.getSpec().getSidecars();
-        return sidecars != null && !sidecars.isEmpty();
+        return appDef.getSpec().hasSidecars();
+    }
+
+    /**
+     * Checks if the given AppDefinition requires a shared workspace PVC.
+     */
+    public static boolean requiresSharedWorkspace(AppDefinition appDef) {
+        if (appDef == null || appDef.getSpec() == null) {
+            return false;
+        }
+
+        return appDef.getSpec().requiresSharedWorkspace();
     }
 
     /**

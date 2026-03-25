@@ -222,9 +222,9 @@ public final class AddedHandlerUtil {
 
                     if (code == 200) {
                         updateURL = true;
-                    } else if (code != 404 && code != 503 && !updateURL) {
+                    } else if (code != 404 && code != 503 && code != 500 && !updateURL) {
                         /*
-                         * we don't get a 404 or 503, so something is available. Try accessing the URL once more then
+                         * we don't get a 404, 500 or 503, so something is available. Try accessing the URL once more then
                          * update URL anyway
                          */
                         updateURL = true;

@@ -102,12 +102,12 @@ public final class K8sUtil {
     public String launchEphemeralSession(String correlationId, String appDefinition, String user, int timeout,
             EnvironmentVars env) {
         Optional<AppDefinition> appDef = CLIENT.appDefinitions().get(appDefinition);
-        if (appDef.isPresent() && hasSidecarConfiguration(appDef.get().getSpec())) {
+        if (appDef.isPresent() && requiresSharedWorkspace(appDef.get().getSpec())) {
             logger.error(LogMessageUtil.formatLogMessage(correlationId,
                     "Refusing ephemeral session launch for app definition '" + appDefinition
-                            + "' because sidecars are enabled. Use workspace-backed session launch."));
+                            + "' because one or more sidecars mount the workspace. Use workspace-backed session launch."));
             throw new TheiaCloudWebException(Status.BAD_REQUEST,
-                    "Ephemeral sessions are not supported for sidecar-enabled app definitions. Use a workspace-backed session.");
+                    "Ephemeral sessions are not supported for app definitions whose sidecars mount the workspace. Use a workspace-backed session.");
         }
 
         SessionSpec sessionSpec = new SessionSpec(getSessionName(user, appDefinition, false), appDefinition, user);
@@ -116,12 +116,12 @@ public final class K8sUtil {
         return launchSession(correlationId, sessionSpec, timeout);
     }
 
-    private boolean hasSidecarConfiguration(AppDefinitionSpec spec) {
+    private boolean requiresSharedWorkspace(AppDefinitionSpec spec) {
         if (spec == null) {
             return false;
         }
 
-        return spec.getSidecars() != null && !spec.getSidecars().isEmpty();
+        return spec.requiresSharedWorkspace();
     }
 
     public String launchWorkspaceSession(String correlationId, UserWorkspace workspace, int timeout,

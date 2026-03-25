@@ -24,6 +24,7 @@ import org.eclipse.theia.cloud.common.util.LabelsUtil;
 import org.eclipse.theia.cloud.common.util.NamingUtil;
 import org.eclipse.theia.cloud.operator.TheiaCloudOperatorArguments;
 import org.eclipse.theia.cloud.operator.handler.AddedHandlerUtil;
+import org.eclipse.theia.cloud.operator.sidecar.SidecarConfig;
 import org.eclipse.theia.cloud.operator.sidecar.SidecarManager;
 import org.eclipse.theia.cloud.operator.replacements.DefaultPersistentVolumeTemplateReplacements;
 import org.eclipse.theia.cloud.operator.util.JavaResourceUtil;
@@ -1284,6 +1285,10 @@ public class PrewarmedResourcePool {
      * @return the PVC name if created successfully, or empty if creation fails
      */
     private Optional<String> createInstancePvc(AppDefinition appDef, int instanceId, String correlationId) {
+        if (!SidecarConfig.requiresSharedWorkspace(appDef)) {
+            return Optional.empty();
+        }
+
         String pvcName = getInstancePvcName(appDef, instanceId);
 
         Optional<io.fabric8.kubernetes.api.model.PersistentVolumeClaim> existingPvc = client
@@ -1325,6 +1330,8 @@ public class PrewarmedResourcePool {
             replacements.put(DefaultPersistentVolumeTemplateReplacements.PLACEHOLDER_REQUESTED_STORAGE,
                     arguments.getRequestedStorage() != null ? arguments.getRequestedStorage()
                             : DefaultPersistentVolumeTemplateReplacements.DEFAULT_REQUESTED_STORAGE);
+            replacements.put(DefaultPersistentVolumeTemplateReplacements.PLACEHOLDER_ACCESS_MODE,
+                    DefaultPersistentVolumeTemplateReplacements.READ_WRITE_MANY);
 
             String pvcYaml = JavaResourceUtil.readResourceAndReplacePlaceholders(
                     TEMPLATE_PERSISTENTVOLUMECLAIM_YAML, replacements, correlationId);

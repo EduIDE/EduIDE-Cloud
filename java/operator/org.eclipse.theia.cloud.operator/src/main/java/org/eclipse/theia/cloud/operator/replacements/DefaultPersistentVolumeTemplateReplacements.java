@@ -18,6 +18,7 @@ package org.eclipse.theia.cloud.operator.replacements;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import org.eclipse.theia.cloud.common.k8s.client.TheiaCloudClient;
 import org.eclipse.theia.cloud.common.k8s.resource.workspace.Workspace;
 import org.eclipse.theia.cloud.common.util.WorkspaceUtil;
 import org.eclipse.theia.cloud.operator.TheiaCloudOperatorArguments;
@@ -31,11 +32,17 @@ public class DefaultPersistentVolumeTemplateReplacements implements PersistentVo
     public static final String PLACEHOLDER_LABEL_WORKSPACE_NAME = "placeholder-label-workspace-name";
     public static final String PLACEHOLDER_STORAGE_CLASS_NAME = "placeholder-storage-class-name";
     public static final String PLACEHOLDER_REQUESTED_STORAGE = "placeholder-requested-storage";
+    public static final String PLACEHOLDER_ACCESS_MODE = "placeholder-access-mode";
 
     public static final String DEFAULT_REQUESTED_STORAGE = "250Mi";
+    public static final String READ_WRITE_ONCE = "ReadWriteOnce";
+    public static final String READ_WRITE_MANY = "ReadWriteMany";
 
     @Inject
     TheiaCloudOperatorArguments arguments;
+
+    @Inject
+    TheiaCloudClient client;
 
     @Override
     public Map<String, String> getPersistentVolumeReplacements(String namespace, Workspace workspace) {
@@ -57,7 +64,20 @@ public class DefaultPersistentVolumeTemplateReplacements implements PersistentVo
         replacements.put(PLACEHOLDER_STORAGE_CLASS_NAME, orEmpty(arguments.getStorageClassName()));
         replacements.put(PLACEHOLDER_REQUESTED_STORAGE,
                 orDefault(arguments.getRequestedStorage(), DEFAULT_REQUESTED_STORAGE));
+        replacements.put(PLACEHOLDER_ACCESS_MODE, getAccessMode(workspace));
         return replacements;
+    }
+
+    protected String getAccessMode(Workspace workspace) {
+        String appDefinitionName = workspace.getSpec().getAppDefinition();
+        if (appDefinitionName == null || appDefinitionName.isBlank()) {
+            return READ_WRITE_ONCE;
+        }
+
+        return client.appDefinitions().get(appDefinitionName)
+                .filter(appDef -> appDef.getSpec() != null && appDef.getSpec().requiresSharedWorkspace())
+                .map(appDef -> READ_WRITE_MANY)
+                .orElse(READ_WRITE_ONCE);
     }
 
 }

@@ -71,6 +71,7 @@ public class DefaultDeploymentTemplateReplacements implements DeploymentTemplate
     public static final String PLACEHOLDER_ENV_BUILD_CACHE_ENABLED = "placeholder-build-cache-enabled";
     public static final String PLACEHOLDER_ENV_BUILD_CACHE_URL = "placeholder-build-cache-url";
     public static final String PLACEHOLDER_ENV_BUILD_CACHE_PUSH = "placeholder-build-cache-push";
+    public static final String PLACEHOLDER_BUILD_CACHE_SECRET_NAME = "placeholder-build-cache-secret-name";
 
     public static final String PLACEHOLDER_ENV_DEPENDENCY_CACHE_ENABLED = "placeholder-dependency-cache-enabled";
     public static final String PLACEHOLDER_ENV_DEPENDENCY_CACHE_URL = "placeholder-dependency-cache-url";
@@ -168,17 +169,23 @@ public class DefaultDeploymentTemplateReplacements implements DeploymentTemplate
             environmentVariables.put(PLACEHOLDER_ENV_BUILD_CACHE_URL, arguments.getBuildCacheUrl().trim());
             environmentVariables.put(PLACEHOLDER_ENV_BUILD_CACHE_PUSH,
                     arguments.isEnableBuildCachePush() ? "true" : "false");
+
+            String secretName = (arguments.getBuildCacheSecretName() != null
+                    && !arguments.getBuildCacheSecretName().trim().isEmpty())
+                            ? arguments.getBuildCacheSecretName().trim()
+                            : "theia-cloud-no-cache-secret";
+            environmentVariables.put(PLACEHOLDER_BUILD_CACHE_SECRET_NAME, secretName);
         } else {
             environmentVariables.put(PLACEHOLDER_ENV_BUILD_CACHE_ENABLED, "false");
             environmentVariables.put(PLACEHOLDER_ENV_BUILD_CACHE_URL, "");
             environmentVariables.put(PLACEHOLDER_ENV_BUILD_CACHE_PUSH, "false");
+            environmentVariables.put(PLACEHOLDER_BUILD_CACHE_SECRET_NAME, "theia-cloud-no-cache-secret");
         }
 
         if (arguments.isEnableDependencyCaching() && arguments.getDependencyCacheUrl() != null
                 && !arguments.getDependencyCacheUrl().trim().isEmpty()) {
             environmentVariables.put(PLACEHOLDER_ENV_DEPENDENCY_CACHE_ENABLED, "true");
-            environmentVariables.put(PLACEHOLDER_ENV_DEPENDENCY_CACHE_URL,
-                    arguments.getDependencyCacheUrl().trim());
+            environmentVariables.put(PLACEHOLDER_ENV_DEPENDENCY_CACHE_URL, arguments.getDependencyCacheUrl().trim());
         } else {
             environmentVariables.put(PLACEHOLDER_ENV_DEPENDENCY_CACHE_ENABLED, "false");
             environmentVariables.put(PLACEHOLDER_ENV_DEPENDENCY_CACHE_URL, "");

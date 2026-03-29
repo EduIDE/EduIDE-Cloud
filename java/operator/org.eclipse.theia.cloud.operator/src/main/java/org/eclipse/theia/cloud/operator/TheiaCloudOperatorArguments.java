@@ -499,7 +499,10 @@ public class TheiaCloudOperatorArguments {
             return false;
         if (enableBuildCachePush != other.enableBuildCachePush)
             return false;
-        if (buildCacheSecretName != other.buildCacheSecretName)
+        if (buildCacheSecretName == null) {
+            if (other.buildCacheSecretName != null)
+                return false;
+        } else if (!buildCacheSecretName.equals(other.buildCacheSecretName))
             return false;
         if (enableDependencyCaching != other.enableDependencyCaching)
             return false;

@@ -89,6 +89,18 @@ spec:
             value: placeholder-build-cache-url
           - name: BUILD_CACHE_PUSH
             value: placeholder-build-cache-push
+          - name: BUILD_CACHE_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: placeholder-build-cache-secret-name
+                key: username
+                optional: true
+          - name: BUILD_CACHE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: placeholder-build-cache-secret-name
+                key: password
+                optional: true
           - name: DEPENDENCY_CACHE_ENABLED
             value: placeholder-dependency-cache-enabled
           - name: DEPENDENCY_CACHE_URL

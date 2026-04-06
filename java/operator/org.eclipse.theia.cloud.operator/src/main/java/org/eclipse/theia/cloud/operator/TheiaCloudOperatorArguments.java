@@ -65,10 +65,12 @@ public class TheiaCloudOperatorArguments {
             "--sessionsPerUser" }, description = "Number of active sessions a single user is allowed to start.", required = false)
     private Integer sessionsPerUser;
 
-    @Option(names = { "--serviceAuthToken" }, description = "Service authentication token necessary for service calls", required = false)
+    @Option(names = {
+            "--serviceAuthToken" }, description = "Service authentication token necessary for service calls", required = false)
     private String serviceAuthToken;
-    
-    @Option(names = { "--appId" }, description = "(Deprecated) Use --serviceAuthToken instead. Application ID necessary for service calls", required = false, hidden = true)
+
+    @Option(names = {
+            "--appId" }, description = "(Deprecated) Use --serviceAuthToken instead. Application ID necessary for service calls", required = false, hidden = true)
     private String appId;
 
     @Option(names = {
@@ -142,10 +144,15 @@ public class TheiaCloudOperatorArguments {
     private boolean enableBuildCachePush = false;
 
     @Option(names = {
+            "--buildCacheSecretName" }, description = "Name of the Kubernetes Secret containing build cache username and password.", required = false)
+    private String buildCacheSecretName;
+
+    @Option(names = {
             "--enableDependencyCaching" }, description = "Whether to enable the dependency cache (Reposilite).", required = false)
     private boolean enableDependencyCaching = false;
 
-    @Option(names = { "--dependencyCacheUrl" }, description = "The URL of the dependency cache server (Reposilite).", required = false)
+    @Option(names = {
+            "--dependencyCacheUrl" }, description = "The URL of the dependency cache server (Reposilite).", required = false)
     private String dependencyCacheUrl;
 
     public boolean isUseKeycloak() {
@@ -194,7 +201,7 @@ public class TheiaCloudOperatorArguments {
     public String getServiceAuthToken() {
         return getServiceAuthTokenWithFallback();
     }
-    
+
     /**
      * @deprecated Use {@link #getServiceAuthToken()} instead. This method is maintained for backwards compatibility.
      * @return the configured service auth token
@@ -251,12 +258,11 @@ public class TheiaCloudOperatorArguments {
     public long getMaxWatchIdleTime() {
         return maxWatchIdleTime;
     }
+
     /**
-     * Gets the number of threads to use for session event handling.
-     * 
-     * If a specific thread count is configured and greater than zero, returns that value.
-     * Otherwise, calculates a default based on the number of available CPU cores,
-     * with a formula of (cores * 2) bounded within the range [4, 32].
+     * Gets the number of threads to use for session event handling. If a specific thread count is configured and
+     * greater than zero, returns that value. Otherwise, calculates a default based on the number of available CPU
+     * cores, with a formula of (cores * 2) bounded within the range [4, 32].
      * 
      * @return the number of session handler threads
      */
@@ -277,36 +283,34 @@ public class TheiaCloudOperatorArguments {
     public String getOAuth2ProxyVersion() {
         return oAuth2ProxyVersion;
     }
-    
+
     /**
-     * Get the service auth token with fallback to deprecated app id argument.
-     * Logs a deprecation warning if the old argument is used.
+     * Get the service auth token with fallback to deprecated app id argument. Logs a deprecation warning if the old
+     * argument is used.
      */
     private String getServiceAuthTokenWithFallback() {
         if (serviceAuthToken != null) {
             return serviceAuthToken;
         }
-        
+
         if (appId != null) {
             Logger logger = Logger.getLogger(TheiaCloudOperatorArguments.class.getName());
-            logger.warning("Using deprecated command line argument '--appId'. " +
-                          "Please migrate to '--serviceAuthToken' in your configuration.");
+            logger.warning("Using deprecated command line argument '--appId'. "
+                    + "Please migrate to '--serviceAuthToken' in your configuration.");
             return appId;
         }
-        
+
         return null;
     }
 
     /**
-     * Validates that required argument combinations are satisfied.
-     * Must be called after argument parsing.
+     * Validates that required argument combinations are satisfied. Must be called after argument parsing.
      *
      * @throws IllegalArgumentException if a caching flag is enabled but its URL is missing
      */
     public void validate() {
         if (enableBuildCaching && (buildCacheUrl == null || buildCacheUrl.trim().isEmpty())) {
-            throw new IllegalArgumentException(
-                    "--buildCacheUrl is required when --enableBuildCaching is set");
+            throw new IllegalArgumentException("--buildCacheUrl is required when --enableBuildCaching is set");
         }
         if (enableDependencyCaching && (dependencyCacheUrl == null || dependencyCacheUrl.trim().isEmpty())) {
             throw new IllegalArgumentException(
@@ -324,6 +328,10 @@ public class TheiaCloudOperatorArguments {
 
     public boolean isEnableBuildCachePush() {
         return enableBuildCachePush;
+    }
+
+    public String getBuildCacheSecretName() {
+        return buildCacheSecretName;
     }
 
     public boolean isEnableDependencyCaching() {
@@ -368,6 +376,7 @@ public class TheiaCloudOperatorArguments {
         result = prime * result + (enableBuildCaching ? 1231 : 1237);
         result = prime * result + ((buildCacheUrl == null) ? 0 : buildCacheUrl.hashCode());
         result = prime * result + (enableBuildCachePush ? 1231 : 1237);
+        result = prime * result + ((buildCacheSecretName == null) ? 0 : buildCacheSecretName.hashCode());
         result = prime * result + (enableDependencyCaching ? 1231 : 1237);
         result = prime * result + ((dependencyCacheUrl == null) ? 0 : dependencyCacheUrl.hashCode());
         return result;
@@ -490,6 +499,11 @@ public class TheiaCloudOperatorArguments {
             return false;
         if (enableBuildCachePush != other.enableBuildCachePush)
             return false;
+        if (buildCacheSecretName == null) {
+            if (other.buildCacheSecretName != null)
+                return false;
+        } else if (!buildCacheSecretName.equals(other.buildCacheSecretName))
+            return false;
         if (enableDependencyCaching != other.enableDependencyCaching)
             return false;
         if (dependencyCacheUrl == null) {
@@ -513,10 +527,10 @@ public class TheiaCloudOperatorArguments {
                 + ", keycloakClientId=" + keycloakClientId + ", leaderLeaseDuration=" + leaderLeaseDuration
                 + ", leaderRenewDeadline=" + leaderRenewDeadline + ", leaderRetryPeriod=" + leaderRetryPeriod
                 + ", maxWatchIdleTime=" + maxWatchIdleTime + ", continueOnException=" + continueOnException
-                + ", oAuth2ProxyVersion=" + oAuth2ProxyVersion + ", enableBuildCaching=" + enableBuildCaching + ", buildCacheUrl="
-                + buildCacheUrl + ", enableBuildCachePush=" + enableBuildCachePush
-                + ", enableDependencyCaching=" + enableDependencyCaching + ", dependencyCacheUrl="
-                + dependencyCacheUrl + "]";
+                + ", oAuth2ProxyVersion=" + oAuth2ProxyVersion + ", enableBuildCaching=" + enableBuildCaching
+                + ", buildCacheUrl=" + buildCacheUrl + ", enableBuildCachePush=" + enableBuildCachePush
+                + ", buildCacheSecretName=" + buildCacheSecretName + ", enableDependencyCaching="
+                + enableDependencyCaching + ", dependencyCacheUrl=" + dependencyCacheUrl + "]";
     }
 
 }

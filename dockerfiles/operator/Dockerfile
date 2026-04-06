@@ -45,12 +45,12 @@ RUN curl -fsSL -o sentry-agent.zip https://github.com/getsentry/sentry-java/rele
     unzip -j sentry-agent.zip -d . && \
     rm sentry-agent.zip
 COPY --from=builder /operator/operator/org.eclipse.theia.cloud.defaultoperator/target/defaultoperator-1.2.0-SNAPSHOT-jar-with-dependencies.jar .
+COPY --from=builder /operator/operator/org.eclipse.theia.cloud.defaultoperator/sentry.properties ./sentry.properties
 
 # If set to true, enables Sentry Java agent flags.
 ENV SENTRY_ENABLE=false
-# Optional path for a mounted Sentry properties file.
-# No file is baked into the image at this path. If it is unset or missing,
-# Sentry starts without `-Dsentry.properties.file` and falls back to defaults/env vars.
+# Default path for the baked-in Sentry properties file.
+# This can still be overridden with a mounted file or env-based config if needed.
 ENV SENTRY_PROPERTIES_FILE=/operator/sentry.properties
 
 RUN cat > /entrypoint.sh <<'EOF_ENTRYPOINT' && chmod +x /entrypoint.sh

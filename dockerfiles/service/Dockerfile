@@ -40,6 +40,7 @@ RUN curl -fsSL -o sentry-agent.zip https://github.com/getsentry/sentry-java/rele
     unzip -j sentry-agent.zip -d . && \
     rm sentry-agent.zip
 COPY --from=builder /service/service/org.eclipse.theia.cloud.service/target/service-1.2.0-SNAPSHOT-runner.jar .
+COPY --from=builder /service/service/org.eclipse.theia.cloud.service/sentry.properties ./sentry.properties
 
 ENV SERVICE_PORT=8081
 
@@ -55,9 +56,8 @@ ENV ADMIN_API_TOKEN=
 
 # If set to true, enables Sentry Java agent flags.
 ENV SENTRY_ENABLE=false
-# Optional path for a mounted Sentry properties file.
-# No file is baked into the image at this path. If it is unset or missing,
-# Sentry starts without `-Dsentry.properties.file` and falls back to defaults/env vars.
+# Default path for the baked-in Sentry properties file.
+# This can still be overridden with a mounted file or env-based config if needed.
 ENV SENTRY_PROPERTIES_FILE=/service/sentry.properties
 
 # Use SERVICE_AUTH_TOKEN if set, otherwise fall back to APPID for backwards compatibility

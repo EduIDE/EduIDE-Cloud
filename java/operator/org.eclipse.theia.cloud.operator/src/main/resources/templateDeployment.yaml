@@ -85,8 +85,8 @@ spec:
             value: placeholder-keycloak-env-clientid
           - name: BUILD_CACHE_ENABLED
             value: placeholder-build-cache-enabled
-          - name: GRADLE_BUILD_CACHE_URL
-            value: placeholder-gradle-build-cache-url
+          - name: BUILD_CACHE_URL
+            value: placeholder-build-cache-url
           - name: BAZEL_BUILD_CACHE_URL
             value: placeholder-bazel-build-cache-url
           - name: BUILD_CACHE_PUSH

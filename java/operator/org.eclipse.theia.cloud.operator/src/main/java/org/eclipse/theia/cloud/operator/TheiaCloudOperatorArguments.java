@@ -134,8 +134,8 @@ public class TheiaCloudOperatorArguments {
             "--enableBuildCaching" }, description = "Whether to enable caching of Theia application builds.", required = false)
     private boolean enableBuildCaching = false;
 
-    @Option(names = { "--gradleBuildCacheUrl" }, description = "The URL of the remote Gradle build cache server.", required = false)
-    private String gradleBuildCacheUrl;
+    @Option(names = { "--buildCacheUrl", "--gradleBuildCacheUrl" }, description = "The URL of the remote Gradle build cache server.", required = false)
+    private String buildCacheUrl;
 
     @Option(names = { "--bazelBuildCacheUrl" }, description = "The URL of the remote Bazel build cache server.", required = false)
     private String bazelBuildCacheUrl;
@@ -308,10 +308,10 @@ public class TheiaCloudOperatorArguments {
      */
     public void validate() {
         if (enableBuildCaching
-                && (gradleBuildCacheUrl == null || gradleBuildCacheUrl.trim().isEmpty())
+                && (buildCacheUrl == null || buildCacheUrl.trim().isEmpty())
                 && (bazelBuildCacheUrl == null || bazelBuildCacheUrl.trim().isEmpty())) {
             throw new IllegalArgumentException(
-                    "At least one of --gradleBuildCacheUrl or --bazelBuildCacheUrl is required when --enableBuildCaching is set");
+                    "At least one of --buildCacheUrl or --bazelBuildCacheUrl is required when --enableBuildCaching is set");
         }
         if (enableDependencyCaching && (dependencyCacheUrl == null || dependencyCacheUrl.trim().isEmpty())) {
             throw new IllegalArgumentException(
@@ -323,8 +323,8 @@ public class TheiaCloudOperatorArguments {
         return enableBuildCaching;
     }
 
-    public String getGradleBuildCacheUrl() {
-        return gradleBuildCacheUrl;
+    public String getBuildCacheUrl() {
+        return buildCacheUrl;
     }
 
     public String getBazelBuildCacheUrl() {
@@ -375,7 +375,7 @@ public class TheiaCloudOperatorArguments {
         result = prime * result + ((wondershaperImage == null) ? 0 : wondershaperImage.hashCode());
         result = prime * result + ((oAuth2ProxyVersion == null) ? 0 : oAuth2ProxyVersion.hashCode());
         result = prime * result + (enableBuildCaching ? 1231 : 1237);
-        result = prime * result + ((gradleBuildCacheUrl == null) ? 0 : gradleBuildCacheUrl.hashCode());
+        result = prime * result + ((buildCacheUrl == null) ? 0 : buildCacheUrl.hashCode());
         result = prime * result + ((bazelBuildCacheUrl == null) ? 0 : bazelBuildCacheUrl.hashCode());
         result = prime * result + (enableBuildCachePush ? 1231 : 1237);
         result = prime * result + (enableDependencyCaching ? 1231 : 1237);
@@ -493,10 +493,10 @@ public class TheiaCloudOperatorArguments {
             return false;
         if (enableBuildCaching != other.enableBuildCaching)
             return false;
-        if (gradleBuildCacheUrl == null) {
-            if (other.gradleBuildCacheUrl != null)
+        if (buildCacheUrl == null) {
+            if (other.buildCacheUrl != null)
                 return false;
-        } else if (!gradleBuildCacheUrl.equals(other.gradleBuildCacheUrl))
+        } else if (!buildCacheUrl.equals(other.buildCacheUrl))
             return false;
         if (bazelBuildCacheUrl == null) {
             if (other.bazelBuildCacheUrl != null)
@@ -529,7 +529,7 @@ public class TheiaCloudOperatorArguments {
                 + ", leaderRenewDeadline=" + leaderRenewDeadline + ", leaderRetryPeriod=" + leaderRetryPeriod
                 + ", maxWatchIdleTime=" + maxWatchIdleTime + ", continueOnException=" + continueOnException
                 + ", oAuth2ProxyVersion=" + oAuth2ProxyVersion + ", enableBuildCaching=" + enableBuildCaching
-                + ", gradleBuildCacheUrl=" + gradleBuildCacheUrl + ", bazelBuildCacheUrl=" + bazelBuildCacheUrl
+                + ", buildCacheUrl=" + buildCacheUrl + ", bazelBuildCacheUrl=" + bazelBuildCacheUrl
                 + ", enableBuildCachePush=" + enableBuildCachePush
                 + ", enableDependencyCaching=" + enableDependencyCaching + ", dependencyCacheUrl="
                 + dependencyCacheUrl + "]";

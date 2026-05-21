@@ -69,14 +69,14 @@ public class DefaultDeploymentTemplateReplacements implements DeploymentTemplate
     public static final String PLACEHOLDER_OAUTH2_PROXY_VERSION = "placeholder-oauth2-proxy-version";
 
     public static final String PLACEHOLDER_ENV_BUILD_CACHE_ENABLED = "placeholder-build-cache-enabled";
-    public static final String PLACEHOLDER_ENV_GRADLE_BUILD_CACHE_URL = "placeholder-gradle-build-cache-url";
+    public static final String PLACEHOLDER_ENV_BUILD_CACHE_URL = "placeholder-build-cache-url";
     public static final String PLACEHOLDER_ENV_BAZEL_BUILD_CACHE_URL = "placeholder-bazel-build-cache-url";
     public static final String PLACEHOLDER_ENV_BUILD_CACHE_PUSH = "placeholder-build-cache-push";
 
     public static final String PLACEHOLDER_ENV_DEPENDENCY_CACHE_ENABLED = "placeholder-dependency-cache-enabled";
     public static final String PLACEHOLDER_ENV_DEPENDENCY_CACHE_URL = "placeholder-dependency-cache-url";
 
-protected static final String DEFAULT_UID = "1000";
+    protected static final String DEFAULT_UID = "1000";
 
     @Inject
     protected TheiaCloudOperatorArguments arguments;
@@ -158,22 +158,22 @@ protected static final String DEFAULT_UID = "1000";
             environmentVariables.put(PLACEHOLDER_ENV_SESSION_KEYCLOAK_CLIENT_ID, "");
         }
 
-        boolean gradleCacheActive = arguments.isEnableBuildCaching() && arguments.getGradleBuildCacheUrl() != null
-                && !arguments.getGradleBuildCacheUrl().trim().isEmpty();
+        boolean gradleCacheActive = arguments.isEnableBuildCaching() && arguments.getBuildCacheUrl() != null
+                && !arguments.getBuildCacheUrl().trim().isEmpty();
         boolean bazelCacheActive = arguments.isEnableBuildCaching() && arguments.getBazelBuildCacheUrl() != null
                 && !arguments.getBazelBuildCacheUrl().trim().isEmpty();
 
         if (gradleCacheActive || bazelCacheActive) {
             environmentVariables.put(PLACEHOLDER_ENV_BUILD_CACHE_ENABLED, "true");
-            environmentVariables.put(PLACEHOLDER_ENV_GRADLE_BUILD_CACHE_URL,
-                    gradleCacheActive ? arguments.getGradleBuildCacheUrl().trim() : "");
+            environmentVariables.put(PLACEHOLDER_ENV_BUILD_CACHE_URL,
+                    gradleCacheActive ? arguments.getBuildCacheUrl().trim() : "");
             environmentVariables.put(PLACEHOLDER_ENV_BAZEL_BUILD_CACHE_URL,
                     bazelCacheActive ? arguments.getBazelBuildCacheUrl().trim() : "");
             environmentVariables.put(PLACEHOLDER_ENV_BUILD_CACHE_PUSH,
                     arguments.isEnableBuildCachePush() ? "true" : "false");
         } else {
             environmentVariables.put(PLACEHOLDER_ENV_BUILD_CACHE_ENABLED, "false");
-            environmentVariables.put(PLACEHOLDER_ENV_GRADLE_BUILD_CACHE_URL, "");
+            environmentVariables.put(PLACEHOLDER_ENV_BUILD_CACHE_URL, "");
             environmentVariables.put(PLACEHOLDER_ENV_BAZEL_BUILD_CACHE_URL, "");
             environmentVariables.put(PLACEHOLDER_ENV_BUILD_CACHE_PUSH, "false");
         }

@@ -116,6 +116,9 @@ jobs:
             eslint-theia-${{ runner.os }}-${{ hashFiles('theia/yarn.lock', 'theia/package.json', 'theia/*/package.json', 'theia/*/*/package.json', 'theia/.eslintrc.js') }}-
             eslint-theia-${{ runner.os }}-
 
+      - name: Install native build dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libsecret-1-dev
+
       - name: Install dependencies
         run: yarn install --frozen-lockfile --ignore-scripts --network-timeout 600000
 

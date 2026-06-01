@@ -52,8 +52,80 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  lint-node:
+    name: ESLint Node packages
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: node
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            node/package-lock.json
+            node/monitor/package-lock.json
+
+      - name: Restore ESLint cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            node/**/.eslintcache
+          key: eslint-node-${{ runner.os }}-${{ hashFiles('node/package-lock.json', 'node/monitor/package-lock.json', 'node/**/*.js', 'node/**/*.json') }}-${{ github.sha }}
+          restore-keys: |
+            eslint-node-${{ runner.os }}-${{ hashFiles('node/package-lock.json', 'node/monitor/package-lock.json', 'node/**/*.js', 'node/**/*.json') }}-
+            eslint-node-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm ci --prefix monitor
+
+      - name: Run ESLint
+        run: npm run lint
+
+  lint-theia:
+    name: ESLint Theia extensions
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: theia
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: yarn
+          cache-dependency-path: theia/yarn.lock
+
+      - name: Restore ESLint cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            theia/**/.eslintcache
+          key: eslint-theia-${{ runner.os }}-${{ hashFiles('theia/yarn.lock', 'theia/package.json', 'theia/*/package.json', 'theia/*/*/package.json', 'theia/.eslintrc.js') }}-${{ github.sha }}
+          restore-keys: |
+            eslint-theia-${{ runner.os }}-${{ hashFiles('theia/yarn.lock', 'theia/package.json', 'theia/*/package.json', 'theia/*/*/package.json', 'theia/.eslintrc.js') }}-
+            eslint-theia-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile --ignore-scripts --network-timeout 600000
+
+      - name: Run ESLint
+        run: yarn lint
 
   build-and-push-operator:
+    needs:
+      - lint-node
+      - lint-theia
     uses: ls1intum/.github/.github/workflows/build-and-push-docker-image.yml@feature/split-build-workflow-modes
     with:
       docker-file: dockerfiles/operator/Dockerfile
@@ -72,6 +144,9 @@ jobs:
       docker-secrets: ${{ secrets.SENTRY_AUTH_TOKEN != '' && format('SENTRY_AUTH_TOKEN={0}', secrets.SENTRY_AUTH_TOKEN) || '' }}
 
   build-and-push-service:
+    needs:
+      - lint-node
+      - lint-theia
     uses: ls1intum/.github/.github/workflows/build-and-push-docker-image.yml@feature/split-build-workflow-modes
     with:
       docker-file: dockerfiles/service/Dockerfile
@@ -90,6 +165,9 @@ jobs:
       docker-secrets: ${{ secrets.SENTRY_AUTH_TOKEN != '' && format('SENTRY_AUTH_TOKEN={0}', secrets.SENTRY_AUTH_TOKEN) || '' }}
 
   build-and-push-conversion-webhook:
+    needs:
+      - lint-node
+      - lint-theia
     uses: ls1intum/.github/.github/workflows/build-and-push-docker-image.yml@feature/split-build-workflow-modes
     with:
       docker-file: dockerfiles/conversion-webhook/Dockerfile

@@ -34,7 +34,7 @@
     "build": "npm install && npm run webpack",
     "webpack": "webpack --mode development",
     "webpack-dev": "webpack --mode development --watch",
-    "lint": "eslint -c ../.eslintrc.js --ext .ts ./src",
+    "lint": "eslint -c ../.eslintrc.js --cache --cache-location .eslintcache --ext .ts ./src",
     "build:vsix": "npm install && vsce package --allow-star-activation --skip-license",
     "update:demo:monitor": "npm run build:vsix && rm ../../demo/dockerfiles/demo-theia-monitor-vscode/*vsix && mv *.vsix ../../demo/dockerfiles/demo-theia-monitor-vscode"
   },

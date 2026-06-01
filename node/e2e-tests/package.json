@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "build": "tsc && npx playwright install chromium",
-    "lint": "eslint -c ../.eslintrc.js --ext .ts ./src",
+    "lint": "eslint -c ../.eslintrc.js --cache --cache-location .eslintcache --ext .ts ./src",
     "ui-tests": "npm run build && playwright test --config=./configs/playwright.config.ts"
   },
   "dependencies": {

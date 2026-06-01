@@ -17,4 +17,5 @@ openapitools.json
 # Build artifacts
 target/
 node_modules
+**/.eslintcache
 node/e2e-tests/test-results/.last-run.json

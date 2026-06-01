@@ -22,7 +22,7 @@
     "prepare": "yarn run clean && yarn run build",
     "clean": "rimraf lib",
     "build": "tsc",
-    "lint": "eslint -c ../../.eslintrc.js --ext .ts ./src",
+    "lint": "eslint -c ../../.eslintrc.js --cache --cache-location .eslintcache --ext .ts ./src",
     "watch": "tsc -w"
   },
   "theiaExtensions": [

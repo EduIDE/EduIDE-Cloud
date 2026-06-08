@@ -134,8 +134,11 @@ public class TheiaCloudOperatorArguments {
             "--enableBuildCaching" }, description = "Whether to enable caching of Theia application builds.", required = false)
     private boolean enableBuildCaching = false;
 
-    @Option(names = { "--buildCacheUrl" }, description = "The URL of the remote build cache server.", required = false)
+    @Option(names = { "--buildCacheUrl", "--gradleBuildCacheUrl" }, description = "The URL of the remote Gradle build cache server.", required = false)
     private String buildCacheUrl;
+
+    @Option(names = { "--bazelBuildCacheUrl" }, description = "The URL of the remote Bazel build cache server.", required = false)
+    private String bazelBuildCacheUrl;
 
     @Option(names = {
             "--enableBuildCachePush" }, description = "Whether sessions are allowed to push to the build cache.", required = false)
@@ -304,9 +307,11 @@ public class TheiaCloudOperatorArguments {
      * @throws IllegalArgumentException if a caching flag is enabled but its URL is missing
      */
     public void validate() {
-        if (enableBuildCaching && (buildCacheUrl == null || buildCacheUrl.trim().isEmpty())) {
+        if (enableBuildCaching
+                && (buildCacheUrl == null || buildCacheUrl.trim().isEmpty())
+                && (bazelBuildCacheUrl == null || bazelBuildCacheUrl.trim().isEmpty())) {
             throw new IllegalArgumentException(
-                    "--buildCacheUrl is required when --enableBuildCaching is set");
+                    "At least one of --buildCacheUrl or --bazelBuildCacheUrl is required when --enableBuildCaching is set");
         }
         if (enableDependencyCaching && (dependencyCacheUrl == null || dependencyCacheUrl.trim().isEmpty())) {
             throw new IllegalArgumentException(
@@ -320,6 +325,10 @@ public class TheiaCloudOperatorArguments {
 
     public String getBuildCacheUrl() {
         return buildCacheUrl;
+    }
+
+    public String getBazelBuildCacheUrl() {
+        return bazelBuildCacheUrl;
     }
 
     public boolean isEnableBuildCachePush() {
@@ -367,6 +376,7 @@ public class TheiaCloudOperatorArguments {
         result = prime * result + ((oAuth2ProxyVersion == null) ? 0 : oAuth2ProxyVersion.hashCode());
         result = prime * result + (enableBuildCaching ? 1231 : 1237);
         result = prime * result + ((buildCacheUrl == null) ? 0 : buildCacheUrl.hashCode());
+        result = prime * result + ((bazelBuildCacheUrl == null) ? 0 : bazelBuildCacheUrl.hashCode());
         result = prime * result + (enableBuildCachePush ? 1231 : 1237);
         result = prime * result + (enableDependencyCaching ? 1231 : 1237);
         result = prime * result + ((dependencyCacheUrl == null) ? 0 : dependencyCacheUrl.hashCode());
@@ -488,6 +498,11 @@ public class TheiaCloudOperatorArguments {
                 return false;
         } else if (!buildCacheUrl.equals(other.buildCacheUrl))
             return false;
+        if (bazelBuildCacheUrl == null) {
+            if (other.bazelBuildCacheUrl != null)
+                return false;
+        } else if (!bazelBuildCacheUrl.equals(other.bazelBuildCacheUrl))
+            return false;
         if (enableBuildCachePush != other.enableBuildCachePush)
             return false;
         if (enableDependencyCaching != other.enableDependencyCaching)
@@ -513,8 +528,9 @@ public class TheiaCloudOperatorArguments {
                 + ", keycloakClientId=" + keycloakClientId + ", leaderLeaseDuration=" + leaderLeaseDuration
                 + ", leaderRenewDeadline=" + leaderRenewDeadline + ", leaderRetryPeriod=" + leaderRetryPeriod
                 + ", maxWatchIdleTime=" + maxWatchIdleTime + ", continueOnException=" + continueOnException
-                + ", oAuth2ProxyVersion=" + oAuth2ProxyVersion + ", enableBuildCaching=" + enableBuildCaching + ", buildCacheUrl="
-                + buildCacheUrl + ", enableBuildCachePush=" + enableBuildCachePush
+                + ", oAuth2ProxyVersion=" + oAuth2ProxyVersion + ", enableBuildCaching=" + enableBuildCaching
+                + ", buildCacheUrl=" + buildCacheUrl + ", bazelBuildCacheUrl=" + bazelBuildCacheUrl
+                + ", enableBuildCachePush=" + enableBuildCachePush
                 + ", enableDependencyCaching=" + enableDependencyCaching + ", dependencyCacheUrl="
                 + dependencyCacheUrl + "]";
     }

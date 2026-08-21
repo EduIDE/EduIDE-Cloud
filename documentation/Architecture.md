@@ -2,6 +2,8 @@
 
 The Theia Cloud Operator listens for changes to custom resources inside the cluster. With those custom resources clients may trigger the creation/deletion/handling of workspaces and sessions. The Operator is responsible for handling all things that are related to the Kubernetes-Resources for workspaces and sessions. All access is authenticated via an Authenticator.
 
+External systems (product UI or integration) launch sessions by calling the REST service. See [External Session Launch Integration](./ExternalIntegration.md) for the launch contract and how launch data reaches the session container.
+
 ![Theia Cloud Diagram](theia-cloud.png "Theia Cloud")
 
 ## Operator Java Overview

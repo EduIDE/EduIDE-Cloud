@@ -235,7 +235,7 @@ public class LazySessionHandler implements SessionHandler {
         Tracing.finishSuccess(internalServiceSpan);
 
         // Create configmaps (if using Keycloak)
-        if (arguments.isUseKeycloak()) {
+        if (arguments.isUseOAuth2Proxy()) {
             ISpan configMapSpan = Tracing.childSpan(span, "lazy.create_configmaps", "Create OAuth2 configmaps");
             List<ConfigMap> existingConfigMaps = K8sUtil.getExistingConfigMaps(
                     client.kubernetes(), client.namespace(), sessionResourceName, sessionResourceUID);

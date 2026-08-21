@@ -85,7 +85,7 @@ public class K8sResourceFactory {
         Map<String, String> replacements = TheiaCloudServiceUtil.getServiceReplacements(client.namespace(), appDef,
                 instance);
 
-        String template = arguments.isUseKeycloak() ? AddedHandlerUtil.TEMPLATE_SERVICE_YAML
+        String template = arguments.isUseOAuth2Proxy() ? AddedHandlerUtil.TEMPLATE_SERVICE_YAML
                 : AddedHandlerUtil.TEMPLATE_SERVICE_WITHOUT_AOUTH2_PROXY_YAML;
 
         Map<String, String> labelsWithGeneration = addGenerationLabel(labels, appDef);
@@ -121,7 +121,7 @@ public class K8sResourceFactory {
         Map<String, String> replacements = TheiaCloudServiceUtil.getServiceReplacements(client.namespace(), session,
                 appDef.getSpec());
 
-        String template = arguments.isUseKeycloak() ? AddedHandlerUtil.TEMPLATE_SERVICE_YAML
+        String template = arguments.isUseOAuth2Proxy() ? AddedHandlerUtil.TEMPLATE_SERVICE_YAML
                 : AddedHandlerUtil.TEMPLATE_SERVICE_WITHOUT_AOUTH2_PROXY_YAML;
 
         return createService(template, replacements, OwnerContext.of(session.getMetadata().getName(),
@@ -158,7 +158,7 @@ public class K8sResourceFactory {
 
         Map<String, String> replacements = deploymentReplacements.getReplacements(client.namespace(), appDef, instance);
 
-        String template = arguments.isUseKeycloak() ? AddedHandlerUtil.TEMPLATE_DEPLOYMENT_YAML
+        String template = arguments.isUseOAuth2Proxy() ? AddedHandlerUtil.TEMPLATE_DEPLOYMENT_YAML
                 : AddedHandlerUtil.TEMPLATE_DEPLOYMENT_WITHOUT_AOUTH2_PROXY_YAML;
 
         Map<String, String> labelsWithGeneration = addGenerationLabel(labels, appDef);
@@ -184,7 +184,7 @@ public class K8sResourceFactory {
 
         Map<String, String> replacements = deploymentReplacements.getReplacements(client.namespace(), appDef, session);
 
-        String template = arguments.isUseKeycloak() ? AddedHandlerUtil.TEMPLATE_DEPLOYMENT_YAML
+        String template = arguments.isUseOAuth2Proxy() ? AddedHandlerUtil.TEMPLATE_DEPLOYMENT_YAML
                 : AddedHandlerUtil.TEMPLATE_DEPLOYMENT_WITHOUT_AOUTH2_PROXY_YAML;
 
         return createDeployment(template, replacements, OwnerContext.of(session.getMetadata().getName(),

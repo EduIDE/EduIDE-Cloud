@@ -222,7 +222,7 @@ public class PrewarmedResourcePool {
             }
 
             // Create missing configmaps (if using Keycloak)
-            if (arguments.isUseKeycloak()) {
+            if (arguments.isUseOAuth2Proxy()) {
                 List<ConfigMap> proxyConfigMaps = existingConfigMaps.stream().filter(
                         cm -> "proxy".equals(cm.getMetadata().getLabels().get("theia-cloud.io/template-purpose")))
                         .collect(Collectors.toList());
@@ -393,7 +393,7 @@ public class PrewarmedResourcePool {
             serviceSpan.finish();
 
             // Reconcile configmaps (if using Keycloak)
-            if (arguments.isUseKeycloak()) {
+            if (arguments.isUseOAuth2Proxy()) {
                 ISpan cmSpan = span.startChild("pool.reconcile_configmaps", "Reconcile configmaps");
                 List<ConfigMap> existingConfigMaps = K8sUtil.getExistingConfigMaps(client.kubernetes(),
                         client.namespace(), ownerName, ownerUID);
@@ -675,7 +675,7 @@ public class PrewarmedResourcePool {
         resourceFactory.createServiceForEagerInstance(appDef, instanceId, labels, correlationId);
         resourceFactory.createInternalServiceForEagerInstance(appDef, instanceId, labels, correlationId);
 
-        if (arguments.isUseKeycloak()) {
+        if (arguments.isUseOAuth2Proxy()) {
             resourceFactory.createProxyConfigMapForEagerInstance(appDef, instanceId, labels, correlationId);
             resourceFactory.createEmailConfigMapForEagerInstance(appDef, instanceId, labels, correlationId);
         }
@@ -954,7 +954,7 @@ public class PrewarmedResourcePool {
             }
 
             // Configure email config (if using Keycloak)
-            if (arguments.isUseKeycloak()) {
+            if (arguments.isUseOAuth2Proxy()) {
                 ISpan emailSpan = span.startChild("pool.configure_email", "Configure email config");
                 String emailConfigName = TheiaCloudConfigMapUtil.getEmailConfigName(appDef, instance.getInstanceId());
                 try {
@@ -1065,7 +1065,7 @@ public class PrewarmedResourcePool {
             }
 
             // Clear email config
-            if (arguments.isUseKeycloak()) {
+            if (arguments.isUseOAuth2Proxy()) {
                 ISpan emailSpan = span.startChild("pool.clear_email_config", "Clear email config");
                 String emailConfigName = TheiaCloudConfigMapUtil.getEmailConfigName(appDef, instanceId);
                 try {

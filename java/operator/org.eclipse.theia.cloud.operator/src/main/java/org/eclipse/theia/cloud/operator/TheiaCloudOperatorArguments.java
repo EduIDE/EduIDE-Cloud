@@ -32,6 +32,9 @@ public class TheiaCloudOperatorArguments {
     @Option(names = { "--keycloak" }, description = "Whether to use keycloak", required = false)
     private boolean useKeycloak;
 
+    @Option(names = { "--gitea" }, description = "Whether to use generic OIDC (Gitea)", required = false)
+    private boolean useGitea;
+
     @Option(names = { "--eagerStart" }, description = "Whether sessions shall be started early.", required = false)
     private boolean eagerStart;
 
@@ -153,6 +156,17 @@ public class TheiaCloudOperatorArguments {
 
     public boolean isUseKeycloak() {
         return useKeycloak;
+    }
+
+    public boolean isUseGitea() {
+        return useGitea;
+    }
+
+    /**
+     * @return whether any OAuth2-proxy based authentication provider is enabled (keycloak or gitea).
+     */
+    public boolean isUseOAuth2Proxy() {
+        return useKeycloak || useGitea;
     }
 
     public boolean isEagerStart() {
@@ -371,6 +385,7 @@ public class TheiaCloudOperatorArguments {
         result = prime * result + ((sessionsPerUser == null) ? 0 : sessionsPerUser.hashCode());
         result = prime * result + ((storageClassName == null) ? 0 : storageClassName.hashCode());
         result = prime * result + (useKeycloak ? 1231 : 1237);
+        result = prime * result + (useGitea ? 1231 : 1237);
         result = prime * result + (usePaths ? 1231 : 1237);
         result = prime * result + ((wondershaperImage == null) ? 0 : wondershaperImage.hashCode());
         result = prime * result + ((oAuth2ProxyVersion == null) ? 0 : oAuth2ProxyVersion.hashCode());
@@ -479,6 +494,8 @@ public class TheiaCloudOperatorArguments {
             return false;
         if (useKeycloak != other.useKeycloak)
             return false;
+        if (useGitea != other.useGitea)
+            return false;
         if (usePaths != other.usePaths)
             return false;
         if (wondershaperImage == null) {
@@ -517,7 +534,8 @@ public class TheiaCloudOperatorArguments {
 
     @Override
     public String toString() {
-        return "TheiaCloudArguments [useKeycloak=" + useKeycloak + ", eagerStart=" + eagerStart + ", enableMonitor="
+        return "TheiaCloudArguments [useKeycloak=" + useKeycloak + ", useGitea=" + useGitea + ", eagerStart="
+                + eagerStart + ", enableMonitor="
                 + enableMonitor + ", enableActivityTracker=" + enableActivityTracker + ", monitorInterval="
                 + monitorInterval + ", cloudProvider=" + cloudProvider + ", bandwidthLimiter=" + bandwidthLimiter
                 + ", wondershaperImage=" + wondershaperImage + ", serviceUrl=" + serviceUrl + ", sessionsPerUser="

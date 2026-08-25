@@ -1,4 +1,5 @@
 FROM eclipse-temurin:21-jdk AS builder
+ARG APP_VERSION=1.2.0-SNAPSHOT
 # Accept APT_HTTP_PROXY build-arg for caching
 ARG APT_HTTP_PROXY
 # Configure apt proxy if provided (hybrid: works on ARC and GitHub runners)
@@ -27,15 +28,16 @@ RUN --mount=type=secret,id=SENTRY_AUTH_TOKEN \
       echo "No SENTRY_AUTH_TOKEN provided, skipping Sentry build integration"; \
     fi && \
     cd /operator/common/maven-conf && \
-    mvn clean install --no-transfer-progress $MAVEN_SENTRY_ARGS && \
+    mvn clean install --no-transfer-progress -Drevision=${APP_VERSION} $MAVEN_SENTRY_ARGS && \
     cd /operator/common/org.eclipse.theia.cloud.common && \
-    mvn clean install --no-transfer-progress $MAVEN_SENTRY_ARGS && \
+    mvn clean install --no-transfer-progress -Drevision=${APP_VERSION} $MAVEN_SENTRY_ARGS && \
     cd /operator/operator/org.eclipse.theia.cloud.operator && \
-    mvn clean install --no-transfer-progress $MAVEN_SENTRY_ARGS && \
+    mvn clean install --no-transfer-progress -Drevision=${APP_VERSION} $MAVEN_SENTRY_ARGS && \
     cd /operator/operator/org.eclipse.theia.cloud.defaultoperator && \
-    mvn clean verify --no-transfer-progress $MAVEN_SENTRY_ARGS
+    mvn clean verify --no-transfer-progress -Drevision=${APP_VERSION} $MAVEN_SENTRY_ARGS
 
 FROM eclipse-temurin:21-jre-alpine
+ARG APP_VERSION=1.2.0-SNAPSHOT
 RUN apk add --no-cache curl unzip
 RUN mkdir /templates
 WORKDIR /log-config
@@ -44,7 +46,7 @@ WORKDIR /operator
 RUN curl -fsSL -o sentry-agent.zip https://github.com/getsentry/sentry-java/releases/download/8.29.0/sentry-opentelemetry-agent-8.29.0.zip && \
     unzip -j sentry-agent.zip -d . && \
     rm sentry-agent.zip
-COPY --from=builder /operator/operator/org.eclipse.theia.cloud.defaultoperator/target/defaultoperator-1.2.0-SNAPSHOT-jar-with-dependencies.jar .
+COPY --from=builder /operator/operator/org.eclipse.theia.cloud.defaultoperator/target/defaultoperator-${APP_VERSION}-jar-with-dependencies.jar ./operator.jar
 COPY --from=builder /operator/operator/org.eclipse.theia.cloud.defaultoperator/sentry.properties ./sentry.properties
 
 # If set to true, enables Sentry Java agent flags.
@@ -67,7 +69,7 @@ fi
 
 exec java $JAVA_OPTS \
   -Dlog4j2.configurationFile=/log-config/log4j2.xml \
-  -jar ./defaultoperator-1.2.0-SNAPSHOT-jar-with-dependencies.jar \
+  -jar ./operator.jar \
   "$@"
 EOF_ENTRYPOINT
 

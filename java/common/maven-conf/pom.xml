@@ -5,12 +5,14 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>org.eclipse.theia.cloud</groupId>
     <artifactId>conf</artifactId>
-    <version>1.2.0-SNAPSHOT</version>
+    <version>${revision}</version>
     <packaging>pom</packaging>
     <name>Theia Cloud Maven Configuration</name>
     <description>Common properties and configuration</description>
 
     <properties>
+        <!-- CI overrides this: mvn -Drevision=2.3.0 -->
+        <revision>1.2.0-SNAPSHOT</revision>
         <failsafe.useModulePath>false</failsafe.useModulePath>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
@@ -41,6 +43,39 @@
             </snapshots>
         </pluginRepository>
     </pluginRepositories>
+
+    <build>
+        <plugins>
+            <!--
+              Required by the ${revision} versioning above. Without it the pom
+              installed into the local repository still contains the literal
+              ${revision}, and the next module cannot resolve this parent.
+              resolveCiFriendliesOnly rewrites only revision/sha1/changelist
+              and leaves the rest of the pom untouched.
+            -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>flatten-maven-plugin</artifactId>
+                <version>1.6.0</version>
+                <configuration>
+                    <updatePomFile>true</updatePomFile>
+                    <flattenMode>resolveCiFriendliesOnly</flattenMode>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>flatten</id>
+                        <phase>process-resources</phase>
+                        <goals><goal>flatten</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>flatten.clean</id>
+                        <phase>clean</phase>
+                        <goals><goal>clean</goal></goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 
     <profiles>
         <profile>

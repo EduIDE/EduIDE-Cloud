@@ -55,6 +55,10 @@ jobs:
       image-name: eduide/eduide-cloud/${{ matrix.component }}
       docker-context: .
       image-tag: ${{ github.event_name == 'release' && github.event.release.tag_name || github.event_name == 'workflow_dispatch' && inputs.image_tag || '' }}
+      # The Java build stamps the version into the jar manifest, so the version
+      # inside the image should match the tag on the outside. The shared workflow
+      # derives the tag (stripping any leading v) and passes it as APP_VERSION.
+      stamp-app-version: true
       no-cache: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.disable_layer_cache) || false }}
       # These are small Java images; the disk-reclaim step is not worth the time.
       free-disk-space: false

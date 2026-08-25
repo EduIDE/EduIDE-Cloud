@@ -1,4 +1,5 @@
 FROM eclipse-temurin:21-jdk AS builder
+ARG APP_VERSION=1.2.0-SNAPSHOT
 # Accept APT_HTTP_PROXY build-arg for caching
 ARG APT_HTTP_PROXY
 # Configure apt proxy if provided (hybrid: works on ARC and GitHub runners)
@@ -27,19 +28,20 @@ RUN --mount=type=secret,id=SENTRY_AUTH_TOKEN \
       echo "No SENTRY_AUTH_TOKEN provided, skipping Sentry build integration"; \
     fi && \
     cd /service/common/maven-conf && \
-    mvn clean install --no-transfer-progress $MAVEN_SENTRY_ARGS && \
+    mvn clean install --no-transfer-progress -Drevision=${APP_VERSION} $MAVEN_SENTRY_ARGS && \
     cd /service/common/org.eclipse.theia.cloud.common && \
-    mvn clean install --no-transfer-progress $MAVEN_SENTRY_ARGS && \
+    mvn clean install --no-transfer-progress -Drevision=${APP_VERSION} $MAVEN_SENTRY_ARGS && \
     cd /service/service/org.eclipse.theia.cloud.service && \
-    mvn clean package -Dmaven.test.skip=true -Dquarkus.package.type=uber-jar --no-transfer-progress $MAVEN_SENTRY_ARGS
+    mvn clean package -Drevision=${APP_VERSION} -Dmaven.test.skip=true -Dquarkus.package.type=uber-jar --no-transfer-progress $MAVEN_SENTRY_ARGS
 
 FROM eclipse-temurin:21-jre-alpine
+ARG APP_VERSION=1.2.0-SNAPSHOT
 RUN apk add --no-cache curl unzip
 WORKDIR /service
 RUN curl -fsSL -o sentry-agent.zip https://github.com/getsentry/sentry-java/releases/download/8.29.0/sentry-opentelemetry-agent-8.29.0.zip && \
     unzip -j sentry-agent.zip -d . && \
     rm sentry-agent.zip
-COPY --from=builder /service/service/org.eclipse.theia.cloud.service/target/service-1.2.0-SNAPSHOT-runner.jar .
+COPY --from=builder /service/service/org.eclipse.theia.cloud.service/target/service-${APP_VERSION}-runner.jar ./service.jar
 COPY --from=builder /service/service/org.eclipse.theia.cloud.service/sentry.properties ./sentry.properties
 
 ENV SERVICE_PORT=8081
@@ -84,7 +86,7 @@ exec java $JAVA_OPTS \
   -Dquarkus.oidc.auth-server-url="${KEYCLOAK_SERVERURL}" \
   -Dquarkus.oidc.client-id="${KEYCLOAK_CLIENTID}" \
   -Dquarkus.oidc.credentials.secret="${KEYCLOAK_CLIENTSECRET}" \
-  -jar ./service-1.2.0-SNAPSHOT-runner.jar \
+  -jar ./service.jar \
   "$@"
 EOF_ENTRYPOINT
 

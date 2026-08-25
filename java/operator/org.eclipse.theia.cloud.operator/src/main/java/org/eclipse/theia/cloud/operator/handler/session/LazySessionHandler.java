@@ -256,8 +256,11 @@ public class LazySessionHandler implements SessionHandler {
                 LOGGER.warn(formatLogMessage(correlationId,
                         "Failed to create one or more OAuth2-proxy configmaps for the session; "
                                 + "the session may start without working authentication."));
+                configMapSpan.setTag("outcome", "configmap_creation_failed");
+                Tracing.finish(configMapSpan, SpanStatus.INTERNAL_ERROR);
+            } else {
+                Tracing.finishSuccess(configMapSpan);
             }
-            Tracing.finishSuccess(configMapSpan);
         }
 
         // Check for existing deployment (idempotency)

@@ -539,7 +539,7 @@ public class TheiaCloudOperatorArguments {
                 + enableMonitor + ", enableActivityTracker=" + enableActivityTracker + ", monitorInterval="
                 + monitorInterval + ", cloudProvider=" + cloudProvider + ", bandwidthLimiter=" + bandwidthLimiter
                 + ", wondershaperImage=" + wondershaperImage + ", serviceUrl=" + serviceUrl + ", sessionsPerUser="
-                + sessionsPerUser + ", serviceAuthToken=" + serviceAuthToken + ", appId=" + appId + ", instancesHost="
+                + sessionsPerUser + ", serviceAuthToken=***, appId=***, instancesHost="
                 + instancesHost + ", usePaths=" + usePaths + ", instancesPath=" + instancesPath + ", storageClassName="
                 + storageClassName + ", requestedStorage=" + requestedStorage + ", sessionHandlerThreads="
                 + sessionHandlerThreads + ", keycloakURL=" + keycloakURL + ", keycloakRealm=" + keycloakRealm

@@ -234,7 +234,7 @@ public class LazySessionHandler implements SessionHandler {
         }
         Tracing.finishSuccess(internalServiceSpan);
 
-        // Create configmaps (if using Keycloak)
+        // Create configmaps (if an OAuth2-proxy auth provider is enabled, i.e. Keycloak or Gitea)
         if (arguments.isUseOAuth2Proxy()) {
             ISpan configMapSpan = Tracing.childSpan(span, "lazy.create_configmaps", "Create OAuth2 configmaps");
             List<ConfigMap> existingConfigMaps = K8sUtil.getExistingConfigMaps(
@@ -248,8 +248,15 @@ public class LazySessionHandler implements SessionHandler {
                 Tracing.finish(span, SpanStatus.OK);
                 return true;
             }
-            resourceFactory.createEmailConfigMapForLazySession(session, labels, correlationId);
-            resourceFactory.createProxyConfigMapForLazySession(session, appDef, labels, correlationId);
+            Optional<ConfigMap> emailConfigMap = resourceFactory.createEmailConfigMapForLazySession(session, labels,
+                    correlationId);
+            Optional<ConfigMap> proxyConfigMap = resourceFactory.createProxyConfigMapForLazySession(session, appDef,
+                    labels, correlationId);
+            if (emailConfigMap.isEmpty() || proxyConfigMap.isEmpty()) {
+                LOGGER.warn(formatLogMessage(correlationId,
+                        "Failed to create one or more OAuth2-proxy configmaps for the session; "
+                                + "the session may start without working authentication."));
+            }
             Tracing.finishSuccess(configMapSpan);
         }
 

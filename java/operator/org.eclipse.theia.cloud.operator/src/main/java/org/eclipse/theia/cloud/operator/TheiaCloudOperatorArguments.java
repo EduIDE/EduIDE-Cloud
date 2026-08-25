@@ -166,7 +166,7 @@ public class TheiaCloudOperatorArguments {
      * @return whether any OAuth2-proxy based authentication provider is enabled (keycloak or gitea).
      */
     public boolean isUseOAuth2Proxy() {
-        return useKeycloak || useGitea;
+        return isUseKeycloak() || isUseGitea();
     }
 
     public boolean isEagerStart() {
@@ -534,7 +534,7 @@ public class TheiaCloudOperatorArguments {
 
     @Override
     public String toString() {
-        return "TheiaCloudArguments [useKeycloak=" + useKeycloak + ", useGitea=" + useGitea + ", eagerStart="
+        return "TheiaCloudOperatorArguments [useKeycloak=" + useKeycloak + ", useGitea=" + useGitea + ", eagerStart="
                 + eagerStart + ", enableMonitor="
                 + enableMonitor + ", enableActivityTracker=" + enableActivityTracker + ", monitorInterval="
                 + monitorInterval + ", cloudProvider=" + cloudProvider + ", bandwidthLimiter=" + bandwidthLimiter

@@ -221,7 +221,7 @@ public class PrewarmedResourcePool {
                 Tracing.finish(serviceSpan, failed == 0 ? SpanStatus.OK : SpanStatus.INTERNAL_ERROR);
             }
 
-            // Create missing configmaps (if using Keycloak)
+            // Create missing configmaps (if an OAuth2-proxy auth provider is enabled, i.e. Keycloak or Gitea)
             if (arguments.isUseOAuth2Proxy()) {
                 List<ConfigMap> proxyConfigMaps = existingConfigMaps.stream().filter(
                         cm -> "proxy".equals(cm.getMetadata().getLabels().get("theia-cloud.io/template-purpose")))
@@ -392,7 +392,7 @@ public class PrewarmedResourcePool {
             serviceSpan.setTag("had_changes", (created + deleted + recreated) > 0 ? "true" : "false");
             serviceSpan.finish();
 
-            // Reconcile configmaps (if using Keycloak)
+            // Reconcile configmaps (if an OAuth2-proxy auth provider is enabled, i.e. Keycloak or Gitea)
             if (arguments.isUseOAuth2Proxy()) {
                 ISpan cmSpan = span.startChild("pool.reconcile_configmaps", "Reconcile configmaps");
                 List<ConfigMap> existingConfigMaps = K8sUtil.getExistingConfigMaps(client.kubernetes(),
@@ -676,8 +676,15 @@ public class PrewarmedResourcePool {
         resourceFactory.createInternalServiceForEagerInstance(appDef, instanceId, labels, correlationId);
 
         if (arguments.isUseOAuth2Proxy()) {
-            resourceFactory.createProxyConfigMapForEagerInstance(appDef, instanceId, labels, correlationId);
-            resourceFactory.createEmailConfigMapForEagerInstance(appDef, instanceId, labels, correlationId);
+            Optional<ConfigMap> proxyConfigMap = resourceFactory.createProxyConfigMapForEagerInstance(appDef, instanceId,
+                    labels, correlationId);
+            Optional<ConfigMap> emailConfigMap = resourceFactory.createEmailConfigMapForEagerInstance(appDef, instanceId,
+                    labels, correlationId);
+            if (proxyConfigMap.isEmpty() || emailConfigMap.isEmpty()) {
+                LOGGER.warn(formatLogMessage(correlationId,
+                        "Failed to create one or more OAuth2-proxy configmaps for eager instance " + instanceId
+                                + "; instances may start without working authentication."));
+            }
         }
 
         Optional<String> pvcName = createInstancePvc(appDef, instanceId, correlationId);
@@ -953,7 +960,7 @@ public class PrewarmedResourcePool {
                 return false;
             }
 
-            // Configure email config (if using Keycloak)
+            // Configure email config (if an OAuth2-proxy auth provider is enabled, i.e. Keycloak or Gitea)
             if (arguments.isUseOAuth2Proxy()) {
                 ISpan emailSpan = span.startChild("pool.configure_email", "Configure email config");
                 String emailConfigName = TheiaCloudConfigMapUtil.getEmailConfigName(appDef, instance.getInstanceId());

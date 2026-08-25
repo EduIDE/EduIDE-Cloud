@@ -64,7 +64,7 @@ The response body is the session URL as plain text.
 
 External callers outside the cluster pass values via `fromMap`. Prefer `fromSecrets` for sensitive values that are already held as Kubernetes Secrets in the cluster.
 
-The EduIDE env-var keys the landing page sends via `fromMap` are `THEIA`, `GIT_URI`, `GIT_USER`, `GIT_MAIL`, `ARTEMIS_TOKEN`, `ARTEMIS_URL`, and `TEMPLATE`. Example body:
+`fromMap` accepts arbitrary caller-supplied keys - the environment is opaque to EduIDE-Cloud, which passes every key through verbatim to the session (no allowlist or fixed key set). Any external system can therefore deliver its own variables. The landing page derives these keys from `env.<KEY>` URL query parameters, so `env.ARTEMIS_TOKEN` and `env.ARTEMIS_URL` become `ARTEMIS_TOKEN` and `ARTEMIS_URL`, alongside `THEIA`, `GIT_URI`, `GIT_USER`, `GIT_MAIL`, and `TEMPLATE`. Example body:
 
 ```json
 {
@@ -80,7 +80,8 @@ The EduIDE env-var keys the landing page sends via `fromMap` are `THEIA`, `GIT_U
       "GIT_MAIL": "student@example.org",
       "ARTEMIS_TOKEN": "<token>",
       "ARTEMIS_URL": "https://artemis.example.org",
-      "TEMPLATE": "java-maven"
+      "TEMPLATE": "java-maven",
+      "MY_VAR": "any-custom-value"
     }
   }
 }
@@ -93,7 +94,7 @@ The service (`RootResource.launch`) validates the request, then `K8sUtil` writes
 - Lazy path: the operator injects the variables directly into the IDE container's environment in the pod spec (`AddedHandlerUtil.addCustomEnvVarsToDeploymentFromSession`).
 - Eager / prewarmed path: the deployment already exists, so the operator collects the variables (`SessionEnvCollector`) and pushes them asynchronously over HTTP `POST /data` (`AsyncDataInjector`) to the data-bridge extension inside the container.
 
-The environment variables are opaque to EduIDE-Cloud itself. The session container image (Scorpio) consumes them to configure git, authenticate with Artemis, and clone `GIT_URI`.
+The environment variables are opaque to EduIDE-Cloud itself. The session container image (Scorpio) consumes the known keys to configure git, authenticate with Artemis, and clone `GIT_URI`. Any other (arbitrary) key is exported to the session's integrated terminal environment: in the lazy path it is a real container environment variable, and in the eager path Scorpio applies it from the data-bridge payload once injection is complete. Terminal-inherited variables reach terminals and terminal-spawned tasks started after session activation, not processes that were already running in a prewarmed pod.
 
 For the broader system context, see [`./Architecture.md`](./Architecture.md).
 

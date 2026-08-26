@@ -18,3 +18,4 @@ openapitools.json
 target/
 node_modules
 node/e2e-tests/test-results/.last-run.json
+.flattened-pom.xml

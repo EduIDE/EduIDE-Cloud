@@ -1,206 +1,155 @@
-# AGENTS.md — Theia Cloud Operator
+# AGENTS.md — EduIDE-Cloud
 
-Reference guide for AI coding agents operating in this repository.
-Read this file at the start of every session.
+The operator, the REST service and the CRD conversion webhook. A fork of
+`eclipse-theia/theia-cloud`, mid-rebrand.
 
----
+`CLAUDE.md` is a symlink to this file, so every agent reads the same thing.
 
-## Project Overview
+## Layout
 
-Multi-language, multi-module system for running Theia IDE instances on Kubernetes.
+```
+java/common/maven-conf/                      the parent POM. Build this first, always.
+java/common/org.eclipse.theia.cloud.common/  CRD models, K8s client wrappers, tracing
+java/operator/…operator/                     the operator library
+java/operator/…defaultoperator/              the runnable jar. This is the entry point.
+java/service/…service/                       Quarkus REST API
+java/conversion/…conversion/                 CRD conversion webhook (also Quarkus)
+node/{common,e2e-tests,testing-page,monitor} TS client, Playwright tests, a CRA page, a VS Code extension
+theia/extensions/{config-store,monitor-theia} Theia extensions
+dockerfiles/{operator,service,conversion-webhook,wondershaper}
+documentation/                               9 files, including the authoritative Building.md
+```
 
-| Module | Language | Purpose |
-|--------|----------|---------|
-| `java/common/` | Java 21 / Maven | Shared K8s client, CRD models, utilities |
-| `java/operator/` | Java 21 / Maven + Guice | Kubernetes Operator (manages Sessions, AppDefinitions) |
-| `java/service/` | Java 21 / Maven + Quarkus | REST API for workspace/session management |
-| `java/conversion/` | Java 21 / Maven | K8s CRD conversion webhooks |
-| `node/` | TypeScript / NPM Workspaces | Landing page (React/Vite), monitor, e2e tests |
-| `theia/` | TypeScript / Yarn + Lerna | Theia extensions (monitor, config-store) |
-| `dockerfiles/` | — | Multi-stage Docker images for all services |
-| `terraform/` | Terraform | Not actively maintained by our team, might be outdated. |
+There is **no landing page in this repo** — it was removed and lives in
+EduIDE-Landing-Page.
 
-Current version: `1.2.0-SNAPSHOT`. Active feature branch: `feature/external-ls-v2`.
+## Building
 
----
-
-## Build & Test Commands
-
-### Java (Maven)
-
-All Java modules share a parent POM at `java/common/maven-conf/pom.xml`.
-Run from `java/` (all modules) or from any individual module directory.
+**`cd java && mvn clean install` does not work.** There is no aggregator POM:
+`java/pom.xml` does not exist and `maven-conf` declares no `<modules>`. Module
+order is honoured by hand, and the Dockerfiles are the only complete
+description of it:
 
 ```bash
-# Build everything
-cd java && mvn clean install
-
-# Build a single module (e.g. operator)
-cd java/operator/org.eclipse.theia.cloud.operator && mvn clean install
-
-# Run all tests
-mvn test
-
-# Run a single test class
-mvn test -Dtest=WorkspaceResourceTests
-
-# Run a single test method
-mvn test -Dtest=WorkspaceResourceTests#testCreateWorkspace
-
-# Integration tests (Quarkus @QuarkusTest)
-mvn verify
-
-# Native Quarkus build
-mvn install -Pnative
-
-# Sentry source bundle upload (requires SENTRY_AUTH_TOKEN)
-mvn install -Psentry
+cd java/common/maven-conf                        && mvn clean install -Drevision=1.2.0-SNAPSHOT
+cd java/common/org.eclipse.theia.cloud.common    && mvn clean install -Drevision=1.2.0-SNAPSHOT
+cd java/operator/org.eclipse.theia.cloud.operator && mvn clean install -Drevision=1.2.0-SNAPSHOT
+cd java/operator/org.eclipse.theia.cloud.defaultoperator && mvn clean verify -Drevision=1.2.0-SNAPSHOT
 ```
 
-### Node / Frontend (`node/`)
+`dockerfiles/operator/Dockerfile` and `dockerfiles/service/Dockerfile` are the
+reference; keep them in step if you change module structure.
 
-Node ≥ 20 required.
+**Versions come from `-Drevision`.** Every POM declares
+`<version>${revision}</version>`; `1.2.0-SNAPSHOT` in `maven-conf` is only the
+default. `flatten-maven-plugin` resolves it at install time — without it the
+installed POM keeps the literal `${revision}` and the next module cannot find
+its parent. The Dockerfiles thread the same value into the jar filename, so
+changing one without the other breaks the image build.
 
 ```bash
-cd node
-npm install
-npm run build       # builds all workspaces + monitor
-npm run lint        # lints all workspaces + monitor
-npm run test        # runs e2e-tests workspace
+cd node && npm ci && npm run build     # workspaces: common, e2e-tests, testing-page (+ monitor)
+cd theia && yarn build                 # yarn v1 + lerna
 ```
 
-### Theia Extensions (`theia/`)
+There is **no `npm run test`**. The Playwright suite is
+`npm run ui-tests -w e2e-tests` and needs a live cluster.
 
-Yarn 1.x + Lerna.
+## No CI runs the tests
+
+`.github/workflows/` has three files: `build.yml` (three images, via the shared
+org workflow), `tag-format.yml`, `auto-assign.yml`. **Nothing runs `mvn test`,
+`npm run lint` or anything under `theia/`.** `dockerfiles/service/Dockerfile`
+even builds with `-Dmaven.test.skip=true`.
+
+A PR that breaks a Java test goes green. Run the tests yourself:
 
 ```bash
-cd theia
-yarn
-yarn build          # clean + lerna run build
-yarn lint           # lerna run lint
-yarn watch          # lerna run watch (dev mode)
+cd java/service/org.eclipse.theia.cloud.service && mvn verify
 ```
 
----
+14 test classes over 208 source files, 11 of them in `service`. `operator` has
+exactly one (`SidecarConfigTests`); `conversion` and `defaultoperator` have
+none.
 
-## Java Code Style
+## Rules that are easy to get wrong
 
-### File Header
+**Ephemeral sessions are rejected only when a sidecar MOUNTS THE WORKSPACE** —
+not for every sidecar-enabled app definition. See `K8sUtil.java` and the three
+tests that assert exactly this:
 
-Every Java file must start with the EPL-2.0 copyright block:
-
-```java
-/********************************************************************************
- * Copyright (C) <year> EclipseSource and others.
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0.
- *
- * SPDX-License-Identifier: EPL-2.0
- ********************************************************************************/
+```
+K8sUtilTests.launchEphemeralSession_allowsSidecarsWithoutWorkspaceMount
+K8sUtilTests.launchEphemeralSession_rejectsSidecarsThatMountWorkspace
+SessionResourceTests.start_ephemeralWithSidecarsWithoutWorkspaceMount_launchesEphemeralSession
 ```
 
-### General Conventions
+A blanket 400 for any sidecar app definition breaks all three. `mountWorkspace`
+and `SidecarConfig.requiresSharedWorkspace(appDef)` are the deciding inputs.
 
-- **Java version**: 21. Use records, text blocks, and pattern matching where appropriate.
-- **Indentation**: 4 spaces, no tabs.
-- **Braces**: Egyptian style (opening brace on same line).
-- **Line length**: ~120 characters.
-- **Imports**: No wildcards. Group: `java.*`, `javax.*`/`jakarta.*`, third-party, project internal. Static imports at top, e.g. `import static org.eclipse.theia.cloud.common.util.LogMessageUtil.formatLogMessage;`.
-- **Naming**: PascalCase for classes/records/enums, camelCase for methods/variables, SCREAMING_SNAKE_CASE for constants.
-- **Annotations**: `@Inject` (Google Guice in operator; Jakarta in service), `@Singleton`, `@Override` always present.
+**Null-check Fabric8 list getters.** `getVolumes()`, `getVolumeMounts()` and
+`getEnv()` return null on a fresh spec. `K8sResourceFactory` and
+`SidecarResourceFactory` do this correctly; `LazySessionHandler` and
+`AddedHandlerUtil` have unguarded calls that work only because the specs they
+touch happen to be populated. Follow the factories.
 
-### Logging
+**Find the Theia container with
+`TheiaCloudPersistentVolumeUtil.getTheiaContainer(podSpec, appDefSpec)`.** Never
+match by container name.
 
-- Logger declaration: `private static final Logger LOGGER = LogManager.getLogger(ClassName.class);` (Log4j 2).
-- Always pass `correlationId` as first argument via `formatLogMessage(correlationId, "...")`.
-- Use `LOGGER.info(...)` for normal flow, `LOGGER.warn(...)` for best-effort failures, `LOGGER.error(...)` for unexpected errors.
-- Never log sensitive data (tokens, passwords).
+**Both YAML templates and Fabric8 builders are in use.** The Theia workload is
+built from templates in `operator/src/main/resources/template*.yaml`; sidecars
+are built with builders in `SidecarResourceFactory`. Neither is the repo-wide
+rule — match whichever subsystem you are in.
 
-### Tracing (Sentry)
+**Routing is Gateway API `HTTPRoute`, not Ingress**, despite the class being
+called `IngressManager`. One route per session.
 
-Use `Tracing.*` — **not** `SentryHelper.*` (removed):
+**Logging differs by module.** `common` and `operator` use Log4j 2
+(`LOGGER = LogManager.getLogger(...)`); `service` uses JBoss Logging with an
+instance field `logger` on `BaseResource`. Use `formatLogMessage(correlationId,
+…)` from `LogMessageUtil` either way, and never log secrets — there is a
+`SensitiveDataSerializer` for exactly this.
 
-```java
-ISpan span = Tracing.childSpan("operation.name", "Human description");
-try {
-    // work
-    Tracing.finishSuccess(span);
-} catch (Exception e) {
-    Tracing.finishError(span, e);
-    throw e;
-}
-```
+**Tracing is `Tracing.*`.** `SentryHelper` was removed and no longer exists.
+`Tracing.childSpan(parentSpan, "op", "desc")` is the form real code uses;
+finish with `Tracing.finishSuccess(span)` or `Tracing.finishError(span, e)`.
 
-Always finalize spans in `finally` or catch blocks — never leave them open.
+**Sidecar setup is best-effort.** If `createSidecars()` returns false the
+handler warns and continues. Config comes from `AppDefinitionSpec.getSidecars()`
+only — there is no `options["langserver-image"]` fallback. For eager sessions,
+sidecar Deployment and Service are created **before** the Theia deployment so
+DNS resolves at pod startup, and releasing an eager session restarts the sidecar
+pods rather than deleting them.
 
-### Error Handling
+## Things that look live and are not
 
-- Catch specific exceptions first; add `catch (RuntimeException e)` as a safety net in factory/resource methods so callers always receive `Optional.empty()` rather than propagated exceptions.
-- Never use empty catch blocks.
-- Service layer: throw `TheiaCloudWebException` (maps to HTTP error responses).
-- Operator layer: return `boolean` / `Optional<T>` to signal success/failure; log at `warn`/`error` level.
+- `feature/external-ls-v2` — five months stale, 87 commits adrift, unmerged.
+  There are 80+ remote branches; `git branch -r` tells you nothing about what is
+  active.
+- `terraform/` — self-declared unmaintained, points at upstream Docker Hub images.
+- `demo/` and `demo/dockerfiles/` — four more images that no CI builds.
+- `wondershaper` — a Debian init container, not a service.
+- A root `package-lock.json` with **no root `package.json`**, pinning one
+  package. `npm` at the repo root will misbehave.
+- `README.md`, `SECURITY.md` and the issue templates still point at
+  `eclipse-theia/theia-cloud`, and `maven-conf` still publishes to that org's
+  package registry with the profile `activeByDefault`. The Sentry config is
+  already TUM's. Fork residue, mid-migration.
 
-### Kubernetes (Fabric8)
+`.vscode/` is gitignored but five files are tracked anyway, including
+`.vscode/java-formatter.xml` — the actual Java formatter definition — and
+`launch.json` with Minikube debug configs. Edits there show as modified, not
+untracked.
 
-- Always null-check `getEnv()`, `getVolumes()`, `getVolumeMounts()` — they can return `null` on freshly-templated objects. Initialize to `new ArrayList<>()` before mutation.
-- Use `TheiaCloudPersistentVolumeUtil.getTheiaContainer(podSpec, appDefSpec)` to locate the Theia container (never match by container name directly).
-- Fabric8 `.edit()` lambdas cannot return values; use `AtomicBoolean` / `AtomicReference` to communicate state out of the lambda.
+## Conventions
 
-### Sidecar Specifics (operator module)
-
-- Sidecar operations are **best-effort**: if `createSidecars()` returns `false`, log a warning but continue the session flow.
-- Sidecar configuration is read from `AppDefinitionSpec.getSidecars()` (v1beta11 CRD) **only**. Do not reintroduce `options["langserver-image"]` fallback.
-- No hardcoded language detection — sidecar names and languages are fully user-defined in the CRD.
-- Sidecar resources (Deployment + Service) are created via Fabric8 builders in `SidecarResourceFactory` — no YAML templates.
-- Rollback orphaned sidecar resources via `factory.deleteResources(session, correlationId)`, not via the K8s client directly.
-- Eager path: sidecar Deployment+Service must be created **before** Theia Deployment so K8s DNS resolves service names at pod startup.
-- Session release (eager): only restart sidecar Pods (`restartPrewarmedSidecarPods`), do **not** delete Deployment+Service — they are reused by the pool.
-- Lazy path: use the same naming source for injected sidecar host env vars and created Service names (session-based naming) to avoid DNS mismatch.
-
-### Session Launch Rules (service module)
-
-- Ephemeral session launch is **not supported** for sidecar-enabled app definitions. Return `400 Bad Request` and instruct callers to use workspace-backed session launch.
-- Sidecar-enabled sessions should be workspace-backed so Theia and sidecar can operate on shared persistent storage.
-
----
-
-## TypeScript / Frontend Code Style
-
-Configured via `.prettierrc.js` (in `theia/`) and ESLint with `typescript-eslint` + `simple-import-sort`.
-
-| Setting | Value |
-|---------|-------|
-| Indent | 2 spaces |
-| Quotes | Single (`'`) |
-| JSX quotes | Single |
-| Trailing commas | None |
-| Print width | 120 (100 for JSON/YAML) |
-| Arrow parens | Avoid for single arg |
-| End of line | LF |
-
-- Imports sorted by `eslint-plugin-simple-import-sort`.
-- File headers: same EPL-2.0 copyright block as Java (adapted for JS/TS comment syntax).
-
----
-
-## Key Patterns to Follow
-
-### Dependency Injection
-
-- **Operator**: Google Guice — use `@Inject` on fields, bind in a `Module`.
-- **Service**: Quarkus/Jakarta CDI — `@Inject`, `@ApplicationScoped`, `@RequestScoped`.
-- Never instantiate service classes with `new` inside production code.
-
-### Optional Usage
-
-- Prefer `Optional<T>` return types over `null` for "may not exist" results.
-- Always check `Optional.isEmpty()` before acting, and log at warn/error if absent when presence was expected.
-
-### Tests
-
-- **Framework**: JUnit 5 (`@Test`, `@BeforeEach`), Mockito (`@Mock`, `@InjectMocks`).
-- **Quarkus tests**: `@QuarkusTest` + `@InjectMock` for CDI bean injection in tests.
-- Test class names end with `Tests` (e.g., `WorkspaceResourceTests`).
-- Static imports: `org.junit.jupiter.api.Assertions.*`, `org.mockito.Mockito.*`.
+- Java 21. EPL-2.0 header on every file, though ~20 lack one and nothing
+  enforces it.
+- Test classes end in `Tests`, never `Test`. All 14 follow this.
+- Operator uses Guice `@Inject`; service uses Jakarta CDI `@Inject`.
+- Prettier config is duplicated at `theia/.prettierrc.js` and
+  `node/.prettierrc.js` — change both.
+- `theia/package.json` pins `inversify` via `resolutions`; bumping Theia deps
+  without it breaks DI.
+- Release tags are `vX.Y.Z`; the image tag is the same string without the `v`.

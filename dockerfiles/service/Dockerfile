@@ -32,7 +32,7 @@ RUN --mount=type=secret,id=SENTRY_AUTH_TOKEN \
     cd /service/common/org.eclipse.theia.cloud.common && \
     mvn clean install --no-transfer-progress -Drevision=${APP_VERSION} $MAVEN_SENTRY_ARGS && \
     cd /service/service/org.eclipse.theia.cloud.service && \
-    mvn clean package -Drevision=${APP_VERSION} -Dmaven.test.skip=true -Dquarkus.package.type=uber-jar --no-transfer-progress $MAVEN_SENTRY_ARGS
+    mvn clean package -Drevision=${APP_VERSION} -Dquarkus.package.type=uber-jar --no-transfer-progress $MAVEN_SENTRY_ARGS
 
 FROM eclipse-temurin:21-jre-alpine
 ARG APP_VERSION=1.2.0-SNAPSHOT

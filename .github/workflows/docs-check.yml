@@ -1,0 +1,25 @@
+# AGENTS.md is the file every agent reads first, and both of this org's original
+# ones had rotted into fiction - naming CI jobs that were deleted, a landing page
+# removed months earlier, and paths that never existed. Nothing checked them.
+#
+# This checks the claims that are mechanically checkable: a path in backticks
+# must exist, unless the sentence says it does not, in which case it must not.
+
+name: Docs check
+
+on:
+  pull_request:
+    paths: ["AGENTS.md", "scripts/check-agents-md.sh", ".github/workflows/docs-check.yml"]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  agents-md:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/check-agents-md.sh

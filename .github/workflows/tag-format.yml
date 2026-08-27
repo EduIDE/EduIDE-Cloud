@@ -1,0 +1,19 @@
+# Enforce one spelling for release tags. The grammar lives in
+# EduIDE/.github so the repos cannot drift apart on it.
+#
+#   git tag       vX.Y.Z
+#   image tag      X.Y.Z
+#   chart version  X.Y.Z
+
+name: Tag format
+
+on:
+  push:
+    tags: ["**"]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    uses: EduIDE/.github/.github/workflows/check-tag-format.yml@main

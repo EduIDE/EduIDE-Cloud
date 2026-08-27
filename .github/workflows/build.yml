@@ -54,7 +54,11 @@ jobs:
       docker-file: dockerfiles/${{ matrix.component }}/Dockerfile
       image-name: eduide/eduide-cloud/${{ matrix.component }}
       docker-context: .
-      image-tag: ${{ github.event_name == 'release' && github.event.release.tag_name || github.event_name == 'workflow_dispatch' && inputs.image_tag || '' }}
+      # Deliberately NOT passed on a release. An override is used verbatim by
+      # the shared workflow, which would defeat its `${RELEASE_TAG#v}`
+      # normalisation and publish `v1.2.0` instead of `1.2.0` - a tag no chart
+      # can consume, since appVersion and the image tag must be one string.
+      image-tag: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || '' }}
       # The Java build stamps the version into the jar manifest, so the version
       # inside the image should match the tag on the outside. The shared workflow
       # derives the tag (stripping any leading v) and passes it as APP_VERSION.

@@ -1,0 +1,25 @@
+# Renovate tells us about vulnerabilities we already have. This catches the
+# ones a PR is about to add: it diffs the PR's dependencies against main and
+# fails on a newly introduced advisory of high severity or above. Pre-existing
+# advisories are not this check's business.
+#
+# Covers every ecosystem GitHub's dependency graph sees in this repo - Maven
+# and npm/yarn alike - because the action reads the graph, not the checkout.
+#
+# It lives in its own file rather than in build.yml because build.yml is a set
+# of image build calls that also runs on push, schedule and release, and a
+# dependency diff only exists on a pull request.
+#
+# The grammar lives in EduIDE/.github so the repos cannot drift apart on it.
+
+name: Dependency Review
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-review:
+    uses: EduIDE/.github/.github/workflows/dependency-review.yml@v1

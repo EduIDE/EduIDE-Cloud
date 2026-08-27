@@ -1,0 +1,17 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["local>EduIDE/.github:renovate-config"],
+  "packageRules": [
+    {
+      "description": "Sample project shipped for the demo, not a dependency of this repo.",
+      "matchFileNames": ["demo/dockerfiles/demo-theia-docker/project/**"],
+      "enabled": false
+    },
+    {
+      "description": "Terraform providers use unbounded >= constraints; only surface a PR when the floor genuinely moves.",
+      "matchManagers": ["terraform"],
+      "matchDepTypes": ["provider", "required_provider"],
+      "rangeStrategy": "replace"
+    }
+  ]
+}

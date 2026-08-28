@@ -732,11 +732,11 @@ public class PrewarmedResourcePool {
                         && user.equals(data.get(AddedHandlerUtil.FILENAME_AUTHENTICATED_EMAILS_LIST))) {
                     continue;
                 }
-                // The session may have been deleted since it was listed. Releasing an instance clears this config
-                // map, so writing the claim back afterwards would admit a user that no longer holds the instance.
-                if (!stillClaimsInstance(session)) {
-                    LOGGER.info(formatLogMessage(correlationId, "Session of instance " + instanceId
-                            + " disappeared while restoring, leaving the email config alone"));
+                // The claim may have changed since it was listed. Releasing an instance clears this config map, so
+                // writing an outdated claim back would admit a user that no longer holds the instance.
+                if (!stillClaimsInstance(appDef, instanceId, session)) {
+                    LOGGER.info(formatLogMessage(correlationId, "Session no longer claims instance " + instanceId
+                            + ", leaving the email config alone"));
                     continue;
                 }
                 LOGGER.info(formatLogMessage(correlationId, "Restoring authenticated email of instance " + instanceId
@@ -764,7 +764,8 @@ public class PrewarmedResourcePool {
      * Maps the ids of the pool instances that are currently claimed to the session that claimed them. Sessions record
      * their instance in the instance id annotation when they reserve it; sessions of another app definition, sessions
      * without that annotation and sessions without a user are ignored. So are sessions that are being deleted, they are
-     * about to release their instance.
+     * about to release their instance. Instances are numbered from one, an annotation outside that range is not a
+     * claim on anything this pool created.
      */
     static Map<Integer, Session> computeClaimedInstances(AppDefinition appDef, List<Session> sessions) {
         String appDefName = appDef.getMetadata().getName();
@@ -782,7 +783,7 @@ public class PrewarmedResourcePool {
                 continue;
             }
             Integer instanceId = parseClaimedInstanceId(session);
-            if (instanceId != null) {
+            if (instanceId != null && instanceId > 0) {
                 claims.putIfAbsent(instanceId, session);
             }
         }
@@ -790,13 +791,18 @@ public class PrewarmedResourcePool {
     }
 
     /**
-     * Re-reads a claiming session right before its email is written back, so that a session deleted since the claims
-     * were listed does not get its email restored on the instance it just released.
+     * Re-reads a claiming session right before its email is written back and runs it through the same claim rules
+     * again, so that a session which was deleted or changed since the claims were listed does not get its email
+     * restored on an instance it no longer holds.
      */
-    private boolean stillClaimsInstance(Session session) {
-        Optional<Session> current = client.sessions().get(session.getMetadata().getName());
-        return current.isPresent() && current.get().getMetadata().getDeletionTimestamp() == null
-                && session.getMetadata().getUid().equals(current.get().getMetadata().getUid());
+    private boolean stillClaimsInstance(AppDefinition appDef, int instanceId, Session listed) {
+        Optional<Session> current = client.sessions().get(listed.getMetadata().getName());
+        if (current.isEmpty()) {
+            return false;
+        }
+        Session claiming = computeClaimedInstances(appDef, List.of(current.get())).get(instanceId);
+        return claiming != null && listed.getMetadata().getUid().equals(claiming.getMetadata().getUid())
+                && listed.getSpec().getUser().equals(claiming.getSpec().getUser());
     }
 
     private static Integer parseClaimedInstanceId(Session session) {

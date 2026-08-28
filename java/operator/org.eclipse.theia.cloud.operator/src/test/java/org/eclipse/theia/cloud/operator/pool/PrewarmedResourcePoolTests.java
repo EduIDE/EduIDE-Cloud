@@ -111,6 +111,18 @@ class PrewarmedResourcePoolTests {
     }
 
     @Test
+    void computeClaimedInstances_ignoresNonPositiveInstanceAnnotation() {
+        AppDefinition appDefinition = createAppDefinition();
+
+        for (String instanceId : List.of("0", "-1")) {
+            Map<Integer, Session> claims = PrewarmedResourcePool.computeClaimedInstances(appDefinition,
+                    List.of(createSession(APP_DEFINITION, USER, instanceId)));
+
+            assertTrue(claims.isEmpty(), "instance " + instanceId + " is outside the pool");
+        }
+    }
+
+    @Test
     void computeClaimedInstances_ignoresSessionsWithoutUser() {
         AppDefinition appDefinition = createAppDefinition();
         Session session = createSession(APP_DEFINITION, "  ", "1");
@@ -218,6 +230,25 @@ class PrewarmedResourcePoolTests {
         PoolFixture fixture = createFixture(appDefinition, List.of(session), emailConfigMap);
         // The session is released and gone by the time the write would happen.
         when(fixture.sessionClient.get(session.getMetadata().getName())).thenReturn(Optional.empty());
+
+        assertTrue(fixture.pool.restoreEmailConfigsOfClaimedInstances(appDefinition, "correlationId"));
+
+        verify(fixture.emailConfigMapResource, never()).edit(any(UnaryOperator.class));
+        verify(fixture.podResource, never()).edit(any(UnaryOperator.class));
+    }
+
+    @Test
+    void restoreEmailConfigsOfClaimedInstances_sessionClaimChangedWhileRestoring() throws Exception {
+        AppDefinition appDefinition = createAppDefinition();
+        Session session = createSession(APP_DEFINITION, USER, "1");
+        ConfigMap emailConfigMap = createEmailConfigMap(appDefinition, null);
+
+        PoolFixture fixture = createFixture(appDefinition, List.of(session), emailConfigMap);
+        // Same session, but it now carries a different user than the claim that was listed.
+        Session changed = createSession(APP_DEFINITION, "someone.else@tum.de", "1");
+        changed.getMetadata().setName(session.getMetadata().getName());
+        changed.getMetadata().setUid(session.getMetadata().getUid());
+        when(fixture.sessionClient.get(session.getMetadata().getName())).thenReturn(Optional.of(changed));
 
         assertTrue(fixture.pool.restoreEmailConfigsOfClaimedInstances(appDefinition, "correlationId"));
 

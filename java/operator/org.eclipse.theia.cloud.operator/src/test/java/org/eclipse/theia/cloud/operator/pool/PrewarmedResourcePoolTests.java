@@ -121,6 +121,18 @@ class PrewarmedResourcePoolTests {
     }
 
     @Test
+    void computeClaimedInstanceEmails_ignoresSessionsBeingDeleted() {
+        AppDefinition appDefinition = createAppDefinition();
+        Session session = createSession(APP_DEFINITION, USER, "1");
+        session.getMetadata().setDeletionTimestamp("2026-08-28T00:11:36Z");
+
+        Map<Integer, String> claims = PrewarmedResourcePool.computeClaimedInstanceEmails(appDefinition,
+                List.of(session));
+
+        assertTrue(claims.isEmpty());
+    }
+
+    @Test
     void computeClaimedInstanceEmails_multipleSessionsOnDifferentInstances() {
         AppDefinition appDefinition = createAppDefinition();
         Session first = createSession(APP_DEFINITION, USER, "1");

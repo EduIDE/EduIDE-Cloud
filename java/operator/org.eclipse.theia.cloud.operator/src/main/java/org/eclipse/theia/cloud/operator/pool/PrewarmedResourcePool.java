@@ -755,7 +755,8 @@ public class PrewarmedResourcePool {
     /**
      * Maps the ids of the pool instances that are currently claimed by a session of the given app definition to the
      * user of that session. Sessions record their instance in the instance id annotation when they reserve it; sessions
-     * without that annotation did not start eagerly and are ignored.
+     * without that annotation did not start eagerly and are ignored. So are sessions that are being deleted, they are
+     * about to release their instance.
      */
     static Map<Integer, String> computeClaimedInstanceEmails(AppDefinition appDef, List<Session> sessions) {
         String appDefName = appDef.getMetadata().getName();
@@ -763,6 +764,9 @@ public class PrewarmedResourcePool {
         for (Session session : sessions) {
             SessionSpec spec = session.getSpec();
             if (spec == null || !appDefName.equals(spec.getAppDefinition())) {
+                continue;
+            }
+            if (session.getMetadata() != null && session.getMetadata().getDeletionTimestamp() != null) {
                 continue;
             }
             String user = spec.getUser();

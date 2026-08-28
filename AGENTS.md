@@ -68,9 +68,9 @@ A PR that breaks a Java test goes green. Run the tests yourself:
 cd java/service/org.eclipse.theia.cloud.service && mvn verify
 ```
 
-14 test classes over 208 source files, 11 of them in `service`. `operator` has
-exactly one (`SidecarConfigTests`); `conversion` and `defaultoperator` have
-none.
+15 test classes over 208 source files, 11 of them in `service`. `operator` has
+two (`SidecarConfigTests`, `PrewarmedResourcePoolTests`); `conversion` and
+`defaultoperator` have none.
 
 ## Rules that are easy to get wrong
 
@@ -121,6 +121,15 @@ only — there is no `options["langserver-image"]` fallback. For eager sessions,
 sidecar Deployment and Service are created **before** the Theia deployment so
 DNS resolves at pod startup, and releasing an eager session restarts the sidecar
 pods rather than deleting them.
+
+**The pool's email ConfigMaps carry live session state.** `instance-N-email-…`
+holds the `authenticated-emails-list` oauth2-proxy admits; it is written when a
+session reserves the instance and cleared when the instance is released. That
+ConfigMap is owned by the AppDefinition alone, so rebuilding the pool wipes it
+while the `Session` survives, and oauth2-proxy then answers 403 for everyone.
+`PrewarmedResourcePool.restoreEmailConfigsOfClaimedInstances` writes the emails
+of still-claimed instances back and runs at the end of the ConfigMap phase of
+both `ensureCapacity` and `reconcile`. Keep it there if you touch those methods.
 
 ## Things that look live and are not
 

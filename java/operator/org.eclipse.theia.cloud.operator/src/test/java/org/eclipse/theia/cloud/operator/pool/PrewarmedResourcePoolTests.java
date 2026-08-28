@@ -30,6 +30,7 @@ import org.eclipse.theia.cloud.common.k8s.resource.session.SessionSpec;
 import org.eclipse.theia.cloud.operator.handler.AddedHandlerUtil;
 import org.eclipse.theia.cloud.operator.handler.session.EagerSessionHandler;
 import org.eclipse.theia.cloud.operator.util.TheiaCloudConfigMapUtil;
+import org.eclipse.theia.cloud.operator.util.TheiaCloudDeploymentUtil;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
@@ -38,10 +39,14 @@ import io.fabric8.kubernetes.api.model.ConfigMap;
 import io.fabric8.kubernetes.api.model.ConfigMapBuilder;
 import io.fabric8.kubernetes.api.model.ConfigMapList;
 import io.fabric8.kubernetes.api.model.ObjectMetaBuilder;
+import io.fabric8.kubernetes.api.model.apps.Deployment;
+import io.fabric8.kubernetes.api.model.apps.DeploymentList;
 import io.fabric8.kubernetes.client.NamespacedKubernetesClient;
+import io.fabric8.kubernetes.client.dsl.AppsAPIGroupDSL;
 import io.fabric8.kubernetes.client.dsl.MixedOperation;
 import io.fabric8.kubernetes.client.dsl.NonNamespaceOperation;
 import io.fabric8.kubernetes.client.dsl.Resource;
+import io.fabric8.kubernetes.client.dsl.RollableScalableResource;
 
 class PrewarmedResourcePoolTests {
 
@@ -138,6 +143,19 @@ class PrewarmedResourcePoolTests {
     }
 
     @Test
+    void restoreEmailConfigsOfClaimedInstances_refreshesPodsOfRestoredInstance() throws Exception {
+        AppDefinition appDefinition = createAppDefinition();
+        Session session = createSession(APP_DEFINITION, USER, "1");
+        ConfigMap emailConfigMap = createEmailConfigMap(appDefinition, null);
+
+        PoolFixture fixture = createFixture(appDefinition, List.of(session), emailConfigMap);
+
+        assertTrue(fixture.pool.restoreEmailConfigsOfClaimedInstances(appDefinition, "correlationId"));
+
+        verify(fixture.deploymentResource).get();
+    }
+
+    @Test
     void restoreEmailConfigsOfClaimedInstances_leavesUpToDateEmailConfigAlone() throws Exception {
         AppDefinition appDefinition = createAppDefinition();
         Session session = createSession(APP_DEFINITION, USER, "1");
@@ -148,6 +166,7 @@ class PrewarmedResourcePoolTests {
         assertTrue(fixture.pool.restoreEmailConfigsOfClaimedInstances(appDefinition, "correlationId"));
 
         verify(fixture.emailConfigMapResource, never()).edit(any(UnaryOperator.class));
+        verify(fixture.deploymentResource, never()).get();
     }
 
     @Test
@@ -180,6 +199,7 @@ class PrewarmedResourcePoolTests {
     private static final class PoolFixture {
         private PrewarmedResourcePool pool;
         private Resource<ConfigMap> emailConfigMapResource;
+        private RollableScalableResource<Deployment> deploymentResource;
     }
 
     @SuppressWarnings("unchecked")
@@ -192,6 +212,12 @@ class PrewarmedResourcePoolTests {
         NonNamespaceOperation<ConfigMap, ConfigMapList, Resource<ConfigMap>> namespacedConfigMaps = Mockito
                 .mock(NonNamespaceOperation.class);
         Resource<ConfigMap> emailConfigMapResource = Mockito.mock(Resource.class);
+        AppsAPIGroupDSL apps = Mockito.mock(AppsAPIGroupDSL.class);
+        MixedOperation<Deployment, DeploymentList, RollableScalableResource<Deployment>> deployments = Mockito
+                .mock(MixedOperation.class);
+        NonNamespaceOperation<Deployment, DeploymentList, RollableScalableResource<Deployment>> namespacedDeployments = Mockito
+                .mock(NonNamespaceOperation.class);
+        RollableScalableResource<Deployment> deploymentResource = Mockito.mock(RollableScalableResource.class);
 
         when(client.namespace()).thenReturn(NAMESPACE);
         when(client.sessions()).thenReturn(sessionClient);
@@ -202,10 +228,16 @@ class PrewarmedResourcePoolTests {
         when(namespacedConfigMaps.withName(TheiaCloudConfigMapUtil.getEmailConfigName(appDefinition, 1)))
                 .thenReturn(emailConfigMapResource);
         when(emailConfigMapResource.get()).thenReturn(emailConfigMap);
+        when(kubernetes.apps()).thenReturn(apps);
+        when(apps.deployments()).thenReturn(deployments);
+        when(deployments.inNamespace(NAMESPACE)).thenReturn(namespacedDeployments);
+        when(namespacedDeployments.withName(TheiaCloudDeploymentUtil.getDeploymentName(appDefinition, 1)))
+                .thenReturn(deploymentResource);
 
         PoolFixture fixture = new PoolFixture();
         fixture.pool = new PrewarmedResourcePool();
         fixture.emailConfigMapResource = emailConfigMapResource;
+        fixture.deploymentResource = deploymentResource;
         setField(fixture.pool, "client", client);
         return fixture;
     }

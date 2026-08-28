@@ -698,8 +698,9 @@ public class PrewarmedResourcePool {
      * Re-applies the authenticated email of every session that currently holds an instance of this pool. The email
      * config maps belong to the app definition, so they are rebuilt empty whenever the pool is rebuilt, e.g. after an
      * operator restart or after the app definition changed. The sessions that claimed those instances survive that
-     * rebuild, and an empty list makes oauth2-proxy answer 403 for every user. Writing the email back is idempotent,
-     * config maps that already hold the right email are left untouched.
+     * rebuild, and an empty list makes oauth2-proxy answer 403 for every user. Restored instances are refreshed like
+     * they are on reservation. Writing the email back is idempotent, config maps that already hold the right email are
+     * left untouched.
      */
     boolean restoreEmailConfigsOfClaimedInstances(AppDefinition appDef, String correlationId) {
         Map<Integer, String> claimedInstances = computeClaimedInstanceEmails(appDef, client.sessions().list());
@@ -737,6 +738,7 @@ public class PrewarmedResourcePool {
                             Collections.singletonMap(AddedHandlerUtil.FILENAME_AUTHENTICATED_EMAILS_LIST, user));
                     return cm;
                 });
+                refreshPods(TheiaCloudDeploymentUtil.getDeploymentName(appDef, instanceId), correlationId);
                 restored++;
             } catch (KubernetesClientException e) {
                 LOGGER.error(formatLogMessage(correlationId, "Failed to restore email config " + emailConfigName), e);

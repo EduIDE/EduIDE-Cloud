@@ -20,6 +20,7 @@ import static org.mockito.Mockito.when;
 import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.UnaryOperator;
 
 import org.eclipse.theia.cloud.common.k8s.client.SessionResourceClient;
@@ -63,85 +64,85 @@ class PrewarmedResourcePoolTests {
     private static final String APP_DEFINITION = "java-17-latest";
     private static final String USER = "matthias.linhuber@tum.de";
 
-    // ========== computeClaimedInstanceEmails ==========
+    // ========== computeClaimedInstances ==========
 
     @Test
-    void computeClaimedInstanceEmails_sessionOnInstance() {
+    void computeClaimedInstances_sessionOnInstance() {
         AppDefinition appDefinition = createAppDefinition();
         Session session = createSession(APP_DEFINITION, USER, "1");
 
-        Map<Integer, String> claims = PrewarmedResourcePool.computeClaimedInstanceEmails(appDefinition,
+        Map<Integer, Session> claims = PrewarmedResourcePool.computeClaimedInstances(appDefinition,
                 List.of(session));
 
-        assertEquals(Map.of(1, USER), claims);
+        assertEquals(Map.of(1, session), claims);
     }
 
     @Test
-    void computeClaimedInstanceEmails_ignoresSessionsOfOtherAppDefinitions() {
+    void computeClaimedInstances_ignoresSessionsOfOtherAppDefinitions() {
         AppDefinition appDefinition = createAppDefinition();
         Session session = createSession("python-latest", USER, "1");
 
-        Map<Integer, String> claims = PrewarmedResourcePool.computeClaimedInstanceEmails(appDefinition,
+        Map<Integer, Session> claims = PrewarmedResourcePool.computeClaimedInstances(appDefinition,
                 List.of(session));
 
         assertTrue(claims.isEmpty());
     }
 
     @Test
-    void computeClaimedInstanceEmails_ignoresSessionsWithoutInstanceAnnotation() {
+    void computeClaimedInstances_ignoresSessionsWithoutInstanceAnnotation() {
         AppDefinition appDefinition = createAppDefinition();
         Session session = createSession(APP_DEFINITION, USER, null);
 
-        Map<Integer, String> claims = PrewarmedResourcePool.computeClaimedInstanceEmails(appDefinition,
+        Map<Integer, Session> claims = PrewarmedResourcePool.computeClaimedInstances(appDefinition,
                 List.of(session));
 
         assertTrue(claims.isEmpty());
     }
 
     @Test
-    void computeClaimedInstanceEmails_ignoresUnparseableInstanceAnnotation() {
+    void computeClaimedInstances_ignoresUnparseableInstanceAnnotation() {
         AppDefinition appDefinition = createAppDefinition();
         Session session = createSession(APP_DEFINITION, USER, "not-a-number");
 
-        Map<Integer, String> claims = PrewarmedResourcePool.computeClaimedInstanceEmails(appDefinition,
+        Map<Integer, Session> claims = PrewarmedResourcePool.computeClaimedInstances(appDefinition,
                 List.of(session));
 
         assertTrue(claims.isEmpty());
     }
 
     @Test
-    void computeClaimedInstanceEmails_ignoresSessionsWithoutUser() {
+    void computeClaimedInstances_ignoresSessionsWithoutUser() {
         AppDefinition appDefinition = createAppDefinition();
         Session session = createSession(APP_DEFINITION, "  ", "1");
 
-        Map<Integer, String> claims = PrewarmedResourcePool.computeClaimedInstanceEmails(appDefinition,
+        Map<Integer, Session> claims = PrewarmedResourcePool.computeClaimedInstances(appDefinition,
                 List.of(session));
 
         assertTrue(claims.isEmpty());
     }
 
     @Test
-    void computeClaimedInstanceEmails_ignoresSessionsBeingDeleted() {
+    void computeClaimedInstances_ignoresSessionsBeingDeleted() {
         AppDefinition appDefinition = createAppDefinition();
         Session session = createSession(APP_DEFINITION, USER, "1");
         session.getMetadata().setDeletionTimestamp("2026-08-28T00:11:36Z");
 
-        Map<Integer, String> claims = PrewarmedResourcePool.computeClaimedInstanceEmails(appDefinition,
+        Map<Integer, Session> claims = PrewarmedResourcePool.computeClaimedInstances(appDefinition,
                 List.of(session));
 
         assertTrue(claims.isEmpty());
     }
 
     @Test
-    void computeClaimedInstanceEmails_multipleSessionsOnDifferentInstances() {
+    void computeClaimedInstances_multipleSessionsOnDifferentInstances() {
         AppDefinition appDefinition = createAppDefinition();
         Session first = createSession(APP_DEFINITION, USER, "1");
         Session second = createSession(APP_DEFINITION, "other@tum.de", "3");
 
-        Map<Integer, String> claims = PrewarmedResourcePool.computeClaimedInstanceEmails(appDefinition,
+        Map<Integer, Session> claims = PrewarmedResourcePool.computeClaimedInstances(appDefinition,
                 List.of(first, second));
 
-        assertEquals(Map.of(1, USER, 3, "other@tum.de"), claims);
+        assertEquals(Map.of(1, first, 3, second), claims);
     }
 
     // ========== restoreEmailConfigsOfClaimedInstances ==========
@@ -209,6 +210,22 @@ class PrewarmedResourcePoolTests {
     }
 
     @Test
+    void restoreEmailConfigsOfClaimedInstances_sessionDeletedWhileRestoring() throws Exception {
+        AppDefinition appDefinition = createAppDefinition();
+        Session session = createSession(APP_DEFINITION, USER, "1");
+        ConfigMap emailConfigMap = createEmailConfigMap(appDefinition, null);
+
+        PoolFixture fixture = createFixture(appDefinition, List.of(session), emailConfigMap);
+        // The session is released and gone by the time the write would happen.
+        when(fixture.sessionClient.get(session.getMetadata().getName())).thenReturn(Optional.empty());
+
+        assertTrue(fixture.pool.restoreEmailConfigsOfClaimedInstances(appDefinition, "correlationId"));
+
+        verify(fixture.emailConfigMapResource, never()).edit(any(UnaryOperator.class));
+        verify(fixture.podResource, never()).edit(any(UnaryOperator.class));
+    }
+
+    @Test
     void restoreEmailConfigsOfClaimedInstances_missingEmailConfig() throws Exception {
         AppDefinition appDefinition = createAppDefinition();
         Session session = createSession(APP_DEFINITION, USER, "1");
@@ -226,6 +243,7 @@ class PrewarmedResourcePoolTests {
         private PrewarmedResourcePool pool;
         private Resource<ConfigMap> emailConfigMapResource;
         private PodResource podResource;
+        private SessionResourceClient sessionClient;
     }
 
     @SuppressWarnings("unchecked")
@@ -248,6 +266,10 @@ class PrewarmedResourcePoolTests {
         when(client.namespace()).thenReturn(NAMESPACE);
         when(client.sessions()).thenReturn(sessionClient);
         when(sessionClient.list()).thenReturn(sessions);
+        // The restore re-reads a claiming session right before it writes its email back.
+        for (Session session : sessions) {
+            when(sessionClient.get(session.getMetadata().getName())).thenReturn(Optional.of(session));
+        }
         when(client.kubernetes()).thenReturn(kubernetes);
         when(kubernetes.configMaps()).thenReturn(configMaps);
         when(configMaps.inNamespace(NAMESPACE)).thenReturn(namespacedConfigMaps);
@@ -285,6 +307,7 @@ class PrewarmedResourcePoolTests {
         fixture.pool = new PrewarmedResourcePool();
         fixture.emailConfigMapResource = emailConfigMapResource;
         fixture.podResource = podResource;
+        fixture.sessionClient = sessionClient;
         setField(fixture.pool, "client", client);
         return fixture;
     }

@@ -703,7 +703,7 @@ public class PrewarmedResourcePool {
      * left untouched.
      */
     boolean restoreEmailConfigsOfClaimedInstances(AppDefinition appDef, String correlationId) {
-        Map<Integer, String> claimedInstances = computeClaimedInstanceEmails(appDef, client.sessions().list());
+        Map<Integer, Session> claimedInstances = computeClaimedInstances(appDef, client.sessions().list());
         if (claimedInstances.isEmpty()) {
             return true;
         }
@@ -714,9 +714,10 @@ public class PrewarmedResourcePool {
 
         boolean success = true;
         int restored = 0;
-        for (Map.Entry<Integer, String> claim : claimedInstances.entrySet()) {
+        for (Map.Entry<Integer, Session> claim : claimedInstances.entrySet()) {
             int instanceId = claim.getKey();
-            String user = claim.getValue();
+            Session session = claim.getValue();
+            String user = session.getSpec().getUser();
             String emailConfigName = TheiaCloudConfigMapUtil.getEmailConfigName(appDef, instanceId);
             try {
                 ConfigMap emailConfigMap = client.kubernetes().configMaps().inNamespace(client.namespace())
@@ -729,6 +730,13 @@ public class PrewarmedResourcePool {
                 Map<String, String> data = emailConfigMap.getData();
                 if (data != null
                         && user.equals(data.get(AddedHandlerUtil.FILENAME_AUTHENTICATED_EMAILS_LIST))) {
+                    continue;
+                }
+                // The session may have been deleted since it was listed. Releasing an instance clears this config
+                // map, so writing the claim back afterwards would admit a user that no longer holds the instance.
+                if (!stillClaimsInstance(session)) {
+                    LOGGER.info(formatLogMessage(correlationId, "Session of instance " + instanceId
+                            + " disappeared while restoring, leaving the email config alone"));
                     continue;
                 }
                 LOGGER.info(formatLogMessage(correlationId, "Restoring authenticated email of instance " + instanceId
@@ -753,14 +761,14 @@ public class PrewarmedResourcePool {
     }
 
     /**
-     * Maps the ids of the pool instances that are currently claimed by a session of the given app definition to the
-     * user of that session. Sessions record their instance in the instance id annotation when they reserve it; sessions
-     * without that annotation did not start eagerly and are ignored. So are sessions that are being deleted, they are
+     * Maps the ids of the pool instances that are currently claimed to the session that claimed them. Sessions record
+     * their instance in the instance id annotation when they reserve it; sessions of another app definition, sessions
+     * without that annotation and sessions without a user are ignored. So are sessions that are being deleted, they are
      * about to release their instance.
      */
-    static Map<Integer, String> computeClaimedInstanceEmails(AppDefinition appDef, List<Session> sessions) {
+    static Map<Integer, Session> computeClaimedInstances(AppDefinition appDef, List<Session> sessions) {
         String appDefName = appDef.getMetadata().getName();
-        Map<Integer, String> claims = new LinkedHashMap<>();
+        Map<Integer, Session> claims = new LinkedHashMap<>();
         for (Session session : sessions) {
             SessionSpec spec = session.getSpec();
             if (spec == null || !appDefName.equals(spec.getAppDefinition())) {
@@ -775,10 +783,20 @@ public class PrewarmedResourcePool {
             }
             Integer instanceId = parseClaimedInstanceId(session);
             if (instanceId != null) {
-                claims.putIfAbsent(instanceId, user);
+                claims.putIfAbsent(instanceId, session);
             }
         }
         return claims;
+    }
+
+    /**
+     * Re-reads a claiming session right before its email is written back, so that a session deleted since the claims
+     * were listed does not get its email restored on the instance it just released.
+     */
+    private boolean stillClaimsInstance(Session session) {
+        Optional<Session> current = client.sessions().get(session.getMetadata().getName());
+        return current.isPresent() && current.get().getMetadata().getDeletionTimestamp() == null
+                && session.getMetadata().getUid().equals(current.get().getMetadata().getUid());
     }
 
     private static Integer parseClaimedInstanceId(Session session) {

@@ -10,6 +10,7 @@
 package org.eclipse.theia.cloud.operator.pool;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
@@ -39,12 +40,20 @@ import io.fabric8.kubernetes.api.model.ConfigMap;
 import io.fabric8.kubernetes.api.model.ConfigMapBuilder;
 import io.fabric8.kubernetes.api.model.ConfigMapList;
 import io.fabric8.kubernetes.api.model.ObjectMetaBuilder;
+import io.fabric8.kubernetes.api.model.OwnerReferenceBuilder;
+import io.fabric8.kubernetes.api.model.Pod;
+import io.fabric8.kubernetes.api.model.PodBuilder;
+import io.fabric8.kubernetes.api.model.PodList;
+import io.fabric8.kubernetes.api.model.PodListBuilder;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
+import io.fabric8.kubernetes.api.model.apps.DeploymentBuilder;
 import io.fabric8.kubernetes.api.model.apps.DeploymentList;
 import io.fabric8.kubernetes.client.NamespacedKubernetesClient;
 import io.fabric8.kubernetes.client.dsl.AppsAPIGroupDSL;
+import io.fabric8.kubernetes.client.dsl.FilterWatchListDeletable;
 import io.fabric8.kubernetes.client.dsl.MixedOperation;
 import io.fabric8.kubernetes.client.dsl.NonNamespaceOperation;
+import io.fabric8.kubernetes.client.dsl.PodResource;
 import io.fabric8.kubernetes.client.dsl.Resource;
 import io.fabric8.kubernetes.client.dsl.RollableScalableResource;
 
@@ -152,7 +161,12 @@ class PrewarmedResourcePoolTests {
 
         assertTrue(fixture.pool.restoreEmailConfigsOfClaimedInstances(appDefinition, "correlationId"));
 
-        verify(fixture.deploymentResource).get();
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<UnaryOperator<Pod>> refresh = ArgumentCaptor.forClass(UnaryOperator.class);
+        verify(fixture.podResource).edit(refresh.capture());
+        Pod refreshed = refresh.getValue().apply(new Pod());
+        assertNotNull(refreshed.getMetadata().getAnnotations()
+                .get(PrewarmedResourcePool.EAGER_START_REFRESH_ANNOTATION));
     }
 
     @Test
@@ -166,7 +180,7 @@ class PrewarmedResourcePoolTests {
         assertTrue(fixture.pool.restoreEmailConfigsOfClaimedInstances(appDefinition, "correlationId"));
 
         verify(fixture.emailConfigMapResource, never()).edit(any(UnaryOperator.class));
-        verify(fixture.deploymentResource, never()).get();
+        verify(fixture.podResource, never()).edit(any(UnaryOperator.class));
     }
 
     @Test
@@ -199,7 +213,7 @@ class PrewarmedResourcePoolTests {
     private static final class PoolFixture {
         private PrewarmedResourcePool pool;
         private Resource<ConfigMap> emailConfigMapResource;
-        private RollableScalableResource<Deployment> deploymentResource;
+        private PodResource podResource;
     }
 
     @SuppressWarnings("unchecked")
@@ -228,18 +242,59 @@ class PrewarmedResourcePoolTests {
         when(namespacedConfigMaps.withName(TheiaCloudConfigMapUtil.getEmailConfigName(appDefinition, 1)))
                 .thenReturn(emailConfigMapResource);
         when(emailConfigMapResource.get()).thenReturn(emailConfigMap);
+        String deploymentName = TheiaCloudDeploymentUtil.getDeploymentName(appDefinition, 1);
         when(kubernetes.apps()).thenReturn(apps);
         when(apps.deployments()).thenReturn(deployments);
         when(deployments.inNamespace(NAMESPACE)).thenReturn(namespacedDeployments);
-        when(namespacedDeployments.withName(TheiaCloudDeploymentUtil.getDeploymentName(appDefinition, 1)))
-                .thenReturn(deploymentResource);
+        when(namespacedDeployments.withName(deploymentName)).thenReturn(deploymentResource);
+        when(deploymentResource.get()).thenReturn(createDeployment(deploymentName));
+
+        // The pod refresh looks pods up through kubernetes() and edits them through the client itself.
+        MixedOperation<Pod, PodList, PodResource> listedPods = Mockito.mock(MixedOperation.class);
+        NonNamespaceOperation<Pod, PodList, PodResource> namespacedListedPods = Mockito
+                .mock(NonNamespaceOperation.class);
+        FilterWatchListDeletable<Pod, PodList, PodResource> selectedPods = Mockito
+                .mock(FilterWatchListDeletable.class);
+        MixedOperation<Pod, PodList, PodResource> editedPods = Mockito.mock(MixedOperation.class);
+        NonNamespaceOperation<Pod, PodList, PodResource> namespacedEditedPods = Mockito
+                .mock(NonNamespaceOperation.class);
+        PodResource podResource = Mockito.mock(PodResource.class);
+        Pod pod = createPod(deploymentName);
+
+        when(kubernetes.pods()).thenReturn(listedPods);
+        when(listedPods.inNamespace(NAMESPACE)).thenReturn(namespacedListedPods);
+        when(namespacedListedPods.withLabelSelector("app=" + deploymentName)).thenReturn(selectedPods);
+        when(selectedPods.list()).thenReturn(new PodListBuilder().withItems(pod).build());
+        when(client.pods()).thenReturn(editedPods);
+        when(editedPods.inNamespace(NAMESPACE)).thenReturn(namespacedEditedPods);
+        when(namespacedEditedPods.withName(pod.getMetadata().getName())).thenReturn(podResource);
 
         PoolFixture fixture = new PoolFixture();
         fixture.pool = new PrewarmedResourcePool();
         fixture.emailConfigMapResource = emailConfigMapResource;
-        fixture.deploymentResource = deploymentResource;
+        fixture.podResource = podResource;
         setField(fixture.pool, "client", client);
         return fixture;
+    }
+
+    private Deployment createDeployment(String deploymentName) {
+        return new DeploymentBuilder()
+                .withNewMetadata().withName(deploymentName).withNamespace(NAMESPACE).endMetadata()
+                .withNewSpec()
+                .withNewSelector().withMatchLabels(Map.of("app", deploymentName)).endSelector()
+                .endSpec()
+                .build();
+    }
+
+    private Pod createPod(String deploymentName) {
+        return new PodBuilder()
+                .withNewMetadata()
+                .withName(deploymentName + "-abc123")
+                .withNamespace(NAMESPACE)
+                .withOwnerReferences(new OwnerReferenceBuilder().withKind("ReplicaSet")
+                        .withName(deploymentName + "-5f7c").build())
+                .endMetadata()
+                .build();
     }
 
     private ConfigMap createEmailConfigMap(AppDefinition appDefinition, String authenticatedEmails) {

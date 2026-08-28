@@ -20,10 +20,12 @@ import org.apache.logging.log4j.Logger;
 import org.eclipse.theia.cloud.common.k8s.client.TheiaCloudClient;
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinition;
 import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
+import org.eclipse.theia.cloud.common.k8s.resource.session.SessionSpec;
 import org.eclipse.theia.cloud.common.util.LabelsUtil;
 import org.eclipse.theia.cloud.common.util.NamingUtil;
 import org.eclipse.theia.cloud.operator.TheiaCloudOperatorArguments;
 import org.eclipse.theia.cloud.operator.handler.AddedHandlerUtil;
+import org.eclipse.theia.cloud.operator.handler.session.EagerSessionHandler;
 import org.eclipse.theia.cloud.operator.sidecar.SidecarConfig;
 import org.eclipse.theia.cloud.operator.sidecar.SidecarManager;
 import org.eclipse.theia.cloud.operator.replacements.DefaultPersistentVolumeTemplateReplacements;
@@ -252,6 +254,8 @@ public class PrewarmedResourcePool {
                     }
                     cmSpan.setTag("outcome", success ? "success" : "failure"); Tracing.finish(cmSpan, success ? SpanStatus.OK : SpanStatus.INTERNAL_ERROR);
                 }
+
+                success &= restoreEmailConfigsOfClaimedInstances(appDef, correlationId);
             }
 
             // Ensure PVCs exist first for sidecars with mountWorkspace=true.
@@ -463,6 +467,8 @@ public class PrewarmedResourcePool {
                 cmSpan.setTag("outcome", cmSuccess ? "success" : "failure");
                 cmSpan.setTag("had_changes", (cmCreated + cmDeleted + cmRecreated) > 0 ? "true" : "false");
                 cmSpan.finish();
+
+                success &= restoreEmailConfigsOfClaimedInstances(appDef, correlationId);
             }
 
             // Ensure PVCs exist first for sidecars with mountWorkspace=true.
@@ -686,6 +692,103 @@ public class PrewarmedResourcePool {
         sidecarManager.createPrewarmedSidecars(appDef, instanceId, pvcName, labels, correlationId);
 
         resourceFactory.createDeploymentForEagerInstance(appDef, instanceId, pvcName, labels, correlationId);
+    }
+
+    /**
+     * Re-applies the authenticated email of every session that currently holds an instance of this pool. The email
+     * config maps belong to the app definition, so they are rebuilt empty whenever the pool is rebuilt, e.g. after an
+     * operator restart or after the app definition changed. The sessions that claimed those instances survive that
+     * rebuild, and an empty list makes oauth2-proxy answer 403 for every user. Writing the email back is idempotent,
+     * config maps that already hold the right email are left untouched.
+     */
+    boolean restoreEmailConfigsOfClaimedInstances(AppDefinition appDef, String correlationId) {
+        Map<Integer, String> claimedInstances = computeClaimedInstanceEmails(appDef, client.sessions().list());
+        if (claimedInstances.isEmpty()) {
+            return true;
+        }
+
+        ISpan span = Tracing.childSpan("pool.restore_email_configs", "Restore email configs of claimed instances");
+        span.setTag("app_definition", appDef.getSpec().getName());
+        span.setData("claimed_instances", claimedInstances.size());
+
+        boolean success = true;
+        int restored = 0;
+        for (Map.Entry<Integer, String> claim : claimedInstances.entrySet()) {
+            int instanceId = claim.getKey();
+            String user = claim.getValue();
+            String emailConfigName = TheiaCloudConfigMapUtil.getEmailConfigName(appDef, instanceId);
+            try {
+                ConfigMap emailConfigMap = client.kubernetes().configMaps().inNamespace(client.namespace())
+                        .withName(emailConfigName).get();
+                if (emailConfigMap == null) {
+                    LOGGER.warn(formatLogMessage(correlationId, "Email config " + emailConfigName
+                            + " of instance " + instanceId + " claimed by a session does not exist"));
+                    continue;
+                }
+                Map<String, String> data = emailConfigMap.getData();
+                if (data != null
+                        && user.equals(data.get(AddedHandlerUtil.FILENAME_AUTHENTICATED_EMAILS_LIST))) {
+                    continue;
+                }
+                LOGGER.info(formatLogMessage(correlationId, "Restoring authenticated email of instance " + instanceId
+                        + " that is still claimed by a session"));
+                client.kubernetes().configMaps().inNamespace(client.namespace()).withName(emailConfigName).edit(cm -> {
+                    cm.setData(
+                            Collections.singletonMap(AddedHandlerUtil.FILENAME_AUTHENTICATED_EMAILS_LIST, user));
+                    return cm;
+                });
+                restored++;
+            } catch (KubernetesClientException e) {
+                LOGGER.error(formatLogMessage(correlationId, "Failed to restore email config " + emailConfigName), e);
+                success = false;
+            }
+        }
+
+        span.setData("restored", restored);
+        span.setTag("outcome", success ? "success" : "failure");
+        Tracing.finish(span, success ? SpanStatus.OK : SpanStatus.INTERNAL_ERROR);
+        return success;
+    }
+
+    /**
+     * Maps the ids of the pool instances that are currently claimed by a session of the given app definition to the
+     * user of that session. Sessions record their instance in the instance id annotation when they reserve it; sessions
+     * without that annotation did not start eagerly and are ignored.
+     */
+    static Map<Integer, String> computeClaimedInstanceEmails(AppDefinition appDef, List<Session> sessions) {
+        String appDefName = appDef.getMetadata().getName();
+        Map<Integer, String> claims = new LinkedHashMap<>();
+        for (Session session : sessions) {
+            SessionSpec spec = session.getSpec();
+            if (spec == null || !appDefName.equals(spec.getAppDefinition())) {
+                continue;
+            }
+            String user = spec.getUser();
+            if (user == null || user.isBlank()) {
+                continue;
+            }
+            Integer instanceId = parseClaimedInstanceId(session);
+            if (instanceId != null) {
+                claims.putIfAbsent(instanceId, user);
+            }
+        }
+        return claims;
+    }
+
+    private static Integer parseClaimedInstanceId(Session session) {
+        if (session.getMetadata() == null || session.getMetadata().getAnnotations() == null) {
+            return null;
+        }
+        String instanceId = session.getMetadata().getAnnotations()
+                .get(EagerSessionHandler.SESSION_INSTANCE_ID_ANNOTATION);
+        if (instanceId == null) {
+            return null;
+        }
+        try {
+            return Integer.valueOf(instanceId.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private int parseInstanceIdOrDefault(Service service, int defaultValue) {

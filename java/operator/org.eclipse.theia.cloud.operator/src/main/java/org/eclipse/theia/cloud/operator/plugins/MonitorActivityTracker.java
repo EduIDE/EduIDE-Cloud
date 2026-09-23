@@ -248,25 +248,39 @@ public class MonitorActivityTracker implements OperatorPlugin {
      *         a default - the caller must treat an empty result as "unknown", not as "idle".
      */
     protected Optional<Long> fetchLastActivity(Session session, String getActivityURL) throws IOException {
+        String sessionName = session.getSpec().getName();
         Request getActivityRequest = new Request.Builder().url(getActivityURL)
                 .addHeader("Authorization", "Bearer " + session.getSpec().getSessionSecret()).get().build();
-        Response getActivityResponse = httpClient.newCall(getActivityRequest).execute();
-        ResponseBody body = getActivityResponse.body();
 
-        if (getActivityResponse.code() != 200 || body == null) {
-            logInfo(session.getSpec().getName(),
-                    "REQUEST FAILED (Returned " + getActivityResponse.code() + "): GET " + getActivityURL);
-            return Optional.empty();
+        // try-with-resources matters more than it looks: a session whose monitor never answers is
+        // now polled for as long as the session lives, so an unclosed body would leak a pooled
+        // connection on every interval instead of being bounded by the session being deleted.
+        try (Response getActivityResponse = httpClient.newCall(getActivityRequest).execute()) {
+            ResponseBody body = getActivityResponse.body();
+
+            if (getActivityResponse.code() != 200 || body == null) {
+                logInfo(sessionName,
+                        "REQUEST FAILED (Returned " + getActivityResponse.code() + "): GET " + getActivityURL);
+                return Optional.empty();
+            }
+
+            String reportedTimestamp = body.string().trim();
+            try {
+                return Optional.of(Long.valueOf(reportedTimestamp));
+            } catch (NumberFormatException e) {
+                // A 200 we cannot parse is no more informative than no answer at all, so it takes the
+                // same path - counted as a failed poll rather than thrown past the failure bookkeeping.
+                logInfo(sessionName, "REQUEST FAILED (200 with unusable body \"" + reportedTimestamp + "\"): GET "
+                        + getActivityURL);
+                return Optional.empty();
+            }
         }
-
-        return Optional.of(Long.valueOf(body.string()));
     }
 
     protected void recordPollSuccess(String sessionName) {
         Integer previousFailures = consecutivePollFailures.remove(sessionName);
         if (previousFailures != null && previousFailures >= POLL_FAILURE_ALERT_THRESHOLD) {
-            LOGGER.warn("[" + sessionName + "] Activity monitor is answering again after " + previousFailures
-                    + " failed polls.");
+            logWarn(sessionName, "Activity monitor is answering again after " + previousFailures + " failed polls.");
         }
     }
 
@@ -275,17 +289,17 @@ public class MonitorActivityTracker implements OperatorPlugin {
         sessionSpan.setData("poll_failures", failures);
         sessionSpan.setStatus(SpanStatus.UNAVAILABLE);
 
-        String message = "[" + sessionName + "] Could not read activity (" + failures
+        String message = "Could not read activity (" + failures
                 + " consecutive failures). Session will NOT be timed out on this data. " + detail;
         if (failures == POLL_FAILURE_ALERT_THRESHOLD) {
             // Say it once, loudly. Repeating every interval would drown the log for a session nobody can fix quickly.
-            LOGGER.error(message);
+            logError(sessionName, message);
             Sentry.captureMessage("Activity monitor unreachable for session " + sessionName + " after " + failures
                     + " consecutive polls. Inactivity timeouts are not being enforced for it.");
         } else if (failures < POLL_FAILURE_ALERT_THRESHOLD) {
-            LOGGER.warn(message);
+            logWarn(sessionName, message);
         } else {
-            LOGGER.debug(message);
+            LOGGER.debug("[" + sessionName + "] " + message);
         }
     }
 
@@ -330,6 +344,14 @@ public class MonitorActivityTracker implements OperatorPlugin {
 
     protected void logInfo(String sessionName, String message) {
         LOGGER.info("[" + sessionName + "] " + message);
+    }
+
+    protected void logWarn(String sessionName, String message) {
+        LOGGER.warn("[" + sessionName + "] " + message);
+    }
+
+    protected void logError(String sessionName, String message) {
+        LOGGER.error("[" + sessionName + "] " + message);
     }
 
     protected String getURL(String sessionUrl, int port, String endpoint) {

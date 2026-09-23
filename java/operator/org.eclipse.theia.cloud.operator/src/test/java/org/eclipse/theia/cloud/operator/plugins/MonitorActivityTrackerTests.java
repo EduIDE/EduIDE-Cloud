@@ -101,6 +101,22 @@ class MonitorActivityTrackerTests {
     }
 
     @Test
+    void pingSession_pollThrowsUnchecked_doesNotStopTheSession() {
+        // A malformed body is handled inside fetchLastActivity, but nothing unchecked escaping the
+        // poll may take the session down either.
+        Session session = createSession(minutesAgo(90));
+        MonitorActivityTracker tracker = createTracker(() -> {
+            throw new IllegalStateException("unexpected");
+        });
+
+        boolean success = tracker.pingSession(transaction, "cid", session, "10.0.0.1", PORT, SHUTDOWN_AFTER,
+                NOTIFY_AFTER);
+
+        assertFalse(success);
+        verify(sessions, never()).delete(anyString(), anyString());
+    }
+
+    @Test
     void pingSession_pollSucceedsAndUserIsIdle_stopsTheSession() {
         long idleSince = minutesAgo(90);
         Session session = createSession(idleSince);
@@ -152,6 +168,7 @@ class MonitorActivityTrackerTests {
     private interface PollStub {
         Optional<Long> poll() throws IOException;
     }
+
 
     private static final class FlakyPoll implements PollStub {
         private final long timestamp;

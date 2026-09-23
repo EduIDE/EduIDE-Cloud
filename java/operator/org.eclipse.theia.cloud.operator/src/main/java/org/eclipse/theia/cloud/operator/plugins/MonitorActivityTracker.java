@@ -25,10 +25,14 @@ import java.time.ZoneOffset;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -68,6 +72,12 @@ public class MonitorActivityTracker implements OperatorPlugin {
     private static final String POST_POPUP = "/popup";
     private static final String COR_ID_NOACTIVITYPREFIX = "no-activity-";
 
+    /**
+     * After this many consecutive unanswered polls we stop logging at info level and start shouting. A session whose
+     * monitor never answers is a broken deployment, not a quiet user, and it used to look exactly like an idle session.
+     */
+    private static final int POLL_FAILURE_ALERT_THRESHOLD = 3;
+
     @Inject
     private TheiaCloudClient resourceClient;
 
@@ -79,6 +89,9 @@ public class MonitorActivityTracker implements OperatorPlugin {
 
     private final OkHttpClient httpClient = new OkHttpClient.Builder().addInterceptor(new SentryOkHttpInterceptor())
             .eventListener(new SentryOkHttpEventListener()).build();
+
+    /** Consecutive failed activity polls per session name. Entries are dropped once a poll succeeds. */
+    private final Map<String, Integer> consecutivePollFailures = new ConcurrentHashMap<>();
 
     @Override
     public void start() {
@@ -96,6 +109,11 @@ public class MonitorActivityTracker implements OperatorPlugin {
             List<Session> sessions = resourceClient.sessions().list().stream()
                     .filter(session -> OperatorStatus.HANDLED.equals(session.getStatus().getOperatorStatus())).toList();
             String correlationId = generateCorrelationId();
+
+            // Forget sessions that no longer exist, otherwise the failure map grows for the operator's lifetime.
+            Set<String> liveSessionNames = sessions.stream().map(session -> session.getSpec().getName())
+                    .collect(Collectors.toSet());
+            consecutivePollFailures.keySet().retainAll(liveSessionNames);
 
             LOGGER.debug("Pinging sessions: " + sessions);
 
@@ -158,23 +176,21 @@ public class MonitorActivityTracker implements OperatorPlugin {
             String getActivityURL = getURL(sessionURL, port, GET_ACTIVITY);
             logInfo(sessionName, "GET " + getActivityURL);
 
-            boolean success = false;
+            // A poll that does not come back with a timestamp tells us NOTHING about the user. Bailing out here is the
+            // whole point: the code used to fall through and judge the session on a stale lastActivity, so an
+            // unreachable monitor looked exactly like an idle user and the session was reaped out from under them.
             try {
-                Request getActivityRequest = new Request.Builder().url(getActivityURL)
-                        .addHeader("Authorization", "Bearer " + session.getSpec().getSessionSecret()).get().build();
-                Response getActivityResponse = httpClient.newCall(getActivityRequest).execute();
-                ResponseBody body = getActivityResponse.body();
-
-                if (getActivityResponse.code() == 200 && body != null) {
-                    long lastReportedMilliseconds = Long.valueOf(body.string());
-                    session = updateLastActivity(correlationId, session, lastReportedMilliseconds);
-                    success = true;
-                } else {
-                    logInfo(sessionName,
-                            "REQUEST FAILED (Returned " + getActivityResponse.code() + ": " + "GET " + getActivityURL);
+                Optional<Long> lastReportedMilliseconds = fetchLastActivity(session, getActivityURL);
+                if (lastReportedMilliseconds.isEmpty()) {
+                    recordPollFailure(sessionSpan, sessionName, "GET " + getActivityURL + " returned no timestamp");
+                    return false;
                 }
+
+                session = updateLastActivity(correlationId, session, lastReportedMilliseconds.get());
+                recordPollSuccess(sessionName);
             } catch (IOException e) {
-                logInfo(sessionName, "REQUEST FAILED: " + "GET " + getActivityURL + ". Error: " + e);
+                recordPollFailure(sessionSpan, sessionName, "GET " + getActivityURL + " failed: " + e);
+                return false;
             }
 
             Date lastActivityDate = new Date(session.getNonNullStatus().getLastActivity());
@@ -211,7 +227,7 @@ public class MonitorActivityTracker implements OperatorPlugin {
                 sessionSpan.setStatus(SpanStatus.OK);
             }
 
-            return success;
+            return true;
         } catch (Exception e) {
             LOGGER.error(
                     formatLogMessage(correlationId, correlationId, "Exception while pinging session " + sessionName),
@@ -222,6 +238,54 @@ public class MonitorActivityTracker implements OperatorPlugin {
             return false;
         } finally {
             sessionSpan.finish();
+        }
+    }
+
+    /**
+     * Asks the session's monitor for its last reported activity.
+     *
+     * @return the reported timestamp, or empty when the monitor answered but gave us nothing usable. Never substitutes
+     *         a default - the caller must treat an empty result as "unknown", not as "idle".
+     */
+    protected Optional<Long> fetchLastActivity(Session session, String getActivityURL) throws IOException {
+        Request getActivityRequest = new Request.Builder().url(getActivityURL)
+                .addHeader("Authorization", "Bearer " + session.getSpec().getSessionSecret()).get().build();
+        Response getActivityResponse = httpClient.newCall(getActivityRequest).execute();
+        ResponseBody body = getActivityResponse.body();
+
+        if (getActivityResponse.code() != 200 || body == null) {
+            logInfo(session.getSpec().getName(),
+                    "REQUEST FAILED (Returned " + getActivityResponse.code() + "): GET " + getActivityURL);
+            return Optional.empty();
+        }
+
+        return Optional.of(Long.valueOf(body.string()));
+    }
+
+    protected void recordPollSuccess(String sessionName) {
+        Integer previousFailures = consecutivePollFailures.remove(sessionName);
+        if (previousFailures != null && previousFailures >= POLL_FAILURE_ALERT_THRESHOLD) {
+            LOGGER.warn("[" + sessionName + "] Activity monitor is answering again after " + previousFailures
+                    + " failed polls.");
+        }
+    }
+
+    protected void recordPollFailure(ISpan sessionSpan, String sessionName, String detail) {
+        int failures = consecutivePollFailures.merge(sessionName, 1, Integer::sum);
+        sessionSpan.setData("poll_failures", failures);
+        sessionSpan.setStatus(SpanStatus.UNAVAILABLE);
+
+        String message = "[" + sessionName + "] Could not read activity (" + failures
+                + " consecutive failures). Session will NOT be timed out on this data. " + detail;
+        if (failures == POLL_FAILURE_ALERT_THRESHOLD) {
+            // Say it once, loudly. Repeating every interval would drown the log for a session nobody can fix quickly.
+            LOGGER.error(message);
+            Sentry.captureMessage("Activity monitor unreachable for session " + sessionName + " after " + failures
+                    + " consecutive polls. Inactivity timeouts are not being enforced for it.");
+        } else if (failures < POLL_FAILURE_ALERT_THRESHOLD) {
+            LOGGER.warn(message);
+        } else {
+            LOGGER.debug(message);
         }
     }
 

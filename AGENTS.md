@@ -122,6 +122,24 @@ sidecar Deployment and Service are created **before** the Theia deployment so
 DNS resolves at pod startup, and releasing an eager session restarts the sidecar
 pods rather than deleting them.
 
+**Every operator start replays existing AppDefinitions as ADDED, so ADDED is not
+"new".** `BasicTheiaCloudOperator` lists the AppDefinitions at startup and feeds
+each one through `handleAppDefnitionEvent(ADDED, ...)` before the watch begins;
+there is no periodic resync, and the in-memory cache dies with the process. A
+helm upgrade restarts the operator in the same release that rewrites the
+AppDefinition, so an image change arrives on the ADDED path, never MODIFIED.
+Both paths must therefore reconcile. They used to differ - ADDED called
+`ensureCapacity`, which creates missing ids and never compares generations - and
+production served a pull request's image from its warm pool for weeks because
+ten instances existed and none were missing.
+
+**Pool membership is a name count, not a state check.**
+`TheiaCloudHandlerUtil.computeIdsOfMissing*` decides an instance is present if a
+resource whose name yields id *N* exists. Image, generation and readiness are
+not consulted, and `reserveInstance` hands out the lowest free instance without
+looking either. Anything that should replace an instance has to say so through
+`isOutdated`; nothing else will notice.
+
 **The pool's email ConfigMaps carry live session state.** `instance-N-email-…`
 holds the `authenticated-emails-list` oauth2-proxy admits; it is written when a
 session reserves the instance and cleared when the instance is released. That

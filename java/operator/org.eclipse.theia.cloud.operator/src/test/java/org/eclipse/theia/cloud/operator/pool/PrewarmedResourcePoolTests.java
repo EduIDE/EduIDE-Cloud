@@ -10,6 +10,7 @@
 package org.eclipse.theia.cloud.operator.pool;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -18,6 +19,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -38,6 +40,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
 import io.fabric8.kubernetes.api.model.ConfigMap;
+import io.fabric8.kubernetes.api.model.HasMetadata;
 import io.fabric8.kubernetes.api.model.ConfigMapBuilder;
 import io.fabric8.kubernetes.api.model.ConfigMapList;
 import io.fabric8.kubernetes.api.model.ObjectMetaBuilder;
@@ -395,6 +398,68 @@ class PrewarmedResourcePoolTests {
         }
         session.setMetadata(metadata.build());
         return session;
+    }
+
+    // ========== isOutdated ==========
+    //
+    // The generation label is what tells a pool instance apart from the AppDefinition
+    // it was built from. appDefinitionAdded reconciles rather than only filling gaps,
+    // and reconcile decides what to recreate entirely on this comparison, so these are
+    // the cases that decide whether a released image actually reaches the warm pool.
+
+    @Test
+    void isOutdated_generationMatches() {
+        assertFalse(isOutdated(deploymentWithLabels(Map.of(
+                PrewarmedResourcePool.APPDEFINITION_GENERATION_LABEL, "6")), 6L));
+    }
+
+    @Test
+    void isOutdated_generationIsOlder() {
+        assertTrue(isOutdated(deploymentWithLabels(Map.of(
+                PrewarmedResourcePool.APPDEFINITION_GENERATION_LABEL, "5")), 6L));
+    }
+
+    @Test
+    void isOutdated_labelMissing() {
+        // Instances created before the label existed. Production had ten of them still
+        // serving a pull request's image weeks after a release.
+        assertTrue(isOutdated(deploymentWithLabels(Map.of("app", APP_DEFINITION)), 6L));
+    }
+
+    @Test
+    void isOutdated_noLabelsAtAll() {
+        assertTrue(isOutdated(deploymentWithLabels(null), 6L));
+    }
+
+    @Test
+    void isOutdated_labelIsNotANumber() {
+        assertTrue(isOutdated(deploymentWithLabels(Map.of(
+                PrewarmedResourcePool.APPDEFINITION_GENERATION_LABEL, "not-a-generation")), 6L));
+    }
+
+    private Deployment deploymentWithLabels(Map<String, String> labels) {
+        ObjectMetaBuilder metadata = new ObjectMetaBuilder().withName("instance-1-" + APP_DEFINITION);
+        if (labels != null) {
+            metadata.withLabels(labels);
+        }
+        Deployment deployment = new DeploymentBuilder().build();
+        deployment.setMetadata(metadata.build());
+        return deployment;
+    }
+
+    private boolean isOutdated(Deployment deployment, long currentGeneration) {
+        try {
+            Method method = PrewarmedResourcePool.class.getDeclaredMethod("isOutdated", HasMetadata.class,
+                    long.class);
+            method.setAccessible(true);
+            return (boolean) method.invoke(pool(), deployment, currentGeneration);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private PrewarmedResourcePool pool() {
+        return Mockito.mock(PrewarmedResourcePool.class, Mockito.CALLS_REAL_METHODS);
     }
 
     private void setField(Object target, String fieldName, Object value) throws Exception {

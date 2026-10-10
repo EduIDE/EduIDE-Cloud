@@ -21,6 +21,7 @@ import java.util.Map;
 
 import org.eclipse.theia.cloud.common.k8s.resource.UserScopedSpec;
 import org.eclipse.theia.cloud.common.k8s.resource.session.hub.SessionHub;
+import org.eclipse.theia.cloud.common.serialization.SensitiveData;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -42,6 +43,7 @@ public class SessionSpec implements UserScopedSpec {
     private String workspace;
 
     @JsonProperty("sessionSecret")
+    @SensitiveData
     private String sessionSecret;
 
     @JsonProperty("options")

@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+- [java/operator] **Security:** harden the session pod securityContext to the restricted Pod Security Standard baseline - `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, `seccompProfile: RuntimeDefault` on the IDE and oauth2-proxy containers (both deployment templates).
+- [java/common] **Security:** authenticate the operator's data-bridge env injection with the session's own secret (`Authorization: Bearer <sessionSecret>`, the value the pod also receives as `THEIACLOUD_SESSION_SECRET`). Pairs with the data-bridge server now requiring that token, so another pod can no longer inject environment variables into a foreign session.
+
 ## [1.2.0] - estimated between 2025-11 and 2026-05
 
 ## [1.1.2] - 2025-09-26

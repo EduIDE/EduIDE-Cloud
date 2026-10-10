@@ -116,11 +116,11 @@ public class DefaultDataBridgeClient implements DataBridgeClient {
             return Optional.empty();
         }
 
-        return performInjection(url.get(), data, correlationId, sessionName);
+        return performInjection(url.get(), data, correlationId, sessionName, session.getSpec().getSessionSecret());
     }
 
     private Optional<DataInjectionResponse> performInjection(String url, Map<String, String> data,
-            String correlationId, String sessionName) {
+            String correlationId, String sessionName, String sessionSecret) {
         LOGGER.info(formatLogMessage(correlationId, "Injecting data to session: " + sessionName + " at " + url));
 
         try {
@@ -131,8 +131,14 @@ public class DefaultDataBridgeClient implements DataBridgeClient {
 
             RequestBody body = RequestBody.create(requestBody.toString(), JSON_MEDIA_TYPE);
 
-            // Build and execute request
-            Request request = new Request.Builder().url(url).post(body).build();
+            // Authenticate to the in-pod data bridge with the session's own secret (the same value
+            // the pod receives as THEIACLOUD_SESSION_SECRET). Without this, any pod on the network
+            // could POST environment variables into another session's data bridge.
+            Request.Builder requestBuilder = new Request.Builder().url(url).post(body);
+            if (sessionSecret != null && !sessionSecret.isBlank()) {
+                requestBuilder.addHeader("Authorization", "Bearer " + sessionSecret);
+            }
+            Request request = requestBuilder.build();
 
             try (Response response = httpClient.newCall(request).execute()) {
                 if (response.isSuccessful()) {

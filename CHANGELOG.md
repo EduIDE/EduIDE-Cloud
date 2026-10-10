@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+- [java/operator] **Security:** scope the trust-all TLS socket factory used for the session availability probe to the single probe connection instead of calling `HttpsURLConnection.setDefaultSSLSocketFactory`, which disabled certificate verification process-wide for the operator's lifetime.
+- [java/service] **Security:** compare the admin API token in constant time (`MessageDigest.isEqual`) to remove a timing side channel.
+- [java/common,java/service] **Security:** mark the session `sessionSecret` as sensitive so it is redacted in REST responses and logs (it is the pod bearer token). CR serialization to Kubernetes is unaffected.
+- [java/service] Return a clean error for a request with no body instead of a `NullPointerException`/500.
+
 ## [1.2.0] - estimated between 2025-11 and 2026-05
 
 ## [1.1.2] - 2025-09-26

@@ -1,0 +1,103 @@
+# Packages the session monitor VS Code extension and attaches it to the release.
+#
+# The IDE image (EduIDE) installs this by URL from a release asset, the same way it
+# installs data-bridge. Nothing else builds node/monitor, so the pull_request trigger
+# exists to catch a broken package before a release depends on it.
+name: Monitor VSIX
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'node/monitor/**'
+      - '.github/workflows/monitor-vsix.yml'
+
+  release:
+    types:
+      - published
+      - prereleased
+
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to stamp into the vsix (e.g. 1.2.0). Defaults to the manifest version."
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Package
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: node/monitor
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # The release tag is vX.Y.Z; a vsix version must be X.Y.Z. Same normalisation the
+      # image build does, and for the same reason - one release is one version string.
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          RAW="${{ github.event_name == 'release' && github.event.release.tag_name || inputs.version }}"
+          if [ -n "$RAW" ]; then
+            echo "VERSION=${RAW#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "VERSION=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Stamp version
+        if: steps.version.outputs.VERSION != ''
+        run: npm version "${{ steps.version.outputs.VERSION }}" --no-git-tag-version --allow-same-version
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      # vsce runs `vscode:prepublish` (webpack --mode production) itself, so the bundle
+      # in the vsix is always built from this checkout.
+      - name: Package VSIX
+        run: npx vsce package --allow-star-activation --skip-license --out theia-cloud-monitor.vsix
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: theia-cloud-monitor-vsix
+          path: node/monitor/theia-cloud-monitor.vsix
+          if-no-files-found: error
+
+  release-asset:
+    name: Attach to release
+    if: github.event_name == 'release'
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: theia-cloud-monitor-vsix
+          path: .
+
+      # Named with the version, so the URL in EduIDE's package.json.patch pins one build.
+      - name: Attach to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          mv theia-cloud-monitor.vsix "theia-cloud-monitor-${VERSION}.vsix"
+          gh release upload "$TAG" "theia-cloud-monitor-${VERSION}.vsix" --clobber \
+            --repo "${{ github.repository }}"

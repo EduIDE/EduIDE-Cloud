@@ -2,3 +2,6 @@ node_modules
 lib
 build
 dist
+
+# Packaged VS Code extensions, produced by `npm run build:vsix` in monitor/
+*.vsix

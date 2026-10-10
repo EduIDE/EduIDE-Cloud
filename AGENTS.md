@@ -57,10 +57,11 @@ There is **no `npm run test`**. The Playwright suite is
 
 ## No CI runs the tests
 
-`.github/workflows/` has three files: `build.yml` (three images, via the shared
-org workflow), `tag-format.yml`, `auto-assign.yml`. **Nothing runs `mvn test`,
-`npm run lint` or anything under `theia/`.** `dockerfiles/service/Dockerfile`
-even builds with `-Dmaven.test.skip=true`.
+`.github/workflows/` builds and packages, and never tests: `build.yml` (three
+images, via the shared org workflow), `monitor-vsix.yml` (the monitor extension),
+`tag-format.yml`, `dependency-review.yml`, `docs-check.yml`, `auto-assign.yml`.
+**Nothing runs `mvn test`, `npm run lint` or anything under `theia/`.**
+`dockerfiles/service/Dockerfile` even builds with `-Dmaven.test.skip=true`.
 
 A PR that breaks a Java test goes green. Run the tests yourself:
 
@@ -71,6 +72,32 @@ cd java/service/org.eclipse.theia.cloud.service && mvn verify
 15 test classes over 208 source files, 11 of them in `service`. `operator` has
 two (`SidecarConfigTests`, `PrewarmedResourcePoolTests`); `conversion` and
 `defaultoperator` have none.
+
+## The session monitor ships as a release asset, not an image
+
+`node/monitor` is the VS Code extension that answers the operator's activity
+polls - `GET /monitor/activity/lastActivity`, `POST /monitor/activity/popup` and
+`POST /monitor/message`, on `THEIACLOUD_MONITOR_PORT`, authenticated with
+`THEIACLOUD_SESSION_SECRET`. Without it in the session image, the operator's
+`MonitorActivityTracker` polls something that does not answer.
+
+`monitor-vsix.yml` packages it on every release and attaches
+`theia-cloud-monitor-<version>.vsix` to that release. The EduIDE image consumes
+it by URL from its own base-IDE plugin list, exactly as it consumes data-bridge.
+Nothing publishes it to a marketplace.
+
+**`publisher` is load-bearing.** `vsce package` refuses to run without one - the
+`build:vsix` script predates it being set and could never have worked as shipped.
+It is `tum-aet`, matching data-bridge, so the extension id is
+`tum-aet.theia-cloud-monitor`.
+
+**The monitor needs a port of its own.** `appDefinitions.defaults.monitor.port`
+in EduIDE-Helm must not equal the app port: the operator drops the dedicated
+Service port when they match, and the poll then goes to the Service's `http`
+port, which targets oauth2-proxy and can never return 200.
+
+`node/monitor` is deliberately NOT in `node/package.json`'s workspaces. It
+installs and packages on its own.
 
 ## Rules that are easy to get wrong
 

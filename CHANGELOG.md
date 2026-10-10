@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+- [java/operator] **Security:** enforce an allowlist for environment variables injected into sessions. `fromSecrets`/`fromConfigMaps` references are honoured only if listed in the new operator arguments `--allowedEnvFromSecrets`/`--allowedEnvFromConfigMaps` (default empty = deny), and reserved platform variables (`THEIACLOUD_`/`KEYCLOAK_` prefixes, `LD_PRELOAD`, `LD_LIBRARY_PATH`, `NODE_OPTIONS`) are always dropped from `fromMap` (toggle `--allowCustomEnvFromMap`). Closes an issue where an unauthenticated launch request could mount arbitrary namespace Secrets/ConfigMaps into a session pod.
+- [java/service] **Security:** validate the caller-supplied `user` in anonymous mode against a conservative character set, rejecting CRLF/log/YAML injection, path traversal and shell-metacharacter payloads.
+
 ## [1.2.0] - estimated between 2025-11 and 2026-05
 
 ## [1.1.2] - 2025-09-26

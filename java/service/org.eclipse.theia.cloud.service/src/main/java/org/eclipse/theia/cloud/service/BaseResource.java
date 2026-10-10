@@ -74,6 +74,14 @@ public class BaseResource {
                 throw new TheiaCloudWebException(Status.BAD_REQUEST,
                         "Property \"user\" was not specified for user scoped request.");
             }
+            // In anonymous mode the user identifier is attacker-controlled and ends up in resource
+            // names, labels, CR specs and pod manifests. Reject anything outside a conservative
+            // character set to prevent CRLF/log/YAML injection and path traversal.
+            if (!UserInputValidator.isValid(request.user)) {
+                info(correlationId, "Rejected user scoped request with an invalid \"user\" value.");
+                throw new TheiaCloudWebException(Status.BAD_REQUEST,
+                        "Property \"user\" contains invalid characters or is too long.");
+            }
             return new EvaluatedRequest(correlationId, request.user);
         }
 

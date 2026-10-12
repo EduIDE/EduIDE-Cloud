@@ -17,6 +17,8 @@
 package org.eclipse.theia.cloud.operator;
 
 import picocli.CommandLine.Option;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.logging.Logger;
 
 public class TheiaCloudOperatorArguments {
@@ -151,8 +153,41 @@ public class TheiaCloudOperatorArguments {
     @Option(names = { "--dependencyCacheUrl" }, description = "The URL of the dependency cache server (Reposilite).", required = false)
     private String dependencyCacheUrl;
 
+    @Option(names = {
+            "--allowedEnvFromSecrets" }, description = "Comma-separated allowlist of Secret names that a launch request may inject into a session via envFrom. Empty (the default) means no Secret may be injected.", required = false, split = ",")
+    private List<String> allowedEnvFromSecrets = new ArrayList<>();
+
+    @Option(names = {
+            "--allowedEnvFromConfigMaps" }, description = "Comma-separated allowlist of ConfigMap names that a launch request may inject into a session via envFrom. Empty (the default) means no ConfigMap may be injected.", required = false, split = ",")
+    private List<String> allowedEnvFromConfigMaps = new ArrayList<>();
+
+    @Option(names = {
+            "--allowCustomEnvFromMap" }, description = "Whether a launch request may set arbitrary environment variables via env.fromMap. Reserved platform variables are always dropped regardless of this flag.", required = false, defaultValue = "true")
+    private boolean allowCustomEnvFromMap = true;
+
     public boolean isUseKeycloak() {
         return useKeycloak;
+    }
+
+    /**
+     * @return the allowlist of Secret names a launch request may inject via envFrom. Empty means none are allowed.
+     */
+    public List<String> getAllowedEnvFromSecrets() {
+        return allowedEnvFromSecrets;
+    }
+
+    /**
+     * @return the allowlist of ConfigMap names a launch request may inject via envFrom. Empty means none are allowed.
+     */
+    public List<String> getAllowedEnvFromConfigMaps() {
+        return allowedEnvFromConfigMaps;
+    }
+
+    /**
+     * @return whether arbitrary env.fromMap variables are allowed (reserved platform variables are always dropped).
+     */
+    public boolean isAllowCustomEnvFromMap() {
+        return allowCustomEnvFromMap;
     }
 
     public boolean isEagerStart() {

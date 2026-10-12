@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+- [java/operator] **Security:** enforce an allowlist for environment variables injected into sessions. `fromSecrets`/`fromConfigMaps` references are honoured only if listed in the new operator arguments `--allowedEnvFromSecrets`/`--allowedEnvFromConfigMaps` (default empty = deny), and reserved platform variables are always dropped from `fromMap` (toggle `--allowCustomEnvFromMap`). Reserved are the prefixes `THEIACLOUD_`, `KEYCLOAK_`, `BUILD_CACHE_`, `DEPENDENCY_CACHE_`, `DATA_BRIDGE_`, `SIDECAR_` and the names `LD_PRELOAD`, `LD_LIBRARY_PATH`, `NODE_OPTIONS`, `BAZEL_BUILD_CACHE_URL`, `SCORPIO_THEIA_ENV_STRATEGY`, so a caller cannot override administrator-controlled cache, data-bridge or sidecar connection settings. Closes an issue where an unauthenticated launch request could mount arbitrary namespace Secrets/ConfigMaps into a session pod.
+- [java/service] **Security:** validate the caller-supplied `user` in anonymous mode against a conservative character set (and require alphanumeric endpoints), rejecting CRLF/log/YAML injection, path traversal and shell-metacharacter payloads.
+- [java/common] Guarantee generated session label values are valid Kubernetes labels: trim leading/trailing separators left by sanitization or truncation so the API server cannot reject session reconciliation.
+
 ## [1.2.0] - estimated between 2025-11 and 2026-05
 
 ## [1.1.2] - 2025-09-26

@@ -50,6 +50,7 @@ import org.apache.logging.log4j.Logger;
 import org.eclipse.theia.cloud.common.k8s.client.SessionResourceClient;
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinition;
 import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
+import org.eclipse.theia.cloud.operator.util.CustomEnvFilter;
 import org.eclipse.theia.cloud.common.util.LogMessageUtil;
 
 import io.fabric8.kubernetes.api.model.ConfigMap;
@@ -319,7 +320,7 @@ public final class AddedHandlerUtil {
 
     /* ------------------- Addition of env vars to Deployments ------------------ */
     public static void addCustomEnvVarsToDeploymentFromSession(String correlationId, Deployment deployment,
-            Session session, AppDefinition appDefinition) {
+            Session session, AppDefinition appDefinition, CustomEnvFilter envFilter) {
         String containerName = appDefinition.getSpec().getName();
         Optional<Integer> maybeContainerIdx = findContainerIdxInDeployment(deployment, containerName);
 
@@ -332,11 +333,31 @@ public final class AddedHandlerUtil {
         int containerIdx = maybeContainerIdx.get();
         Container container = deployment.getSpec().getTemplate().getSpec().getContainers().get(containerIdx);
 
-        container = withDirectEnvVarsToContainer(container, session.getSpec().getEnvVars());
-        container = withEnvVarsFromRefsToContainer(container, session.getSpec().getEnvVarsFromConfigMaps(), false);
-        container = withEnvVarsFromRefsToContainer(container, session.getSpec().getEnvVarsFromSecrets(), true);
+        // Apply the operator's allowlist policy before anything is mounted. A launch request is
+        // (in anonymous deployments) unauthenticated, so without this a caller could inject any
+        // namespace Secret/ConfigMap or override platform variables.
+        Map<String, String> mapEnv = envFilter.allowedMapEnv(session.getSpec().getEnvVars());
+        List<String> configMapRefs = envFilter.allowedConfigMapRefs(session.getSpec().getEnvVarsFromConfigMaps());
+        List<String> secretRefs = envFilter.allowedSecretRefs(session.getSpec().getEnvVarsFromSecrets());
+        logRejected(correlationId, session, envFilter);
+
+        container = withDirectEnvVarsToContainer(container, mapEnv);
+        container = withEnvVarsFromRefsToContainer(container, configMapRefs, false);
+        container = withEnvVarsFromRefsToContainer(container, secretRefs, true);
 
         deployment.getSpec().getTemplate().getSpec().getContainers().set(containerIdx, container);
+    }
+
+    private static void logRejected(String correlationId, Session session, CustomEnvFilter envFilter) {
+        List<String> rejectedSecrets = envFilter.rejectedSecretRefs(session.getSpec().getEnvVarsFromSecrets());
+        List<String> rejectedConfigMaps = envFilter.rejectedConfigMapRefs(session.getSpec().getEnvVarsFromConfigMaps());
+        List<String> rejectedMapKeys = envFilter.rejectedMapKeys(session.getSpec().getEnvVars());
+        if (!rejectedSecrets.isEmpty() || !rejectedConfigMaps.isEmpty() || !rejectedMapKeys.isEmpty()) {
+            LOGGER.warn(LogMessageUtil.formatLogMessage(correlationId,
+                    "Dropped env injection not permitted by the operator allowlist for session "
+                            + session.getSpec().getName() + ". Secrets=" + rejectedSecrets + " ConfigMaps="
+                            + rejectedConfigMaps + " fromMap keys=" + rejectedMapKeys));
+        }
     }
 
     private static Container withEnvVarsFromRefsToContainer(Container container, List<String> refs,

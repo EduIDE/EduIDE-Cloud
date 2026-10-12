@@ -206,7 +206,8 @@ public class K8sResourceFactory {
                             appDef.getSpec().getUplinkLimit(), correlationId);
                     AddedHandlerUtil.removeEmptyResources(deployment);
                     AddedHandlerUtil.addCustomEnvVarsToDeploymentFromSession(correlationId, deployment, session,
-                            appDef);
+                            appDef, new CustomEnvFilter(arguments.getAllowedEnvFromSecrets(),
+                                    arguments.getAllowedEnvFromConfigMaps(), arguments.isAllowCustomEnvFromMap()));
 
                     if (appDef.getSpec().getPullSecret() != null && !appDef.getSpec().getPullSecret().isEmpty()) {
                         AddedHandlerUtil.addImagePullSecret(deployment, appDef.getSpec().getPullSecret());

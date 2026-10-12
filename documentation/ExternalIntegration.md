@@ -65,7 +65,9 @@ The response body is the session URL as plain text.
 External callers outside the cluster pass values via `fromMap`. Prefer `fromSecrets` for sensitive values that are already held as Kubernetes Secrets in the cluster.
 
 > **Security: these inputs are not trusted.** A launch request may be unauthenticated (anonymous
-> deployments), so the operator enforces an allowlist before anything is mounted:
+> deployments), so the operator filters these inputs before mounting: Secret and ConfigMap
+> references are checked against an allowlist, and `fromMap` keys are checked against a reserved-name
+> policy (and an on/off toggle):
 >
 > - `fromSecrets` / `fromConfigMaps` names are honoured only if they appear in the operator's
 >   `--allowedEnvFromSecrets` / `--allowedEnvFromConfigMaps` allowlist (comma-separated operator
@@ -75,8 +77,8 @@ External callers outside the cluster pass values via `fromMap`. Prefer `fromSecr
 >   them directly on the operator deployment.
 > - `fromMap` keys that target reserved platform variables are always dropped so a caller cannot
 >   override or forge them. Reserved are the prefixes `THEIACLOUD_`, `KEYCLOAK_`, `BUILD_CACHE_`,
->   `DEPENDENCY_CACHE_`, `DATA_BRIDGE_` and the names `LD_PRELOAD`, `LD_LIBRARY_PATH`, `NODE_OPTIONS`,
->   `BAZEL_BUILD_CACHE_URL`, `SCORPIO_THEIA_ENV_STRATEGY`. Arbitrary `fromMap` use is enabled by
+>   `DEPENDENCY_CACHE_`, `DATA_BRIDGE_`, `SIDECAR_` and the names `LD_PRELOAD`, `LD_LIBRARY_PATH`,
+>   `NODE_OPTIONS`, `BAZEL_BUILD_CACHE_URL`, `SCORPIO_THEIA_ENV_STRATEGY`. Arbitrary `fromMap` use is enabled by
 >   default (`--allowCustomEnvFromMap=true`) and can be disabled entirely with
 >   `--allowCustomEnvFromMap=false`.
 >

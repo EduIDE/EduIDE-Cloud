@@ -93,6 +93,9 @@ class CustomEnvFilterTests {
         assertTrue(CustomEnvFilter.isReserved("DATA_BRIDGE_ENABLED"));
         assertTrue(CustomEnvFilter.isReserved("BAZEL_BUILD_CACHE_URL"));
         assertTrue(CustomEnvFilter.isReserved("SCORPIO_THEIA_ENV_STRATEGY"));
+        assertTrue(CustomEnvFilter.isReserved("SIDECAR_CONFIG"));
+        assertTrue(CustomEnvFilter.isReserved("SIDECAR_LANG_JAVA_HOST"));
+        assertTrue(CustomEnvFilter.isReserved("sidecar_lang_java_port"));
         // The documented caller input THEIA stays available to launch requests.
         assertFalse(CustomEnvFilter.isReserved("THEIA"));
     }

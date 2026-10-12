@@ -48,12 +48,13 @@ public class CustomEnvFilter {
     /**
      * Env var name prefixes the platform owns; a request must never set these. Besides the
      * {@code THEIACLOUD_}/{@code KEYCLOAK_} identity and session variables, the deployment templates
-     * also inject the build/dependency cache and data-bridge settings. Because custom variables are
-     * appended after the template environment, an unreserved name here would let a launch request
-     * override an administrator-controlled value (e.g. re-enable cache push or redirect a cache URL).
+     * also inject the build/dependency cache, data-bridge and sidecar settings. Because custom
+     * variables are appended after the template environment, an unreserved name here would let a
+     * launch request override an administrator-controlled value (e.g. re-enable cache push, redirect
+     * a cache URL, or forge the {@code SIDECAR_*} connection metadata the operator injects).
      */
     public static final Set<String> RESERVED_PREFIXES = Set.of("THEIACLOUD_", "KEYCLOAK_", "BUILD_CACHE_",
-            "DEPENDENCY_CACHE_", "DATA_BRIDGE_");
+            "DEPENDENCY_CACHE_", "DATA_BRIDGE_", "SIDECAR_");
 
     /** Individual env var names that are dangerous to let a caller control. */
     public static final Set<String> RESERVED_NAMES = Set.of("LD_PRELOAD", "LD_LIBRARY_PATH", "NODE_OPTIONS",

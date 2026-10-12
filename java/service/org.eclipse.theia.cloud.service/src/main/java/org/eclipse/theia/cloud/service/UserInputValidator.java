@@ -32,7 +32,10 @@ public final class UserInputValidator {
 
     public static final int MAX_USER_LENGTH = 128;
 
-    private static final Pattern VALID_USER = Pattern.compile("^[A-Za-z0-9._@+-]{1,128}$");
+    // Must start and end with an alphanumeric character so the sanitized value stays a valid
+    // Kubernetes label value and resource-name component even after truncation. This also rejects
+    // degenerate inputs such as a lone "." that would otherwise sanitize to an empty/invalid label.
+    private static final Pattern VALID_USER = Pattern.compile("^[A-Za-z0-9]([A-Za-z0-9._@+-]*[A-Za-z0-9])?$");
 
     private UserInputValidator() {
     }
@@ -41,6 +44,6 @@ public final class UserInputValidator {
      * @return {@code true} if the given user identifier is safe to use.
      */
     public static boolean isValid(String user) {
-        return user != null && VALID_USER.matcher(user).matches();
+        return user != null && user.length() <= MAX_USER_LENGTH && VALID_USER.matcher(user).matches();
     }
 }

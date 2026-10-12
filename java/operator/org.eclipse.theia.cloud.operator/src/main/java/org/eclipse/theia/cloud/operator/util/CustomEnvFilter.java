@@ -19,6 +19,7 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -44,11 +45,19 @@ import java.util.stream.Collectors;
  */
 public class CustomEnvFilter {
 
-    /** Env var name prefixes the platform owns; a request must never set these. */
-    public static final Set<String> RESERVED_PREFIXES = Set.of("THEIACLOUD_", "KEYCLOAK_");
+    /**
+     * Env var name prefixes the platform owns; a request must never set these. Besides the
+     * {@code THEIACLOUD_}/{@code KEYCLOAK_} identity and session variables, the deployment templates
+     * also inject the build/dependency cache and data-bridge settings. Because custom variables are
+     * appended after the template environment, an unreserved name here would let a launch request
+     * override an administrator-controlled value (e.g. re-enable cache push or redirect a cache URL).
+     */
+    public static final Set<String> RESERVED_PREFIXES = Set.of("THEIACLOUD_", "KEYCLOAK_", "BUILD_CACHE_",
+            "DEPENDENCY_CACHE_", "DATA_BRIDGE_");
 
     /** Individual env var names that are dangerous to let a caller control. */
-    public static final Set<String> RESERVED_NAMES = Set.of("LD_PRELOAD", "LD_LIBRARY_PATH", "NODE_OPTIONS");
+    public static final Set<String> RESERVED_NAMES = Set.of("LD_PRELOAD", "LD_LIBRARY_PATH", "NODE_OPTIONS",
+            "BAZEL_BUILD_CACHE_URL", "SCORPIO_THEIA_ENV_STRATEGY");
 
     private final Set<String> allowedSecrets;
     private final Set<String> allowedConfigMaps;
@@ -101,7 +110,10 @@ public class CustomEnvFilter {
         if (requested == null) {
             return List.of();
         }
-        return requested.stream().filter(name -> name != null && allowed.contains(name.trim()))
+        // Match the name exactly against the (already trimmed) allowlist. The matched string is what
+        // gets mounted, so a name with stray whitespace fails closed rather than being silently
+        // trimmed into a different reference than the one that was checked.
+        return requested.stream().filter(name -> name != null && allowed.contains(name))
                 .collect(Collectors.toList());
     }
 
@@ -109,7 +121,7 @@ public class CustomEnvFilter {
         if (requested == null) {
             return List.of();
         }
-        return requested.stream().filter(name -> name == null || !allowed.contains(name.trim()))
+        return requested.stream().filter(name -> name == null || !allowed.contains(name))
                 .collect(Collectors.toList());
     }
 
@@ -147,7 +159,7 @@ public class CustomEnvFilter {
         if (key == null) {
             return true;
         }
-        String upper = key.trim().toUpperCase();
+        String upper = key.trim().toUpperCase(Locale.ROOT);
         if (RESERVED_NAMES.contains(upper)) {
             return true;
         }

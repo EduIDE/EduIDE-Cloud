@@ -51,4 +51,19 @@ class UserInputValidatorTests {
         assertFalse(UserInputValidator.isValid(" "));
         assertFalse(UserInputValidator.isValid("a".repeat(UserInputValidator.MAX_USER_LENGTH + 1)));
     }
+
+    @Test
+    void requiresAlphanumericEndpoints() {
+        // A value that starts or ends with punctuation sanitizes to an invalid Kubernetes label
+        // value, so it is rejected at the boundary.
+        assertFalse(UserInputValidator.isValid("."));
+        assertFalse(UserInputValidator.isValid("_user"));
+        assertFalse(UserInputValidator.isValid("-user"));
+        assertFalse(UserInputValidator.isValid("user."));
+        assertFalse(UserInputValidator.isValid("user-"));
+        assertFalse(UserInputValidator.isValid("@user@"));
+        // Single alphanumeric and alphanumeric-bounded identifiers stay valid.
+        assertTrue(UserInputValidator.isValid("a"));
+        assertTrue(UserInputValidator.isValid("a".repeat(UserInputValidator.MAX_USER_LENGTH)));
+    }
 }

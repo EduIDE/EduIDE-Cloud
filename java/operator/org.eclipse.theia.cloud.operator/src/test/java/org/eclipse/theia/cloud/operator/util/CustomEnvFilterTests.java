@@ -84,4 +84,38 @@ class CustomEnvFilterTests {
         assertTrue(CustomEnvFilter.isReserved("ld_preload"));
         assertFalse(CustomEnvFilter.isReserved("MY_VAR"));
     }
+
+    @Test
+    void isReserved_coversCacheAndDataBridgePlatformVariables() {
+        assertTrue(CustomEnvFilter.isReserved("BUILD_CACHE_PUSH"));
+        assertTrue(CustomEnvFilter.isReserved("build_cache_url"));
+        assertTrue(CustomEnvFilter.isReserved("DEPENDENCY_CACHE_ENABLED"));
+        assertTrue(CustomEnvFilter.isReserved("DATA_BRIDGE_ENABLED"));
+        assertTrue(CustomEnvFilter.isReserved("BAZEL_BUILD_CACHE_URL"));
+        assertTrue(CustomEnvFilter.isReserved("SCORPIO_THEIA_ENV_STRATEGY"));
+        // The documented caller input THEIA stays available to launch requests.
+        assertFalse(CustomEnvFilter.isReserved("THEIA"));
+    }
+
+    @Test
+    void mapEnv_dropsCacheOverrideAttempt() {
+        CustomEnvFilter filter = new CustomEnvFilter(List.of(), List.of(), true);
+        Map<String, String> requested = new java.util.LinkedHashMap<>();
+        requested.put("BUILD_CACHE_PUSH", "true");
+        requested.put("BUILD_CACHE_URL", "http://attacker.example/cache");
+        requested.put("THEIA", "true");
+
+        assertEquals(Map.of("THEIA", "true"), filter.allowedMapEnv(requested));
+        assertTrue(filter.rejectedMapKeys(requested).contains("BUILD_CACHE_PUSH"));
+        assertTrue(filter.rejectedMapKeys(requested).contains("BUILD_CACHE_URL"));
+    }
+
+    @Test
+    void refs_matchExactlyAndWhitespaceFailsClosed() {
+        CustomEnvFilter filter = new CustomEnvFilter(List.of("allowed-secret"), List.of(), true);
+        // A name padded with whitespace is not the one that was allowlisted; it must be rejected
+        // rather than silently trimmed into a reference that was never checked.
+        assertEquals(List.of(), filter.allowedSecretRefs(List.of(" allowed-secret")));
+        assertEquals(List.of(" allowed-secret"), filter.rejectedSecretRefs(List.of(" allowed-secret")));
+    }
 }

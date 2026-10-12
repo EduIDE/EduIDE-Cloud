@@ -68,12 +68,16 @@ External callers outside the cluster pass values via `fromMap`. Prefer `fromSecr
 > deployments), so the operator enforces an allowlist before anything is mounted:
 >
 > - `fromSecrets` / `fromConfigMaps` names are honoured only if they appear in the operator's
->   `--allowedEnvFromSecrets` / `--allowedEnvFromConfigMaps` allowlist. **The default is empty, so no
->   Secret or ConfigMap can be injected** until an administrator opts the specific names in (set via
->   the Helm chart per environment). Names not on the allowlist are dropped and logged.
-> - `fromMap` keys that target reserved platform variables (prefixes `THEIACLOUD_`, `KEYCLOAK_`, and
->   the names `LD_PRELOAD`, `LD_LIBRARY_PATH`, `NODE_OPTIONS`) are always dropped so a caller cannot
->   override or forge them. Arbitrary `fromMap` use can be disabled entirely with
+>   `--allowedEnvFromSecrets` / `--allowedEnvFromConfigMaps` allowlist (comma-separated operator
+>   command-line arguments). **The default is empty, so no Secret or ConfigMap can be injected**
+>   until an administrator opts the specific names in. Names not on the allowlist are dropped and
+>   logged. Exposing these as Helm chart values per environment is a planned follow-up; for now set
+>   them directly on the operator deployment.
+> - `fromMap` keys that target reserved platform variables are always dropped so a caller cannot
+>   override or forge them. Reserved are the prefixes `THEIACLOUD_`, `KEYCLOAK_`, `BUILD_CACHE_`,
+>   `DEPENDENCY_CACHE_`, `DATA_BRIDGE_` and the names `LD_PRELOAD`, `LD_LIBRARY_PATH`, `NODE_OPTIONS`,
+>   `BAZEL_BUILD_CACHE_URL`, `SCORPIO_THEIA_ENV_STRATEGY`. Arbitrary `fromMap` use is enabled by
+>   default (`--allowCustomEnvFromMap=true`) and can be disabled entirely with
 >   `--allowCustomEnvFromMap=false`.
 >
 > This is a defence-in-depth control; it does not replace authenticating the service (Keycloak).

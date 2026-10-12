@@ -46,7 +46,11 @@ public class BaseResource {
 
     private String basicEvaluateRequest(ServiceRequest request) {
         String correlationId = generateCorrelationId();
-        if (request == null || request.appId == null || !request.appId.equals(appId)) {
+        if (request == null) {
+            info(correlationId, "Request without a body.");
+            throw new TheiaCloudWebException(TheiaCloudError.INVALID_APP_ID);
+        }
+        if (request.appId == null || !request.appId.equals(appId)) {
             info(correlationId, "Request '" + request.kind + "' without matching appId: " + request.appId);
             trace(correlationId, request.toString());
             throw new TheiaCloudWebException(TheiaCloudError.INVALID_APP_ID);

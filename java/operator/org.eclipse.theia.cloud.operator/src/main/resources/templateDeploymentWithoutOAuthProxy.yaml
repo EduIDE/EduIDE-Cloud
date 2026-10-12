@@ -91,5 +91,11 @@ spec:
           securityContext:
             runAsUser: placeholder-uid
             runAsGroup: placeholder-uid
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
       securityContext:
         fsGroup: placeholder-uid

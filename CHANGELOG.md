@@ -9,6 +9,7 @@
 - [java/service] **Security:** compare the admin API token in constant time (`MessageDigest.isEqual`) to remove a timing side channel.
 - [java/common,java/service] **Security:** mark the session `sessionSecret` as sensitive so it is redacted in REST responses and logs (it is the pod bearer token). CR serialization to Kubernetes is unaffected.
 - [java/service] Return a clean error for a request with no body instead of a `NullPointerException`/500.
+- [java/operator] **Security:** add restricted Pod Security Standard hardening controls to the session pod securityContext - `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, `seccompProfile: RuntimeDefault` on the IDE and oauth2-proxy containers (both deployment templates), plus `runAsNonRoot: true` on oauth2-proxy. This does not make the pod fully Restricted-compliant: the IDE container runs as a configured non-zero UID without `runAsNonRoot`, and bandwidth-limited app definitions may still add a `NET_ADMIN` init container.
 
 ## [1.2.0] - estimated between 2025-11 and 2026-05
 

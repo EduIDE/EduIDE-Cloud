@@ -1,5 +1,9 @@
 # Changelog
 
+## [Unreleased]
+
+- [java/operator] Never time out a session on an unanswered activity poll. When the monitor activity read fails or returns no timestamp, the tracker now counts consecutive failures and keeps the session running instead of falling through to the timeout check against a `lastActivity` frozen at session start, which could delete an active session whose monitor was briefly unreachable.
+
 ## [1.2.0] - estimated between 2025-11 and 2026-05
 
 ## [1.1.2] - 2025-09-26

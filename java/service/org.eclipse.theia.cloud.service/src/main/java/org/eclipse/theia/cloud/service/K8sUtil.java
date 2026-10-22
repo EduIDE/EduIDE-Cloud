@@ -151,12 +151,24 @@ public final class K8sUtil {
             int port = uri.getPort();
             boolean defaultPort = port == -1 || ("https".equals(scheme) && port == 443)
                     || ("http".equals(scheme) && port == 80);
-            String path = uri.getRawPath() == null ? "" : uri.getRawPath().replaceAll("(\\.git)?/*$", "");
+            String path = withoutTrailingSlashes(uri.getRawPath() == null ? "" : uri.getRawPath());
+            if (path.endsWith(".git")) {
+                path = withoutTrailingSlashes(path.substring(0, path.length() - ".git".length()));
+            }
             return scheme + "://" + uri.getHost().toLowerCase(Locale.ROOT) + (defaultPort ? "" : ":" + port) + path;
         } catch (URISyntaxException e) {
             // e.g. scp-style "git@host:owner/repo.git", which carries no secret
             return gitUri;
         }
+    }
+
+    // A loop rather than a regex: GIT_URI is caller-supplied, and "/*$" backtracks quadratically on a run of slashes.
+    private static String withoutTrailingSlashes(String path) {
+        int end = path.length();
+        while (end > 0 && path.charAt(end - 1) == '/') {
+            end--;
+        }
+        return path.substring(0, end);
     }
 
     private boolean requiresSharedWorkspace(AppDefinitionSpec spec) {

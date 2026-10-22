@@ -14,12 +14,14 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 
 import java.lang.reflect.Field;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -103,9 +105,23 @@ class K8sUtilTests {
         assertEquals("http://localhost:7990/scm/ex/repo", K8sUtil.repositoryOf(env("http://localhost:7990/scm/ex/repo")));
         assertEquals("git@github.com:octocat/Hello-World.git",
                 K8sUtil.repositoryOf(env("git@github.com:octocat/Hello-World.git")));
+        assertEquals("https://github.com/octocat/Hello-World",
+                K8sUtil.repositoryOf(env("https://github.com/octocat/Hello-World///")));
+        assertEquals("https://github.com/octocat/Hello-World",
+                K8sUtil.repositoryOf(env("https://github.com/octocat/Hello-World.git//")));
         assertNull(K8sUtil.repositoryOf(null));
         assertNull(K8sUtil.repositoryOf(env("   ")));
         assertNull(K8sUtil.repositoryOf(envOf(Map.of())));
+    }
+
+    @Test
+    void repositoryOf_staysLinearOnARunOfSlashes() {
+        String slashes = "/".repeat(100_000);
+        String gitUri = "https://github.com/" + slashes + "x" + slashes;
+
+        String repository = assertTimeoutPreemptively(Duration.ofSeconds(2), () -> K8sUtil.repositoryOf(env(gitUri)));
+
+        assertEquals("https://github.com/" + slashes + "x", repository);
     }
 
     private String launchedSessionName(EnvironmentVars env) throws Exception {

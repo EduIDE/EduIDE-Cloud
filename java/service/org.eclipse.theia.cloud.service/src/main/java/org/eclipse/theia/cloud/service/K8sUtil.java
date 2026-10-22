@@ -18,8 +18,11 @@ package org.eclipse.theia.cloud.service;
 
 import static org.eclipse.theia.cloud.common.util.WorkspaceUtil.getSessionName;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.text.MessageFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Consumer;
@@ -54,6 +57,9 @@ import jakarta.ws.rs.core.Response.Status;
 
 @ApplicationScoped
 public final class K8sUtil {
+    /** Session environment variable with the repository the IDE clones (read by Scorpio). */
+    static final String GIT_URI_ENV = "GIT_URI";
+
     private NamespacedKubernetesClient KUBERNETES = CustomResourceUtil.createClient();
     public TheiaCloudClient CLIENT = new DefaultTheiaCloudClient(KUBERNETES);
 
@@ -110,10 +116,47 @@ public final class K8sUtil {
                     "Ephemeral sessions are not supported for app definitions whose sidecars mount the workspace. Use a workspace-backed session.");
         }
 
-        SessionSpec sessionSpec = new SessionSpec(getSessionName(user, appDefinition, false), appDefinition, user);
+        // An existing session of the same name is returned as it is, with its old environment. Without the repository
+        // in the name, a second repository in the same app definition would reopen the first one's session.
+        SessionSpec sessionSpec = new SessionSpec(getSessionName(user, appDefinition, repositoryOf(env)),
+                appDefinition, user);
         sessionSpec = sessionSpecWithEnv(sessionSpec, env);
 
         return launchSession(correlationId, sessionSpec, timeout);
+    }
+
+    /**
+     * Returns the repository a session clones, normalized so that every launch of the same repository maps to the same
+     * session: credentials are dropped (Artemis embeds a token in {@value #GIT_URI_ENV} that may change between
+     * launches), scheme and host are lowercased, a default port is dropped, and a trailing ".git" or "/" is ignored.
+     *
+     * @param env the launch environment, may be <code>null</code>
+     * @return the normalized repository, or <code>null</code> if the environment names none
+     */
+    static String repositoryOf(EnvironmentVars env) {
+        if (env == null || env.fromMap == null) {
+            return null;
+        }
+        String gitUri = env.fromMap.get(GIT_URI_ENV);
+        if (gitUri == null || gitUri.isBlank()) {
+            return null;
+        }
+        gitUri = gitUri.strip();
+        try {
+            URI uri = new URI(gitUri);
+            if (uri.getScheme() == null || uri.getHost() == null) {
+                return gitUri;
+            }
+            String scheme = uri.getScheme().toLowerCase(Locale.ROOT);
+            int port = uri.getPort();
+            boolean defaultPort = port == -1 || ("https".equals(scheme) && port == 443)
+                    || ("http".equals(scheme) && port == 80);
+            String path = uri.getRawPath() == null ? "" : uri.getRawPath().replaceAll("(\\.git)?/*$", "");
+            return scheme + "://" + uri.getHost().toLowerCase(Locale.ROOT) + (defaultPort ? "" : ":" + port) + path;
+        } catch (URISyntaxException e) {
+            // e.g. scp-style "git@host:owner/repo.git", which carries no secret
+            return gitUri;
+        }
     }
 
     private boolean requiresSharedWorkspace(AppDefinitionSpec spec) {

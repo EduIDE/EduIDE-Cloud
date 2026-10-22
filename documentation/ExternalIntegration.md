@@ -93,7 +93,7 @@ The service (`RootResource.launch`) validates the request, then `K8sUtil` writes
 - Lazy path: the operator injects the variables directly into the IDE container's environment in the pod spec (`AddedHandlerUtil.addCustomEnvVarsToDeploymentFromSession`).
 - Eager / prewarmed path: the deployment already exists, so the operator collects the variables (`SessionEnvCollector`) and pushes them asynchronously over HTTP `POST /data` (`AsyncDataInjector`) to the data-bridge extension inside the container.
 
-The environment variables are opaque to EduIDE-Cloud itself. The session container image (Scorpio) consumes them to configure git, authenticate with Artemis, and clone `GIT_URI`.
+The environment variables are opaque to EduIDE-Cloud itself, with one exception: `GIT_URI` names ephemeral sessions (see below). The session container image (Scorpio) consumes them to configure git, authenticate with Artemis, and clone `GIT_URI`.
 
 For the broader system context, see [`./Architecture.md`](./Architecture.md).
 
@@ -110,3 +110,4 @@ In anonymous mode (Keycloak disabled), `user` is mandatory. A blank `user` retur
 - `POST /service` blocks until the session URL is ready (up to `timeout`, default 3 minutes). Set the client HTTP timeout above 3 minutes.
 - Omitting `workspaceName` (with `ephemeral: false`) creates a new persistent volume and a fresh clone on every call. Pass a stable `workspaceName` to reuse a persistent workspace.
 - `ephemeral: true` is rejected with HTTP 400 for app definitions that have workspace-mounting sidecars. Use a workspace-backed launch there.
+- An ephemeral session is named after the user, the app definition and a hash of `env.fromMap.GIT_URI`. If a session of that name is running, it is returned as it is, and the new `env` is not applied. So each repository gets its own session, and launching the same repository again returns to it. Credentials, scheme and host case, a default port and a trailing `.git` or `/` do not change the name, so a rotated token still reaches the same session. Without `GIT_URI` the name is user + app definition, as before, and one such session per user and app definition is reused.

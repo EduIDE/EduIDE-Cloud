@@ -7,6 +7,9 @@
 
 ## [1.2.0] - estimated between 2025-11 and 2026-05
 
+- [java/operator] Replace unclaimed warm-pool deployments whose pods lack the NetworkPolicy labels, even when the AppDefinition generation is unchanged
+- [java/operator] Bind Theia to the pod IP in the deployment template without oauth2-proxy
+
 ## [1.1.2] - 2025-09-26
 
 - [java/operator] Use ingress path type ImplementationSpecific instead of Prefix [#449](https://github.com/eclipse-theia/theia-cloud/pull/449)

@@ -2,6 +2,8 @@
 
 ## [1.2.0] - estimated between 2025-11 and 2026-05
 
+- [java/operator] Keep waiting for the data bridge until the user opens the session, retry failed injections, stop when the session ended, and inject the session secret for the monitor
+
 ## [1.1.2] - 2025-09-26
 
 - [java/operator] Use ingress path type ImplementationSpecific instead of Prefix [#449](https://github.com/eclipse-theia/theia-cloud/pull/449)

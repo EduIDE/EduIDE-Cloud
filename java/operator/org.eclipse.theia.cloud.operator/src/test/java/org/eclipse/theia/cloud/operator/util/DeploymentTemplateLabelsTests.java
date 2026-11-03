@@ -26,6 +26,7 @@ import java.util.regex.Pattern;
 
 import org.eclipse.theia.cloud.common.util.LabelsUtil;
 import org.eclipse.theia.cloud.operator.handler.AddedHandlerUtil;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -48,6 +49,15 @@ class DeploymentTemplateLabelsTests {
             assertTrue(metadata.contains(LabelsUtil.LABEL_KEY_SESSION + ": " + LabelsUtil.LABEL_VALUE_SESSION), metadata);
             assertTrue(metadata.contains(LabelsUtil.LABEL_KEY_THEIACLOUD + ": " + LabelsUtil.LABEL_VALUE_THEIACLOUD),
                     metadata);
+        }
+    }
+
+    @Test
+    void templateWithoutProxyListensOnThePodIp() throws IOException {
+        try (InputStream stream = AddedHandlerUtil.class
+                .getResourceAsStream(AddedHandlerUtil.TEMPLATE_DEPLOYMENT_WITHOUT_AOUTH2_PROXY_YAML)) {
+            assertNotNull(stream);
+            assertTrue(new String(stream.readAllBytes(), StandardCharsets.UTF_8).contains("--hostname=0.0.0.0"));
         }
     }
 }

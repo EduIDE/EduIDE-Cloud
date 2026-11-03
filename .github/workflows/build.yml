@@ -66,5 +66,3 @@ jobs:
       no-cache: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.disable_layer_cache) || false }}
       # These are small Java images; the disk-reclaim step is not worth the time.
       free-disk-space: false
-    secrets:
-      docker-secrets: ${{ secrets.SENTRY_AUTH_TOKEN != '' && format('SENTRY_AUTH_TOKEN={0}', secrets.SENTRY_AUTH_TOKEN) || '' }}

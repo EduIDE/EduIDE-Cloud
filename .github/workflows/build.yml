@@ -66,3 +66,8 @@ jobs:
       no-cache: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.disable_layer_cache) || false }}
       # These are small Java images; the disk-reclaim step is not worth the time.
       free-disk-space: false
+    secrets:
+      # Sentry's source bundle upload is off: it fails the whole image build when the
+      # Sentry server is unreachable. Set the repository variable SENTRY_BUILD_ENABLED
+      # to true (with the SENTRY_AUTH_TOKEN secret) to turn it back on.
+      docker-secrets: ${{ vars.SENTRY_BUILD_ENABLED == 'true' && secrets.SENTRY_AUTH_TOKEN != '' && format('SENTRY_AUTH_TOKEN={0}', secrets.SENTRY_AUTH_TOKEN) || '' }}

@@ -15,6 +15,9 @@
  ********************************************************************************/
 package org.eclipse.theia.cloud.service;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+
 import org.jboss.logging.Logger;
 
 import jakarta.annotation.Priority;
@@ -59,11 +62,23 @@ public class AppDefinitionAdminApiTokenFilter implements ContainerRequestFilter 
             return;
         }
 
-        if (!configuredToken.equals(presentedToken)) {
+        if (!constantTimeEquals(configuredToken, presentedToken)) {
             logger.infov("Blocked access to {0} {1}: invalid admin API token.", requestContext.getMethod(),
                     requestContext.getUriInfo().getPath());
             abort(requestContext, Response.Status.FORBIDDEN, "Valid admin API token required.");
         }
+    }
+
+    /**
+     * Compares two tokens in constant time to avoid leaking the configured token through a timing
+     * side channel. Both are compared as raw UTF-8 bytes; differing lengths never short-circuit.
+     */
+    private static boolean constantTimeEquals(String expected, String presented) {
+        if (expected == null || presented == null) {
+            return false;
+        }
+        return MessageDigest.isEqual(expected.getBytes(StandardCharsets.UTF_8),
+                presented.getBytes(StandardCharsets.UTF_8));
     }
 
     private void abort(ContainerRequestContext requestContext, Response.Status status, String entity) {

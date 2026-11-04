@@ -11,6 +11,7 @@ import java.util.Map;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.theia.cloud.common.k8s.client.TheiaCloudClient;
+import org.eclipse.theia.cloud.operator.TheiaCloudOperatorArguments;
 import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
 
 import com.google.inject.Inject;
@@ -31,6 +32,14 @@ public class SessionEnvCollector {
     @Inject
     private TheiaCloudClient client;
 
+    @Inject
+    private TheiaCloudOperatorArguments arguments;
+
+    private CustomEnvFilter envFilter() {
+        return new CustomEnvFilter(arguments.getAllowedEnvFromSecrets(), arguments.getAllowedEnvFromConfigMaps(),
+                arguments.isAllowCustomEnvFromMap());
+    }
+
     /**
      * Collects all custom environment variables for a session.
      * 
@@ -41,15 +50,21 @@ public class SessionEnvCollector {
     public Map<String, String> collect(Session session, String correlationId) {
         Map<String, String> result = new HashMap<>();
 
+        // Apply the operator's allowlist policy first. The session's env requests may originate
+        // from an unauthenticated launch request, so unlisted Secrets/ConfigMaps and reserved
+        // platform variables must never be resolved and pushed into the pod.
+        CustomEnvFilter filter = envFilter();
+        logRejected(session, filter, correlationId);
+
         // Collect direct env vars
-        Map<String, String> directEnvVars = session.getSpec().getEnvVars();
+        Map<String, String> directEnvVars = filter.allowedMapEnv(session.getSpec().getEnvVars());
         if (directEnvVars != null && !directEnvVars.isEmpty()) {
             result.putAll(directEnvVars);
             LOGGER.debug(formatLogMessage(correlationId, "Collected " + directEnvVars.size() + " direct env vars"));
         }
 
         // Resolve env vars from ConfigMaps
-        List<String> configMapNames = session.getSpec().getEnvVarsFromConfigMaps();
+        List<String> configMapNames = filter.allowedConfigMapRefs(session.getSpec().getEnvVarsFromConfigMaps());
         if (configMapNames != null) {
             for (String configMapName : configMapNames) {
                 resolveConfigMap(configMapName, result, correlationId);
@@ -57,7 +72,7 @@ public class SessionEnvCollector {
         }
 
         // Resolve env vars from Secrets
-        List<String> secretNames = session.getSpec().getEnvVarsFromSecrets();
+        List<String> secretNames = filter.allowedSecretRefs(session.getSpec().getEnvVarsFromSecrets());
         if (secretNames != null) {
             for (String secretName : secretNames) {
                 resolveSecret(secretName, result, correlationId);
@@ -121,6 +136,18 @@ public class SessionEnvCollector {
             }
         } catch (Exception e) {
             LOGGER.error(formatLogMessage(correlationId, "Failed to resolve Secret: " + secretName), e);
+        }
+    }
+
+    private void logRejected(Session session, CustomEnvFilter filter, String correlationId) {
+        List<String> rejectedSecrets = filter.rejectedSecretRefs(session.getSpec().getEnvVarsFromSecrets());
+        List<String> rejectedConfigMaps = filter.rejectedConfigMapRefs(session.getSpec().getEnvVarsFromConfigMaps());
+        List<String> rejectedMapKeys = filter.rejectedMapKeys(session.getSpec().getEnvVars());
+        if (!rejectedSecrets.isEmpty() || !rejectedConfigMaps.isEmpty() || !rejectedMapKeys.isEmpty()) {
+            LOGGER.warn(formatLogMessage(correlationId,
+                    "Dropped env injection not permitted by the operator allowlist for session "
+                            + session.getSpec().getName() + ". Secrets=" + rejectedSecrets + " ConfigMaps="
+                            + rejectedConfigMaps + " fromMap keys=" + rejectedMapKeys));
         }
     }
 }

@@ -17,6 +17,8 @@ spec:
     metadata:
       labels:
         app: placeholder-app
+        app.kubernetes.io/component: session
+        app.kubernetes.io/part-of: theia-cloud
     spec:
       automountServiceAccountToken: false
       enableServiceLinks: false
@@ -31,6 +33,13 @@ spec:
         - name: placeholder-definitionname
           image: placeholder-image
           imagePullPolicy: placeholder-pull-policy
+          # The image binds Theia to loopback for the oauth2-proxy sidecar. Without that
+          # sidecar the Service targets Theia directly, so it has to listen on the pod IP.
+          # These replace the image's CMD, so the port is stated here to keep matching the Service.
+          args:
+            - /home/project
+            - --hostname=0.0.0.0
+            - --port=placeholder-port
           ports:
             - containerPort: placeholder-port
               name: application
@@ -91,5 +100,11 @@ spec:
           securityContext:
             runAsUser: placeholder-uid
             runAsGroup: placeholder-uid
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
       securityContext:
         fsGroup: placeholder-uid

@@ -42,12 +42,34 @@ public class LabelsUtil {
 
     private static final int MAX_LABEL_LENGTH = 63;
 
-    private static String truncateLabelValue(String value) {
-        if (value.length() > MAX_LABEL_LENGTH) {
+    // Package-private for unit testing. Produces a value that is at most MAX_LABEL_LENGTH characters
+    // and starts/ends with an alphanumeric character, i.e. a valid Kubernetes label value.
+    static String truncateLabelValue(String value) {
+        String result = value;
+        if (result.length() > MAX_LABEL_LENGTH) {
             LOGGER.warning("Label value truncated: " + value);
-            return value.substring(0, MAX_LABEL_LENGTH);
+            result = result.substring(0, MAX_LABEL_LENGTH);
         }
-        return value;
+        // A Kubernetes label value must start and end with an alphanumeric character. Truncation, or
+        // a sanitized user id that ends in a separator, can otherwise leave a leading/trailing
+        // '_' '.' or '-', which the API server rejects and which then blocks session reconciliation.
+        return trimToLabelValue(result);
+    }
+
+    private static String trimToLabelValue(String value) {
+        int start = 0;
+        int end = value.length();
+        while (start < end && !isAlphanumeric(value.charAt(start))) {
+            start++;
+        }
+        while (end > start && !isAlphanumeric(value.charAt(end - 1))) {
+            end--;
+        }
+        return value.substring(start, end);
+    }
+
+    private static boolean isAlphanumeric(char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
     }
 
     public static Map<String, String> createSessionLabels(Session session, AppDefinition appDefinition) {

@@ -25,6 +25,7 @@ import org.eclipse.theia.cloud.common.k8s.client.TheiaCloudClient;
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinition;
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinitionSpec;
 import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
+import org.eclipse.theia.cloud.common.util.LabelsUtil;
 import org.eclipse.theia.cloud.operator.TheiaCloudOperatorArguments;
 import org.eclipse.theia.cloud.operator.bandwidth.BandwidthLimiter;
 import org.eclipse.theia.cloud.operator.handler.AddedHandlerUtil;
@@ -166,6 +167,7 @@ public class K8sResourceFactory {
         return createDeployment(template, replacements, OwnerContext.of(appDef.getMetadata().getName(),
                 appDef.getMetadata().getUid(), AppDefinition.API, AppDefinition.KIND), labelsWithGeneration,
                 deployment -> {
+                    addNetworkPolicyLabels(deployment);
                     if (pvcName.isPresent()) {
                         addVolumeClaim(deployment, pvcName.get(), appDef.getSpec());
                     }
@@ -178,6 +180,21 @@ public class K8sResourceFactory {
                     sidecarManager.injectPrewarmedSidecarEnvVars(deployment, appDef, instance, correlationId);
                 }, correlationId);
     }
+
+    /**
+     * Lazy sessions get these from the session labels. Eager instances have no session yet, and a custom template
+     * without them would stay outside the isolation and count as outdated on every reconcile.
+     */
+    static void addNetworkPolicyLabels(Deployment deployment) {
+        Map<String, String> podLabels = deployment.getSpec().getTemplate().getMetadata().getLabels();
+        if (podLabels == null) {
+            podLabels = new HashMap<>();
+            deployment.getSpec().getTemplate().getMetadata().setLabels(podLabels);
+        }
+        podLabels.put(LabelsUtil.LABEL_KEY_SESSION, LabelsUtil.LABEL_VALUE_SESSION);
+        podLabels.put(LabelsUtil.LABEL_KEY_THEIACLOUD, LabelsUtil.LABEL_VALUE_THEIACLOUD);
+    }
+
     public Optional<Deployment> createDeploymentForLazySession(Session session, AppDefinition appDef,
             Optional<String> pvName, Map<String, String> labels, Consumer<Deployment> volumeHandler,
             String correlationId) {
@@ -206,7 +223,8 @@ public class K8sResourceFactory {
                             appDef.getSpec().getUplinkLimit(), correlationId);
                     AddedHandlerUtil.removeEmptyResources(deployment);
                     AddedHandlerUtil.addCustomEnvVarsToDeploymentFromSession(correlationId, deployment, session,
-                            appDef);
+                            appDef, new CustomEnvFilter(arguments.getAllowedEnvFromSecrets(),
+                                    arguments.getAllowedEnvFromConfigMaps(), arguments.isAllowCustomEnvFromMap()));
 
                     if (appDef.getSpec().getPullSecret() != null && !appDef.getSpec().getPullSecret().isEmpty()) {
                         AddedHandlerUtil.addImagePullSecret(deployment, appDef.getSpec().getPullSecret());

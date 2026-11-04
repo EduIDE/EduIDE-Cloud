@@ -83,13 +83,18 @@ public class EagerStartAppDefinitionAddedHandler implements AppDefinitionHandler
 
             LOGGER.trace(formatLogMessage(correlationId, "HTTPRoute available"));
 
-            // Ensure pool has minimum capacity
-            ISpan poolSpan = Tracing.childSpan(tx, "appdef.ensure_capacity", "Ensure pool capacity");
-            poolSpan.setData("min_instances", minInstances);
+            // Reconcile rather than only filling gaps. Every operator start replays the
+            // existing AppDefinitions as ADDED, and a helm upgrade restarts the operator
+            // in the same release that rewrites the AppDefinition - so ADDED is the path
+            // an image change actually arrives on. Counting instances and finding none
+            // missing left the pool on the previous image until something else happened
+            // to touch the AppDefinition.
+            ISpan poolSpan = Tracing.childSpan(tx, "appdef.reconcile_pool", "Reconcile pool to target");
+            poolSpan.setData("target_instances", minInstances);
 
-            boolean success = pool.ensureCapacity(appDefinition, minInstances, correlationId);
+            boolean success = pool.reconcile(appDefinition, minInstances, correlationId);
 
-            poolSpan.setTag("pool.operation", "ensure_capacity");
+            poolSpan.setTag("pool.operation", "reconcile");
             poolSpan.setTag("outcome", success ? "success" : "failure");
             Tracing.finish(poolSpan, success ? SpanStatus.OK : SpanStatus.INTERNAL_ERROR);
 

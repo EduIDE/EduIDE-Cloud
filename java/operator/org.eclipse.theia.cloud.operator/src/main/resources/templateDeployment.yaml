@@ -17,6 +17,8 @@ spec:
     metadata:
       labels:
         app: placeholder-app
+        app.kubernetes.io/component: session
+        app.kubernetes.io/part-of: theia-cloud
     spec:
       automountServiceAccountToken: false
       enableServiceLinks: false
@@ -41,6 +43,14 @@ spec:
               mountPath: /templates
             - name: oauth2-emails
               mountPath: /emails
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
         - name: placeholder-definitionname
           image: placeholder-image
           imagePullPolicy: placeholder-pull-policy
@@ -106,6 +116,12 @@ spec:
           securityContext:
             runAsUser: placeholder-uid
             runAsGroup: placeholder-uid
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
       securityContext:
         fsGroup: placeholder-uid
       volumes:

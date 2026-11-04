@@ -15,12 +15,14 @@
  ********************************************************************************/
 package org.eclipse.theia.cloud.operator.util;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -29,6 +31,9 @@ import org.eclipse.theia.cloud.operator.handler.AddedHandlerUtil;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+
+import io.fabric8.kubernetes.api.model.apps.Deployment;
+import io.fabric8.kubernetes.api.model.apps.DeploymentBuilder;
 
 /**
  * NetworkPolicies select session pods by these labels. Claiming a prewarmed pod only labels its Services, so the labels
@@ -57,7 +62,22 @@ class DeploymentTemplateLabelsTests {
         try (InputStream stream = AddedHandlerUtil.class
                 .getResourceAsStream(AddedHandlerUtil.TEMPLATE_DEPLOYMENT_WITHOUT_AOUTH2_PROXY_YAML)) {
             assertNotNull(stream);
-            assertTrue(new String(stream.readAllBytes(), StandardCharsets.UTF_8).contains("--hostname=0.0.0.0"));
+            String yaml = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+            assertTrue(yaml.contains("--hostname=0.0.0.0"));
+            assertTrue(yaml.contains("--port=placeholder-port"));
         }
+    }
+
+    @Test
+    void eagerInstanceFromATemplateWithoutTheLabelsStillGetsThem() {
+        Deployment deployment = new DeploymentBuilder().withNewSpec().withNewTemplate().withNewMetadata()
+                .addToLabels("app", "custom").endMetadata().endTemplate().endSpec().build();
+
+        K8sResourceFactory.addNetworkPolicyLabels(deployment);
+
+        Map<String, String> labels = deployment.getSpec().getTemplate().getMetadata().getLabels();
+        assertEquals("custom", labels.get("app"));
+        assertEquals(LabelsUtil.LABEL_VALUE_SESSION, labels.get(LabelsUtil.LABEL_KEY_SESSION));
+        assertEquals(LabelsUtil.LABEL_VALUE_THEIACLOUD, labels.get(LabelsUtil.LABEL_KEY_THEIACLOUD));
     }
 }

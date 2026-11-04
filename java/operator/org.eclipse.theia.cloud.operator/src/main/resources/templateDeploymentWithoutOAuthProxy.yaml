@@ -35,9 +35,11 @@ spec:
           imagePullPolicy: placeholder-pull-policy
           # The image binds Theia to loopback for the oauth2-proxy sidecar. Without that
           # sidecar the Service targets Theia directly, so it has to listen on the pod IP.
+          # These replace the image's CMD, so the port is stated here to keep matching the Service.
           args:
             - /home/project
             - --hostname=0.0.0.0
+            - --port=placeholder-port
           ports:
             - containerPort: placeholder-port
               name: application

@@ -3,7 +3,8 @@
 ## [Unreleased]
 
 - [java/operator] Replace unclaimed warm-pool deployments whose pods lack the NetworkPolicy labels, even when the AppDefinition generation is unchanged
-- [java/operator] Bind Theia to the pod IP in the deployment template without oauth2-proxy
+- [java/operator] Add the NetworkPolicy labels to eager pods from any deployment template, so custom templates are not recreated on every reconcile
+- [java/operator] Bind Theia to the pod IP and the app port in the deployment template without oauth2-proxy
 - [java/operator] **Security:** label prewarmed session pods so the session NetworkPolicies select them; claiming an instance only labelled its Services
 - [java/operator] **Security:** add restricted Pod Security Standard hardening controls to the session pod securityContext - `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, `seccompProfile: RuntimeDefault` on the IDE and oauth2-proxy containers (both deployment templates), plus `runAsNonRoot: true` on oauth2-proxy. This does not make the pod fully Restricted-compliant: the IDE container runs as a configured non-zero UID without `runAsNonRoot`, and bandwidth-limited app definitions may still add a `NET_ADMIN` init container.
 

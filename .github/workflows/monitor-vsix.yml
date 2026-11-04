@@ -16,7 +16,6 @@ on:
   release:
     types:
       - published
-      - prereleased
 
   workflow_dispatch:
     inputs:
@@ -48,9 +47,10 @@ jobs:
       - name: Resolve version
         id: version
         shell: bash
+        env:
+          RAW: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.version }}
         run: |
           set -euo pipefail
-          RAW="${{ github.event_name == 'release' && github.event.release.tag_name || inputs.version }}"
           if [ -n "$RAW" ]; then
             echo "VERSION=${RAW#v}" >> "$GITHUB_OUTPUT"
           else
@@ -59,7 +59,9 @@ jobs:
 
       - name: Stamp version
         if: steps.version.outputs.VERSION != ''
-        run: npm version "${{ steps.version.outputs.VERSION }}" --no-git-tag-version --allow-same-version
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
@@ -90,6 +92,7 @@ jobs:
           path: .
 
       # Named with the version, so the URL in EduIDE's package.json.patch pins one build.
+      # A rerun fails rather than replaces it, since --clobber deletes the asset before uploading.
       - name: Attach to release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -99,5 +102,5 @@ jobs:
           set -euo pipefail
           VERSION="${TAG#v}"
           mv theia-cloud-monitor.vsix "theia-cloud-monitor-${VERSION}.vsix"
-          gh release upload "$TAG" "theia-cloud-monitor-${VERSION}.vsix" --clobber \
+          gh release upload "$TAG" "theia-cloud-monitor-${VERSION}.vsix" \
             --repo "${{ github.repository }}"

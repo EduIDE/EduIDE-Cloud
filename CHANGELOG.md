@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- [java/operator] Never time out a session on an unanswered activity poll. When the monitor activity read fails or returns no timestamp, the tracker now counts consecutive failures and keeps the session running instead of falling through to the timeout check against a `lastActivity` frozen at session start, which could delete an active session whose monitor was briefly unreachable.
 - [java/operator] Replace unclaimed warm-pool deployments whose pods lack the NetworkPolicy labels, even when the AppDefinition generation is unchanged
 - [java/operator] Add the NetworkPolicy labels to eager pods from any deployment template, so custom templates are not recreated on every reconcile
 - [java/operator] Bind Theia to the pod IP and the app port in the deployment template without oauth2-proxy

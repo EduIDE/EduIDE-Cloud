@@ -30,6 +30,7 @@ import org.eclipse.theia.cloud.common.k8s.client.TheiaCloudClient;
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinition;
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinitionSpec;
 import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
+import org.eclipse.theia.cloud.common.util.LabelsUtil;
 import org.eclipse.theia.cloud.common.k8s.resource.session.SessionSpec;
 import org.eclipse.theia.cloud.operator.handler.AddedHandlerUtil;
 import org.eclipse.theia.cloud.operator.handler.session.EagerSessionHandler;
@@ -66,6 +67,26 @@ class PrewarmedResourcePoolTests {
     private static final String NAMESPACE = "theiacloud";
     private static final String APP_DEFINITION = "java-17-latest";
     private static final String USER = "matthias.linhuber@tum.de";
+
+    // ========== lacksNetworkPolicyLabels ==========
+
+    @Test
+    void lacksNetworkPolicyLabels_podTemplateWithoutLabels() {
+        Deployment deployment = new DeploymentBuilder().withNewSpec().withNewTemplate().withNewMetadata()
+                .addToLabels("app", "java-17-latest-1").endMetadata().endTemplate().endSpec().build();
+
+        assertTrue(PrewarmedResourcePool.lacksNetworkPolicyLabels(deployment));
+    }
+
+    @Test
+    void lacksNetworkPolicyLabels_podTemplateWithLabels() {
+        Deployment deployment = new DeploymentBuilder().withNewSpec().withNewTemplate().withNewMetadata()
+                .addToLabels(LabelsUtil.LABEL_KEY_SESSION, LabelsUtil.LABEL_VALUE_SESSION)
+                .addToLabels(LabelsUtil.LABEL_KEY_THEIACLOUD, LabelsUtil.LABEL_VALUE_THEIACLOUD).endMetadata()
+                .endTemplate().endSpec().build();
+
+        assertFalse(PrewarmedResourcePool.lacksNetworkPolicyLabels(deployment));
+    }
 
     // ========== computeClaimedInstances ==========
 

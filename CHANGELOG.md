@@ -1,8 +1,25 @@
 # Changelog
 
+## [Unreleased]
+
+- [java/operator] Never time out a session on an unanswered activity poll. When the monitor activity read fails or returns no timestamp, the tracker now counts consecutive failures and keeps the session running instead of falling through to the timeout check against a `lastActivity` frozen at session start, which could delete an active session whose monitor was briefly unreachable.
+- [java/operator] Replace unclaimed warm-pool deployments whose pods lack the NetworkPolicy labels, even when the AppDefinition generation is unchanged
+- [java/operator] Add the NetworkPolicy labels to eager pods from any deployment template, so custom templates are not recreated on every reconcile
+- [java/operator] Bind Theia to the pod IP and the app port in the deployment template without oauth2-proxy
+- [java/operator] **Security:** label prewarmed session pods so the session NetworkPolicies select them; claiming an instance only labelled its Services
+- [java/operator] **Security:** add restricted Pod Security Standard hardening controls to the session pod securityContext - `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, `seccompProfile: RuntimeDefault` on the IDE and oauth2-proxy containers (both deployment templates), plus `runAsNonRoot: true` on oauth2-proxy. This does not make the pod fully Restricted-compliant: the IDE container runs as a configured non-zero UID without `runAsNonRoot`, and bandwidth-limited app definitions may still add a `NET_ADMIN` init container.
+- [java/operator] **Security:** enforce an allowlist for environment variables injected into sessions. `fromSecrets`/`fromConfigMaps` references are honoured only if listed in the new operator arguments `--allowedEnvFromSecrets`/`--allowedEnvFromConfigMaps` (default empty = deny), and reserved platform variables are always dropped from `fromMap` (toggle `--allowCustomEnvFromMap`). Reserved are the prefixes `THEIACLOUD_`, `KEYCLOAK_`, `BUILD_CACHE_`, `DEPENDENCY_CACHE_`, `DATA_BRIDGE_`, `SIDECAR_` and the names `LD_PRELOAD`, `LD_LIBRARY_PATH`, `NODE_OPTIONS`, `BAZEL_BUILD_CACHE_URL`, `SCORPIO_THEIA_ENV_STRATEGY`, so a caller cannot override administrator-controlled cache, data-bridge or sidecar connection settings. Closes an issue where an unauthenticated launch request could mount arbitrary namespace Secrets/ConfigMaps into a session pod.
+- [java/service] **Security:** validate the caller-supplied `user` in anonymous mode against a conservative character set (and require alphanumeric endpoints), rejecting CRLF/log/YAML injection, path traversal and shell-metacharacter payloads.
+- [java/common] Guarantee generated session label values are valid Kubernetes labels: trim leading/trailing separators left by sanitization or truncation so the API server cannot reject session reconciliation.
+- [java/operator] **Security:** scope the trust-all TLS socket factory used for the session availability probe to the single probe connection instead of calling `HttpsURLConnection.setDefaultSSLSocketFactory`, which disabled certificate verification process-wide for the operator's lifetime.
+- [java/service] **Security:** compare the admin API token in constant time (`MessageDigest.isEqual`) to remove a timing side channel.
+- [java/common,java/service] **Security:** mark the session `sessionSecret` as sensitive so it is redacted in REST responses and logs (it is the pod bearer token). CR serialization to Kubernetes is unaffected.
+- [java/service] Return a clean error for a request with no body instead of a `NullPointerException`/500.
+
 ## [1.2.0] - estimated between 2025-11 and 2026-05
 
 - [java/operator] Keep waiting for the data bridge until the user opens the session, retry failed injections, stop when the session ended, and inject the session secret for the monitor
+- [ci] Skip the Sentry source bundle upload unless the repository variable `SENTRY_BUILD_ENABLED` is `true`
 
 ## [1.1.2] - 2025-09-26
 

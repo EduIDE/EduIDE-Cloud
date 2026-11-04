@@ -590,7 +590,7 @@ public class PrewarmedResourcePool {
             }
 
             boolean outdated = isOutdated(instanceServices, currentGeneration)
-                    || isOutdated(instanceDeployments, currentGeneration)
+                    || instanceDeployments.stream().anyMatch(d -> isOutdated(d, currentGeneration))
                     || isOutdated(instanceConfigMaps, currentGeneration);
 
             if (outdated) {
@@ -625,6 +625,20 @@ public class PrewarmedResourcePool {
             }
         }
         return false;
+    }
+
+    private boolean isOutdated(Deployment deployment, long currentGeneration) {
+        return isOutdated((HasMetadata) deployment, currentGeneration) || lacksNetworkPolicyLabels(deployment);
+    }
+
+    /**
+     * NetworkPolicies select session pods by these labels. A release that does not change the AppDefinition keeps its
+     * generation, so without this check a pod created before the labels existed would stay outside the isolation.
+     */
+    static boolean lacksNetworkPolicyLabels(Deployment deployment) {
+        Map<String, String> labels = deployment.getSpec().getTemplate().getMetadata().getLabels();
+        return labels == null || !LabelsUtil.LABEL_VALUE_SESSION.equals(labels.get(LabelsUtil.LABEL_KEY_SESSION))
+                || !LabelsUtil.LABEL_VALUE_THEIACLOUD.equals(labels.get(LabelsUtil.LABEL_KEY_THEIACLOUD));
     }
 
     private boolean isOutdated(HasMetadata resource, long currentGeneration) {

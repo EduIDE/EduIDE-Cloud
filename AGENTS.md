@@ -48,7 +48,7 @@ its parent. The Dockerfiles thread the same value into the jar filename, so
 changing one without the other breaks the image build.
 
 ```bash
-cd node && npm ci && npm run build     # workspaces: common, e2e-tests, testing-page (+ monitor)
+cd node && npm ci && npm run build     # workspaces: common, e2e-tests, testing-page
 cd theia && yarn build                 # yarn v1 + lerna
 ```
 

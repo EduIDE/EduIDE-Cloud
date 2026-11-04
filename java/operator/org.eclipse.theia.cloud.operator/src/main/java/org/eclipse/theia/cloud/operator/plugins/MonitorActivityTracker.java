@@ -188,7 +188,7 @@ public class MonitorActivityTracker implements OperatorPlugin {
 
                 session = updateLastActivity(correlationId, session, lastReportedMilliseconds.get());
                 recordPollSuccess(sessionName);
-            } catch (IOException e) {
+            } catch (IOException | RuntimeException e) {
                 recordPollFailure(sessionSpan, sessionName, "GET " + getActivityURL + " failed: " + e);
                 return false;
             }

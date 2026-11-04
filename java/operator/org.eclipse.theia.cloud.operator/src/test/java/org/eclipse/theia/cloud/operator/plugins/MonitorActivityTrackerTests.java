@@ -55,6 +55,7 @@ class MonitorActivityTrackerTests {
     private SessionResourceClient sessions;
     private MonitorMessagingService messagingService;
     private ITransaction transaction;
+    private ISpan span;
 
     @BeforeEach
     void setUp() {
@@ -67,7 +68,7 @@ class MonitorActivityTrackerTests {
                 .thenAnswer(invocation -> invocation.getArgument(1));
 
         transaction = Mockito.mock(ITransaction.class);
-        ISpan span = Mockito.mock(ISpan.class);
+        span = Mockito.mock(ISpan.class);
         when(transaction.startChild(anyString(), anyString())).thenReturn(span);
         when(span.startChild(anyString(), anyString())).thenReturn(span);
     }
@@ -114,6 +115,7 @@ class MonitorActivityTrackerTests {
 
         assertFalse(success);
         verify(sessions, never()).delete(anyString(), anyString());
+        verify(span).setData("poll_failures", 1);
     }
 
     @Test

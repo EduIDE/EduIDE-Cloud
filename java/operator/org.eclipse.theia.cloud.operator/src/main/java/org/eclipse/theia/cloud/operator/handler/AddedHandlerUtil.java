@@ -199,10 +199,13 @@ public final class AddedHandlerUtil {
                     int code;
 
                     try {
+                        // Trust-all is required to probe the session pod's self-signed certificate.
+                        // Scope it to THIS connection only; never call setDefaultSSLSocketFactory,
+                        // which would mutate the process-wide default and disable verification for
+                        // every other HttpsURLConnection in the operator JVM.
                         connection.setHostnameVerifier(ALL_GOOD_HOSTNAME_VERIFIER);
                         SSLContext sc = SSLContext.getInstance("SSL");
                         sc.init(null, new TrustManager[] { TRUST_ALL_MANAGER }, new java.security.SecureRandom());
-                        HttpsURLConnection.setDefaultSSLSocketFactory(sc.getSocketFactory());
                         connection.setSSLSocketFactory(sc.getSocketFactory());
                         connection.connect();
                         code = connection.getResponseCode();

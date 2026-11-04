@@ -532,7 +532,8 @@ public class PrewarmedResourcePool {
 
     /**
      * Reconciles a single instance after session release. - If instanceId > minInstances → delete all resources for
-     * this instance - If resource generation != current AppDefinition generation → recreate - Otherwise → do nothing
+     * this instance - If resource generation != current AppDefinition generation → recreate - If only the NetworkPolicy
+     * labels are missing → recreate the deployment and keep the PVC - Otherwise → do nothing
      */
     public void reconcileInstance(AppDefinition appDef, int instanceId, String correlationId) {
         String appDefName = appDef.getSpec().getName();
@@ -590,7 +591,7 @@ public class PrewarmedResourcePool {
             }
 
             boolean outdated = isOutdated(instanceServices, currentGeneration)
-                    || instanceDeployments.stream().anyMatch(d -> isOutdated(d, currentGeneration))
+                    || isOutdated(instanceDeployments, currentGeneration)
                     || isOutdated(instanceConfigMaps, currentGeneration);
 
             if (outdated) {
@@ -604,6 +605,20 @@ public class PrewarmedResourcePool {
                 deleteInstancePvc(appDef, instanceId, correlationId);
                 createInstanceResources(appDef, instanceId, correlationId);
                 Tracing.finishSuccess(recreateSpan);
+                Tracing.finishSuccess(span);
+                return;
+            }
+
+            if (instanceDeployments.stream().anyMatch(PrewarmedResourcePool::lacksNetworkPolicyLabels)) {
+                // Only the pod labels are wrong, so the PVC and the workspace stored on it stay.
+                span.setTag("action", "repair_labels");
+                LOGGER.info(formatLogMessage(correlationId,
+                        "Instance " + instanceId + " lacks the NetworkPolicy labels, recreating its deployment"));
+
+                deleteInstanceResources(List.of(), instanceDeployments, List.of(), correlationId);
+                Optional<String> pvcName = createInstancePvc(appDef, instanceId, correlationId);
+                resourceFactory.createDeploymentForEagerInstance(appDef, instanceId, pvcName, new HashMap<>(),
+                        correlationId);
                 Tracing.finishSuccess(span);
                 return;
             }

@@ -111,6 +111,12 @@ instance field `logger` on `BaseResource`. Use `formatLogMessage(correlationId,
 …)` from `LogMessageUtil` either way, and never log secrets — there is a
 `SensitiveDataSerializer` for exactly this.
 
+**The Sentry source upload is opt-in.** `build.yml` only hands the images
+`SENTRY_AUTH_TOKEN` when the repository variable `SENTRY_BUILD_ENABLED` is `true`,
+and the Dockerfiles only pass `-Dsentry=true` when they get a token. The plugin fails
+the image build if the Sentry server is unreachable, so leave it off unless the
+server is up. The runtime agent is separate and stays off through `SENTRY_ENABLE`.
+
 **Tracing is `Tracing.*`.** `SentryHelper` was removed and no longer exists.
 `Tracing.childSpan(parentSpan, "op", "desc")` is the form real code uses;
 finish with `Tracing.finishSuccess(span)` or `Tracing.finishError(span, e)`.

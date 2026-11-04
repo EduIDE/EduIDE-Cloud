@@ -2,6 +2,8 @@
 
 ## [1.2.0] - estimated between 2025-11 and 2026-05
 
+- [ci] Skip the Sentry source bundle upload unless the repository variable `SENTRY_BUILD_ENABLED` is `true`
+
 ## [1.1.2] - 2025-09-26
 
 - [java/operator] Use ingress path type ImplementationSpecific instead of Prefix [#449](https://github.com/eclipse-theia/theia-cloud/pull/449)

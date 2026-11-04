@@ -26,7 +26,7 @@ export class ActivityTrackerModule implements MonitorModule {
     const activityRouter = Router();
     activityRouter.use(json());
     activityRouter.get(LAST_ACTIVITY_PATH, async (req, res) => {
-      if (isAuthorized(req)) {
+      if (await isAuthorized(req)) {
         res.status(200);
         res.end(this.getLastActivity().toString());
       } else {
@@ -35,8 +35,8 @@ export class ActivityTrackerModule implements MonitorModule {
       }
     });
 
-    activityRouter.post(POST_POPUP, (req, res) => {
-      if (isAuthorized(req)) {
+    activityRouter.post(POST_POPUP, async (req, res) => {
+      if (await isAuthorized(req)) {
         console.debug('POPUP REQUESTED');
         this.createPopup();
         res.status(200);

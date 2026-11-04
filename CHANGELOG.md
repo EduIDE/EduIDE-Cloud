@@ -18,6 +18,7 @@
 
 ## [1.2.0] - estimated between 2025-11 and 2026-05
 
+- [java/operator] Keep waiting for the data bridge until the user opens the session, retry failed injections, stop when the session ended, and inject the session secret for the monitor
 - [ci] Skip the Sentry source bundle upload unless the repository variable `SENTRY_BUILD_ENABLED` is `true`
 
 ## [1.1.2] - 2025-09-26

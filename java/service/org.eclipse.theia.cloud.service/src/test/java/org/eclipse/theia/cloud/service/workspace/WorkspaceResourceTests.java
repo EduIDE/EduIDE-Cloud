@@ -280,6 +280,27 @@ public class WorkspaceResourceTests {
     }
 
     @Test
+    void create_nameTakenByOtherUser_throwForbidden() {
+        // Prepare
+        mockUser(false, OTHER_TEST_USER);
+        WorkspaceCreationRequest request = new WorkspaceCreationRequest(APP_ID, APP_DEFINITION, OTHER_TEST_USER,
+                TEST_WORKSPACE);
+        Workspace workspace = new Workspace();
+        workspace.setSpec(new WorkspaceSpec("abc", "def", APP_DEFINITION, TEST_USER));
+        Mockito.when(k8sUtil.createWorkspace(anyString(), argThat(new WorkspaceWithUser(OTHER_TEST_USER))))
+                .thenReturn(workspace);
+
+        // Execute
+        TheiaCloudWebException exception = assertThrows(TheiaCloudWebException.class, () -> {
+            fixture.create(request);
+        });
+
+        // Assert
+        Mockito.verify(k8sUtil, never()).deleteWorkspace(anyString(), anyString());
+        assertEquals(Status.FORBIDDEN.getStatusCode(), exception.getResponse().getStatus());
+    }
+
+    @Test
     void create_erroneousWorkspace_throwTheiaCloudWebException() {
         // Prepare
         mockUser(false, TEST_USER);

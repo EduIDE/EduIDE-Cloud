@@ -55,5 +55,10 @@
     "@vscode/vsce": "^2.22.0",
     "webpack": "^5.105.4",
     "webpack-cli": "^4.10.0"
+  },
+  "overrides": {
+    "@vscode/vsce": {
+      "markdown-it": "^14.3.3"
+    }
   }
 }

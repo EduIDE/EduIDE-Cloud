@@ -17,6 +17,7 @@ package org.eclipse.theia.cloud.service;
 
 import static org.eclipse.theia.cloud.common.util.LogMessageUtil.generateCorrelationId;
 
+import org.eclipse.theia.cloud.common.k8s.resource.workspace.Workspace;
 import org.eclipse.theia.cloud.common.util.LogMessageUtil;
 import org.eclipse.theia.cloud.common.util.TheiaCloudError;
 import org.jboss.logging.Logger;
@@ -101,6 +102,19 @@ public class BaseResource {
         } else {
             info(correlationId, "User specified in the request does not match the authenticated user.");
             trace(correlationId, request.toString());
+            throw new TheiaCloudWebException(Status.FORBIDDEN);
+        }
+    }
+
+    /**
+     * Refuses a workspace returned by {@link K8sUtil#createWorkspace}. That method hands back any existing workspace of
+     * the requested name, whoever owns it.
+     *
+     * @throws TheiaCloudWebException with status 403 if the workspace does not belong to the user
+     */
+    protected void throwIfNotOwner(String correlationId, String user, Workspace workspace) {
+        if (!user.equals(workspace.getSpec().getUser())) {
+            info(correlationId, "User " + user + " does not own workspace " + workspace.getSpec().getName());
             throw new TheiaCloudWebException(Status.FORBIDDEN);
         }
     }

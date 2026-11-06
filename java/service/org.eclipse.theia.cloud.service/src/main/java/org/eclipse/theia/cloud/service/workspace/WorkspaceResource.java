@@ -73,6 +73,7 @@ public class WorkspaceResource extends BaseResource {
         info(correlationId, "Creating workspace " + request);
         Workspace workspace = k8sUtil.createWorkspace(correlationId,
                 new UserWorkspace(request.appDefinition, evaluatedRequest.getUser(), request.label));
+        throwIfNotOwner(correlationId, evaluatedRequest.getUser(), workspace);
         TheiaCloudWebException.throwIfErroneous(workspace);
         return new UserWorkspace(workspace.getSpec());
     }

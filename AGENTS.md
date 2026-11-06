@@ -212,4 +212,7 @@ untracked.
   `node/.prettierrc.js` — change both.
 - `theia/package.json` pins `inversify` via `resolutions`; bumping Theia deps
   without it breaks DI.
+- `**/lerna/minimatch` stays on `^3.1.5`: lerna breaks on minimatch 11. A
+  `renovate.json` rule caps it below 4, because a GitHub security alert skips
+  the major approval and once rewrote every minimatch resolution to `^11` (#155).
 - Release tags are `vX.Y.Z`; the image tag is the same string without the `v`.

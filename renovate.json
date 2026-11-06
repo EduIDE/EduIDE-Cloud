@@ -12,6 +12,14 @@
       "matchManagers": ["terraform"],
       "matchDepTypes": ["provider", "required_provider"],
       "rangeStrategy": "replace"
+    },
+    {
+      "description": "Keep lerna's minimatch resolution in theia/package.json on 3.x: lerna breaks on minimatch 11 (#155, reverted in #158), and 3.x is outside the affected range of GHSA-g3hv-75wg-m249. A GitHub alert raises every minimatch below its newest patched version, skips the major approval and overrides enabled: false, so allowedVersions is the only cap that holds. Resolutions on an affected major still get the security PR.",
+      "matchFileNames": ["theia/package.json"],
+      "matchDepTypes": ["resolutions"],
+      "matchPackageNames": ["minimatch"],
+      "matchCurrentValue": "/^\\^3\\./",
+      "allowedVersions": "<4"
     }
   ]
 }

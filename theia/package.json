@@ -65,6 +65,12 @@
     "**/lerna/tar": "^7.5.18",
     "**/http-proxy-agent/@tootallnate/once": "^2.0.1",
     "**/@vscode/proxy-agent/@tootallnate/once": "^2.0.1",
-    "uuid": "^11.1.1"
+    "uuid": "^11.1.1",
+    "**/nx/follow-redirects": "^1.16.2",
+    "**/nx/brace-expansion": "^5.0.12",
+    "**/nx/smol-toml": "^1.7.1",
+    "**/nx/axios": "^1.20.0",
+    "**/lerna/pacote": "^21.5.1",
+    "**/@theia/monaco-editor-core/dompurify": "^3.4.17"
   }
 }

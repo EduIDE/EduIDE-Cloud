@@ -617,9 +617,18 @@ public class PrewarmedResourcePool {
 
                 deleteInstanceResources(List.of(), instanceDeployments, List.of(), correlationId);
                 Optional<String> pvcName = createInstancePvc(appDef, instanceId, correlationId);
-                resourceFactory.createDeploymentForEagerInstance(appDef, instanceId, pvcName, new HashMap<>(),
-                        correlationId);
-                Tracing.finishSuccess(span);
+                boolean repaired = resourceFactory
+                        .createDeploymentForEagerInstance(appDef, instanceId, pvcName, new HashMap<>(), correlationId)
+                        .isPresent() && (pvcName.isPresent() || !SidecarConfig.requiresSharedWorkspace(appDef));
+                if (repaired) {
+                    Tracing.finishSuccess(span);
+                } else {
+                    // The next reconcile recreates a missing deployment through the capacity check.
+                    LOGGER.error(formatLogMessage(correlationId,
+                            "Could not fully repair instance " + instanceId + " (deployment or its PVC missing)"));
+                    span.setTag("outcome", "failure");
+                    Tracing.finish(span, SpanStatus.INTERNAL_ERROR);
+                }
                 return;
             }
 

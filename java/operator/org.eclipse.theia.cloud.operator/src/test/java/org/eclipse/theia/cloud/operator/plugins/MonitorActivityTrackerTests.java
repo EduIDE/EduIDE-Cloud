@@ -26,9 +26,11 @@ import java.util.concurrent.TimeUnit;
 
 import org.eclipse.theia.cloud.common.k8s.client.SessionResourceClient;
 import org.eclipse.theia.cloud.common.k8s.client.TheiaCloudClient;
+import org.eclipse.theia.cloud.common.k8s.client.WorkspaceResourceClient;
 import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
 import org.eclipse.theia.cloud.common.k8s.resource.session.SessionSpec;
 import org.eclipse.theia.cloud.common.k8s.resource.session.SessionStatus;
+import org.eclipse.theia.cloud.common.k8s.resource.workspace.Workspace;
 import org.eclipse.theia.cloud.operator.messaging.MonitorMessagingService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -53,6 +55,7 @@ class MonitorActivityTrackerTests {
 
     private TheiaCloudClient resourceClient;
     private SessionResourceClient sessions;
+    private WorkspaceResourceClient workspaces;
     private MonitorMessagingService messagingService;
     private ITransaction transaction;
     private ISpan span;
@@ -62,7 +65,9 @@ class MonitorActivityTrackerTests {
         resourceClient = Mockito.mock(TheiaCloudClient.class);
         sessions = Mockito.mock(SessionResourceClient.class);
         messagingService = Mockito.mock(MonitorMessagingService.class);
+        workspaces = Mockito.mock(WorkspaceResourceClient.class);
         when(resourceClient.sessions()).thenReturn(sessions);
+        when(resourceClient.workspaces()).thenReturn(workspaces);
         // updateStatus returns the updated resource; without this the tracker would carry on with a null session.
         when(sessions.updateStatus(anyString(), any(Session.class), any()))
                 .thenAnswer(invocation -> invocation.getArgument(1));
@@ -129,6 +134,8 @@ class MonitorActivityTrackerTests {
 
         assertTrue(success);
         verify(messagingService).sendTimeoutMessage(eq(session), anyString());
+        verify(workspaces).recordSessionEnd(anyString(), eq("ws-student"),
+                eq(Workspace.SESSION_END_REASON_INACTIVITY));
         verify(sessions).delete(anyString(), eq(SESSION_NAME));
     }
 
@@ -206,7 +213,7 @@ class MonitorActivityTrackerTests {
 
     private Session createSession(long lastActivity) {
         Session session = new Session();
-        session.setSpec(new SessionSpec(SESSION_NAME, "java-17-latest", "student@tum.de"));
+        session.setSpec(new SessionSpec(SESSION_NAME, "java-17-latest", "student@tum.de", "ws-student"));
         session.setMetadata(new ObjectMetaBuilder().withName(SESSION_NAME)
                 .withUid("0f6c6f5e-3a1b-4f2c-9c1a-7d2b8e4f1a20").build());
         // getNonNullStatus() returns a fresh throwaway when no status is set, so attach a real one.

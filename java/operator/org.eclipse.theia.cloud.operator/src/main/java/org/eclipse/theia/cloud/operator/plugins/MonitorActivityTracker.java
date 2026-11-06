@@ -40,6 +40,7 @@ import org.eclipse.theia.cloud.common.k8s.client.TheiaCloudClient;
 import org.eclipse.theia.cloud.common.k8s.resource.OperatorStatus;
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinition;
 import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
+import org.eclipse.theia.cloud.common.k8s.resource.workspace.Workspace;
 import org.eclipse.theia.cloud.operator.TheiaCloudOperatorArguments;
 import org.eclipse.theia.cloud.operator.messaging.MonitorMessagingService;
 
@@ -327,6 +328,8 @@ public class MonitorActivityTracker implements OperatorPlugin {
             this.messagingService.sendTimeoutMessage(session,
                     "Timeout of " + shutdownAfter + " minutes of inactivity was reached!");
             logInfo(sessionName, "Deleting session as timeout of " + shutdownAfter + " minutes was reached!");
+            resourceClient.workspaces().recordSessionEnd(correlationId, session.getSpec().getWorkspace(),
+                    Workspace.SESSION_END_REASON_INACTIVITY);
             resourceClient.sessions().delete(COR_ID_NOACTIVITYPREFIX + correlationId, sessionName);
             deleteSpan.setStatus(SpanStatus.OK);
             Sentry.captureMessage(

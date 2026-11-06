@@ -30,9 +30,13 @@ import org.eclipse.theia.cloud.common.k8s.client.TheiaCloudClient;
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinition;
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinitionSpec;
 import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
+import org.eclipse.theia.cloud.common.util.LabelsUtil;
 import org.eclipse.theia.cloud.common.k8s.resource.session.SessionSpec;
 import org.eclipse.theia.cloud.operator.handler.AddedHandlerUtil;
+import org.eclipse.theia.cloud.operator.TheiaCloudOperatorArguments;
 import org.eclipse.theia.cloud.operator.handler.session.EagerSessionHandler;
+import org.eclipse.theia.cloud.operator.sidecar.SidecarManager;
+import org.eclipse.theia.cloud.operator.util.K8sResourceFactory;
 import org.eclipse.theia.cloud.operator.util.TheiaCloudConfigMapUtil;
 import org.eclipse.theia.cloud.operator.util.TheiaCloudDeploymentUtil;
 import org.junit.jupiter.api.Test;
@@ -45,10 +49,14 @@ import io.fabric8.kubernetes.api.model.ConfigMapBuilder;
 import io.fabric8.kubernetes.api.model.ConfigMapList;
 import io.fabric8.kubernetes.api.model.ObjectMetaBuilder;
 import io.fabric8.kubernetes.api.model.OwnerReferenceBuilder;
+import io.fabric8.kubernetes.api.model.PersistentVolumeClaim;
+import io.fabric8.kubernetes.api.model.PersistentVolumeClaimList;
 import io.fabric8.kubernetes.api.model.Pod;
 import io.fabric8.kubernetes.api.model.PodBuilder;
 import io.fabric8.kubernetes.api.model.PodList;
 import io.fabric8.kubernetes.api.model.PodListBuilder;
+import io.fabric8.kubernetes.api.model.Service;
+import io.fabric8.kubernetes.api.model.ServiceList;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
 import io.fabric8.kubernetes.api.model.apps.DeploymentBuilder;
 import io.fabric8.kubernetes.api.model.apps.DeploymentList;
@@ -60,12 +68,151 @@ import io.fabric8.kubernetes.client.dsl.NonNamespaceOperation;
 import io.fabric8.kubernetes.client.dsl.PodResource;
 import io.fabric8.kubernetes.client.dsl.Resource;
 import io.fabric8.kubernetes.client.dsl.RollableScalableResource;
+import io.fabric8.kubernetes.client.dsl.ServiceResource;
 
 class PrewarmedResourcePoolTests {
 
     private static final String NAMESPACE = "theiacloud";
     private static final String APP_DEFINITION = "java-17-latest";
     private static final String USER = "matthias.linhuber@tum.de";
+
+    // ========== lacksNetworkPolicyLabels ==========
+
+    @Test
+    void lacksNetworkPolicyLabels_podTemplateWithoutLabels() {
+        Deployment deployment = new DeploymentBuilder().withNewSpec().withNewTemplate().withNewMetadata()
+                .addToLabels("app", "java-17-latest-1").endMetadata().endTemplate().endSpec().build();
+
+        assertTrue(PrewarmedResourcePool.lacksNetworkPolicyLabels(deployment));
+    }
+
+    @Test
+    void lacksNetworkPolicyLabels_podTemplateWithLabels() {
+        Deployment deployment = new DeploymentBuilder().withNewSpec().withNewTemplate().withNewMetadata()
+                .addToLabels(LabelsUtil.LABEL_KEY_SESSION, LabelsUtil.LABEL_VALUE_SESSION)
+                .addToLabels(LabelsUtil.LABEL_KEY_THEIACLOUD, LabelsUtil.LABEL_VALUE_THEIACLOUD).endMetadata()
+                .endTemplate().endSpec().build();
+
+        assertFalse(PrewarmedResourcePool.lacksNetworkPolicyLabels(deployment));
+    }
+
+    // ========== reconcileInstance ==========
+
+    @Test
+    void reconcileInstance_missingLabels_recreatesDeploymentAndKeepsPvc() throws Exception {
+        ReconcileFixture fixture = createReconcileFixture("6", false);
+
+        fixture.pool.reconcileInstance(fixture.appDefinition, 1, "cid");
+
+        verify(fixture.pvcResource, never()).delete();
+        verify(fixture.deploymentResource).delete();
+        verify(fixture.resourceFactory).createDeploymentForEagerInstance(any(), Mockito.eq(1), any(), any(), any());
+    }
+
+    @Test
+    void reconcileInstance_olderGeneration_deletesPvc() throws Exception {
+        ReconcileFixture fixture = createReconcileFixture("5", true);
+
+        fixture.pool.reconcileInstance(fixture.appDefinition, 1, "cid");
+
+        verify(fixture.pvcResource).delete();
+        verify(fixture.resourceFactory).createDeploymentForEagerInstance(any(), Mockito.eq(1), any(), any(), any());
+    }
+
+    @Test
+    void reconcileInstance_upToDate_doesNothing() throws Exception {
+        ReconcileFixture fixture = createReconcileFixture("6", true);
+
+        fixture.pool.reconcileInstance(fixture.appDefinition, 1, "cid");
+
+        verify(fixture.pvcResource, never()).delete();
+        verify(fixture.deploymentResource, never()).delete();
+        verify(fixture.resourceFactory, never()).createDeploymentForEagerInstance(any(), Mockito.anyInt(), any(), any(),
+                any());
+    }
+
+    private static class ReconcileFixture {
+        private PrewarmedResourcePool pool;
+        private K8sResourceFactory resourceFactory;
+        private AppDefinition appDefinition;
+        private RollableScalableResource<Deployment> deploymentResource;
+        private Resource<PersistentVolumeClaim> pvcResource;
+    }
+
+    @SuppressWarnings("unchecked")
+    private ReconcileFixture createReconcileFixture(String generation, boolean withNetworkPolicyLabels)
+            throws Exception {
+        ReconcileFixture fixture = new ReconcileFixture();
+        fixture.appDefinition = createAppDefinition();
+        fixture.appDefinition.getMetadata().setGeneration(6L);
+        setFieldUnchecked(fixture.appDefinition.getSpec(), "minInstances", 1);
+
+        DeploymentBuilder deployment = new DeploymentBuilder().withNewMetadata()
+                .withName(TheiaCloudDeploymentUtil.getDeploymentName(fixture.appDefinition, 1))
+                .addToLabels(PrewarmedResourcePool.APPDEFINITION_GENERATION_LABEL, generation)
+                .withOwnerReferences(new OwnerReferenceBuilder().withName(APP_DEFINITION)
+                        .withUid(fixture.appDefinition.getMetadata().getUid()).build())
+                .endMetadata().withNewSpec().withNewTemplate().withNewMetadata().addToLabels("app", "instance")
+                .endMetadata().endTemplate().endSpec();
+        if (withNetworkPolicyLabels) {
+            deployment.editSpec().editTemplate().editMetadata()
+                    .addToLabels(LabelsUtil.LABEL_KEY_SESSION, LabelsUtil.LABEL_VALUE_SESSION)
+                    .addToLabels(LabelsUtil.LABEL_KEY_THEIACLOUD, LabelsUtil.LABEL_VALUE_THEIACLOUD).endMetadata()
+                    .endTemplate().endSpec();
+        }
+        Deployment builtDeployment = deployment.build();
+
+        TheiaCloudClient client = Mockito.mock(TheiaCloudClient.class);
+        NamespacedKubernetesClient kubernetes = Mockito.mock(NamespacedKubernetesClient.class);
+        when(client.namespace()).thenReturn(NAMESPACE);
+        when(client.kubernetes()).thenReturn(kubernetes);
+
+        MixedOperation<Service, ServiceList, ServiceResource<Service>> services = Mockito.mock(MixedOperation.class);
+        NonNamespaceOperation<Service, ServiceList, ServiceResource<Service>> namespacedServices = Mockito
+                .mock(NonNamespaceOperation.class);
+        when(kubernetes.services()).thenReturn(services);
+        when(services.inNamespace(NAMESPACE)).thenReturn(namespacedServices);
+        when(namespacedServices.list()).thenReturn(new ServiceList());
+
+        MixedOperation<ConfigMap, ConfigMapList, Resource<ConfigMap>> configMaps = Mockito.mock(MixedOperation.class);
+        NonNamespaceOperation<ConfigMap, ConfigMapList, Resource<ConfigMap>> namespacedConfigMaps = Mockito
+                .mock(NonNamespaceOperation.class);
+        when(kubernetes.configMaps()).thenReturn(configMaps);
+        when(configMaps.inNamespace(NAMESPACE)).thenReturn(namespacedConfigMaps);
+        when(namespacedConfigMaps.list()).thenReturn(new ConfigMapList());
+
+        AppsAPIGroupDSL apps = Mockito.mock(AppsAPIGroupDSL.class);
+        MixedOperation<Deployment, DeploymentList, RollableScalableResource<Deployment>> deployments = Mockito
+                .mock(MixedOperation.class);
+        NonNamespaceOperation<Deployment, DeploymentList, RollableScalableResource<Deployment>> namespacedDeployments = Mockito
+                .mock(NonNamespaceOperation.class);
+        fixture.deploymentResource = Mockito.mock(RollableScalableResource.class);
+        DeploymentList deploymentList = new DeploymentList();
+        deploymentList.setItems(List.of(builtDeployment));
+        when(kubernetes.apps()).thenReturn(apps);
+        when(apps.deployments()).thenReturn(deployments);
+        when(deployments.inNamespace(NAMESPACE)).thenReturn(namespacedDeployments);
+        when(namespacedDeployments.list()).thenReturn(deploymentList);
+        when(namespacedDeployments.resource(builtDeployment)).thenReturn(fixture.deploymentResource);
+
+        MixedOperation<PersistentVolumeClaim, PersistentVolumeClaimList, Resource<PersistentVolumeClaim>> pvcs = Mockito
+                .mock(MixedOperation.class);
+        NonNamespaceOperation<PersistentVolumeClaim, PersistentVolumeClaimList, Resource<PersistentVolumeClaim>> namespacedPvcs = Mockito
+                .mock(NonNamespaceOperation.class);
+        fixture.pvcResource = Mockito.mock(Resource.class);
+        when(kubernetes.persistentVolumeClaims()).thenReturn(pvcs);
+        when(pvcs.inNamespace(NAMESPACE)).thenReturn(namespacedPvcs);
+        when(namespacedPvcs.withName(PrewarmedResourcePool.getInstancePvcName(fixture.appDefinition, 1)))
+                .thenReturn(fixture.pvcResource);
+
+        fixture.resourceFactory = Mockito.mock(K8sResourceFactory.class);
+        fixture.pool = new PrewarmedResourcePool();
+        setField(fixture.pool, "client", client);
+        setField(fixture.pool, "resourceFactory", fixture.resourceFactory);
+        setField(fixture.pool, "sidecarManager", Mockito.mock(SidecarManager.class));
+        setField(fixture.pool, "arguments", Mockito.mock(TheiaCloudOperatorArguments.class));
+        return fixture;
+    }
 
     // ========== computeClaimedInstances ==========
 

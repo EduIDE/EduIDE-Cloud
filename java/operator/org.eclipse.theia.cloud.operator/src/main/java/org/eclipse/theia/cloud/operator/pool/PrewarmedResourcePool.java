@@ -532,7 +532,8 @@ public class PrewarmedResourcePool {
 
     /**
      * Reconciles a single instance after session release. - If instanceId > minInstances → delete all resources for
-     * this instance - If resource generation != current AppDefinition generation → recreate - Otherwise → do nothing
+     * this instance - If resource generation != current AppDefinition generation → recreate - If only the NetworkPolicy
+     * labels are missing → recreate the deployment and keep the PVC - Otherwise → do nothing
      */
     public void reconcileInstance(AppDefinition appDef, int instanceId, String correlationId) {
         String appDefName = appDef.getSpec().getName();
@@ -608,6 +609,29 @@ public class PrewarmedResourcePool {
                 return;
             }
 
+            if (instanceDeployments.stream().anyMatch(PrewarmedResourcePool::lacksNetworkPolicyLabels)) {
+                // Only the pod labels are wrong, so the PVC and the workspace stored on it stay.
+                span.setTag("action", "repair_labels");
+                LOGGER.info(formatLogMessage(correlationId,
+                        "Instance " + instanceId + " lacks the NetworkPolicy labels, recreating its deployment"));
+
+                deleteInstanceResources(List.of(), instanceDeployments, List.of(), correlationId);
+                Optional<String> pvcName = createInstancePvc(appDef, instanceId, correlationId);
+                boolean repaired = resourceFactory
+                        .createDeploymentForEagerInstance(appDef, instanceId, pvcName, new HashMap<>(), correlationId)
+                        .isPresent() && (pvcName.isPresent() || !SidecarConfig.requiresSharedWorkspace(appDef));
+                if (repaired) {
+                    Tracing.finishSuccess(span);
+                } else {
+                    // The next reconcile recreates a missing deployment through the capacity check.
+                    LOGGER.error(formatLogMessage(correlationId,
+                            "Could not fully repair instance " + instanceId + " (deployment or its PVC missing)"));
+                    span.setTag("outcome", "failure");
+                    Tracing.finish(span, SpanStatus.INTERNAL_ERROR);
+                }
+                return;
+            }
+
             span.setTag("action", "no_action");
             LOGGER.info(formatLogMessage(correlationId, "Instance " + instanceId + " is up-to-date, no action needed"));
             Tracing.finishSuccess(span);
@@ -625,6 +649,20 @@ public class PrewarmedResourcePool {
             }
         }
         return false;
+    }
+
+    private boolean isOutdated(Deployment deployment, long currentGeneration) {
+        return isOutdated((HasMetadata) deployment, currentGeneration) || lacksNetworkPolicyLabels(deployment);
+    }
+
+    /**
+     * NetworkPolicies select session pods by these labels. A release that does not change the AppDefinition keeps its
+     * generation, so without this check a pod created before the labels existed would stay outside the isolation.
+     */
+    static boolean lacksNetworkPolicyLabels(Deployment deployment) {
+        Map<String, String> labels = deployment.getSpec().getTemplate().getMetadata().getLabels();
+        return labels == null || !LabelsUtil.LABEL_VALUE_SESSION.equals(labels.get(LabelsUtil.LABEL_KEY_SESSION))
+                || !LabelsUtil.LABEL_VALUE_THEIACLOUD.equals(labels.get(LabelsUtil.LABEL_KEY_THEIACLOUD));
     }
 
     private boolean isOutdated(HasMetadata resource, long currentGeneration) {

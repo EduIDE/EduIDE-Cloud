@@ -232,11 +232,9 @@ public class EagerSessionHandler implements SessionHandler {
             // Schedule async credential injection via data bridge (tracked in separate transaction)
             if (DataBridgeUtil.isDataBridgeEnabled(appDef.getSpec())) {
                 Map<String, String> envVars = sessionEnvCollector.collect(session, correlationId);
-                if (!envVars.isEmpty()) {
-                    Sentry.addBreadcrumb("Scheduling data bridge injection with " + envVars.size() + " env vars",
-                            "databridge");
-                    asyncDataInjector.scheduleInjection(span, session, envVars, correlationId);
-                }
+                Sentry.addBreadcrumb("Scheduling data bridge injection with " + envVars.size() + " env vars",
+                        "databridge");
+                asyncDataInjector.scheduleInjection(span, session, envVars, correlationId);
             }
 
             // Create the dedicated session HTTPRoute after the pool instance is fully assigned.

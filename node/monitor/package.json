@@ -1,5 +1,6 @@
 {
   "name": "theia-cloud-monitor",
+  "publisher": "tum-aet",
   "displayName": "Theia Cloud Monitor extension",
   "description": "Monitor for Theia Cloud hosted tools",
   "version": "1.2.0-next",

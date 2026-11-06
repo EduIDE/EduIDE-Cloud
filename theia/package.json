@@ -50,6 +50,7 @@
     "**/nx/minimatch": "^9.0.7",
     "**/@nx/devkit/minimatch": "^9.0.7",
     "**/@typescript-eslint/typescript-estree/minimatch": "^9.0.7",
-    "serialize-javascript": "^7.0.5"
+    "serialize-javascript": "^7.0.5",
+    "**/get-uri/basic-ftp": "^6.2.1"
   }
 }

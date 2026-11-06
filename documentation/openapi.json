@@ -604,6 +604,14 @@
           "active": {
             "type": "boolean",
             "description": "Whether the workspace is in use at the moment."
+          },
+          "lastSessionEndReason": {
+            "type": "string",
+            "description": "Why the last session on this workspace ended: 'inactivity' or 'lifetime'."
+          },
+          "lastSessionEndTime": {
+            "type": "string",
+            "description": "When the last session on this workspace ended, as an ISO-8601 instant."
           }
         }
       },

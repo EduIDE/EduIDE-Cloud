@@ -890,6 +890,18 @@ export interface UserWorkspace {
      * @memberof UserWorkspace
      */
     'active': boolean;
+    /**
+     * Why the last session on this workspace ended: \'inactivity\' or \'lifetime\'.
+     * @type {string}
+     * @memberof UserWorkspace
+     */
+    'lastSessionEndReason'?: string;
+    /**
+     * When the last session on this workspace ended, as an ISO-8601 instant.
+     * @type {string}
+     * @memberof UserWorkspace
+     */
+    'lastSessionEndTime'?: string;
 }
 /**
  * Request to create a new workspace.

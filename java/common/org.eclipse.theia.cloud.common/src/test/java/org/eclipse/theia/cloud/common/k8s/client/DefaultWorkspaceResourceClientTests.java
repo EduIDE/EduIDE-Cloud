@@ -15,11 +15,15 @@
  ********************************************************************************/
 package org.eclipse.theia.cloud.common.k8s.client;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -28,6 +32,7 @@ import static org.mockito.Mockito.verify;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 import org.eclipse.theia.cloud.common.k8s.resource.workspace.Workspace;
 import org.eclipse.theia.cloud.common.k8s.resource.workspace.WorkspaceSpec;
@@ -35,6 +40,7 @@ import org.eclipse.theia.cloud.common.k8s.resource.workspace.WorkspaceStatus;
 import org.eclipse.theia.cloud.common.util.TheiaCloudError;
 import org.junit.jupiter.api.Test;
 
+import io.fabric8.kubernetes.api.model.ObjectMeta;
 import io.fabric8.kubernetes.client.NamespacedKubernetesClient;
 
 class DefaultWorkspaceResourceClientTests {
@@ -78,6 +84,43 @@ class DefaultWorkspaceResourceClientTests {
         client.launch("corr", new WorkspaceSpec(NAME, "label", "app", OWNER), 1, TimeUnit.SECONDS);
 
         verify(client).delete("corr", NAME);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void recordSessionEnd_stampsReasonAndTime() {
+        Workspace existing = workspace(new WorkspaceStatus());
+        existing.setMetadata(new ObjectMeta());
+        DefaultWorkspaceResourceClient client = clientWith(existing);
+        doAnswer(invocation -> {
+            invocation.<Consumer<Workspace>> getArgument(2).accept(existing);
+            return existing;
+        }).when(client).edit(anyString(), anyString(), any(Consumer.class));
+
+        client.recordSessionEnd("corr", NAME, Workspace.SESSION_END_REASON_LIFETIME);
+
+        assertEquals(Workspace.SESSION_END_REASON_LIFETIME,
+                existing.getMetadata().getAnnotations().get(Workspace.ANNOTATION_LAST_SESSION_END_REASON));
+        assertNotNull(existing.getMetadata().getAnnotations().get(Workspace.ANNOTATION_LAST_SESSION_END_TIME));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void recordSessionEnd_editFails_doesNotThrow() {
+        DefaultWorkspaceResourceClient client = clientWith(workspace(new WorkspaceStatus()));
+        doThrow(new IllegalStateException("conflict")).when(client).edit(anyString(), anyString(),
+                any(Consumer.class));
+
+        client.recordSessionEnd("corr", NAME, Workspace.SESSION_END_REASON_INACTIVITY);
+    }
+
+    @Test
+    void recordSessionEnd_noWorkspace_doesNothing() {
+        DefaultWorkspaceResourceClient client = clientWith(workspace(new WorkspaceStatus()));
+
+        client.recordSessionEnd("corr", null, Workspace.SESSION_END_REASON_INACTIVITY);
+
+        verify(client, never()).edit(anyString(), any(), any());
     }
 
     private Workspace workspace(WorkspaceStatus status) {

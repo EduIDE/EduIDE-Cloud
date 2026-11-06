@@ -22,6 +22,8 @@ As the environment can't be personalized for prewarmed sessions, we need a way o
 
 This is handled by the data bridge component, a VSCode extension exposing HTTP endpoints for injection data.
 
+Only the operator may inject. Every prewarmed instance with the data bridge enabled has a Secret `instance-<n>-<appdef>-bridge-token` (owned by the AppDefinition) holding a random token. The Theia container gets it as `DATA_BRIDGE_TOKEN` through a `secretKeyRef`, and the operator reads the Secret on every injection and sends `Authorization: Bearer <token>`. The operator writes a fresh token whenever it creates the instance's deployment and before it deletes the pod on session release, so the next session's pod starts with a token the previous user never saw. Removing an excess instance deletes its Secret. The operator needs `get`, `create`, `update` and `delete` on Secrets in its namespace (EduIDE-Helm). See EduIDE/EduIDE-Cloud#157.
+
 #### Environment Configuration for prewarmed sessionsw
 
 Prewarmed sessions need to be configured in advance to allow successful data injection later.

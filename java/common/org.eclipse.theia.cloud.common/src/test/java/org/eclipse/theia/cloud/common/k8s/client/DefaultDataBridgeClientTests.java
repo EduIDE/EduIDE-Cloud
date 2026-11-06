@@ -46,31 +46,30 @@ class DefaultDataBridgeClientTests {
     private static final String APP_DEF = "app";
 
     @Test
-    void injectData_sendsSessionSecretAsBearerToken() {
+    void injectData_sendsTokenAsBearerToken() {
         AtomicReference<Request> sent = new AtomicReference<>();
         DefaultDataBridgeClient client = clientCapturing(sent);
 
-        Optional<DataInjectionResponse> response = client.injectData(session("s3cr3t"), Map.of("GIT_USER", "ada"),
+        Optional<DataInjectionResponse> response = client.injectData(session(), Map.of("GIT_USER", "ada"), "t0ken",
                 "corr");
 
         assertTrue(response.get().isSuccess());
-        assertEquals("Bearer s3cr3t", sent.get().header("Authorization"));
+        assertEquals("Bearer t0ken", sent.get().header("Authorization"));
         assertEquals("http://10.0.0.1:16281/data", sent.get().url().toString());
     }
 
     @Test
-    void injectData_withoutSessionSecret_sendsNoAuthorizationHeader() {
+    void injectData_withoutToken_sendsNoAuthorizationHeader() {
         AtomicReference<Request> sent = new AtomicReference<>();
         DefaultDataBridgeClient client = clientCapturing(sent);
 
-        client.injectData(session(null), Map.of("GIT_USER", "ada"), "corr");
+        client.injectData(session(), Map.of("GIT_USER", "ada"), null, "corr");
 
         assertNull(sent.get().header("Authorization"));
     }
 
-    private static Session session(String secret) {
+    private static Session session() {
         SessionSpec spec = new SessionSpec(SESSION, APP_DEF, "user");
-        spec.setSessionSecret(secret);
         Session session = new Session();
         session.setSpec(spec);
         return session;

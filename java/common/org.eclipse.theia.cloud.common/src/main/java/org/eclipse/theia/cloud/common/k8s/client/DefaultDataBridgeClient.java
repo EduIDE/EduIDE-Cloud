@@ -67,18 +67,18 @@ public class DefaultDataBridgeClient implements DataBridgeClient {
     }
 
     @Override
-    public Optional<DataInjectionResponse> injectData(String sessionName, Map<String, String> data,
+    public Optional<DataInjectionResponse> injectData(String sessionName, Map<String, String> data, String token,
             String correlationId) {
         Optional<Session> session = theiaCloudClient.sessions().get(sessionName);
         if (session.isEmpty()) {
             LOGGER.warn(formatLogMessage(correlationId, "Session not found: " + sessionName));
             return Optional.empty();
         }
-        return injectData(session.get(), data, correlationId);
+        return injectData(session.get(), data, token, correlationId);
     }
 
     @Override
-    public Optional<DataInjectionResponse> injectData(Session session, Map<String, String> data,
+    public Optional<DataInjectionResponse> injectData(Session session, Map<String, String> data, String token,
             String correlationId) {
         String sessionName = session.getSpec().getName();
 
@@ -116,11 +116,11 @@ public class DefaultDataBridgeClient implements DataBridgeClient {
             return Optional.empty();
         }
 
-        return performInjection(url.get(), data, session.getSpec().getSessionSecret(), correlationId, sessionName);
+        return performInjection(url.get(), data, token, correlationId, sessionName);
     }
 
     private Optional<DataInjectionResponse> performInjection(String url, Map<String, String> data,
-            String sessionSecret, String correlationId, String sessionName) {
+            String token, String correlationId, String sessionName) {
         LOGGER.info(formatLogMessage(correlationId, "Injecting data to session: " + sessionName + " at " + url));
 
         try {
@@ -132,12 +132,12 @@ public class DefaultDataBridgeClient implements DataBridgeClient {
             RequestBody body = RequestBody.create(requestBody.toString(), JSON_MEDIA_TYPE);
 
             Request.Builder request = new Request.Builder().url(url).post(body);
-            // The data bridge only accepts writes that carry the session's own secret. Older bridges ignore the header.
-            if (sessionSecret != null && !sessionSecret.isEmpty()) {
-                request.header("Authorization", "Bearer " + sessionSecret);
+            // The data bridge only accepts writes that carry its instance token. Older bridges ignore the header.
+            if (token != null && !token.isEmpty()) {
+                request.header("Authorization", "Bearer " + token);
             } else {
                 LOGGER.warn(formatLogMessage(correlationId,
-                        "Session " + sessionName + " has no session secret, injecting without Authorization header"));
+                        "No data bridge token for session " + sessionName + ", injecting without Authorization header"));
             }
 
             try (Response response = httpClient.newCall(request.build()).execute()) {

@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-- [java/common] **Security:** send the session secret as `Authorization: Bearer <sessionSecret>` on the data bridge `POST /data`, so a data bridge that requires it (EduIDE-data-bridge#12) accepts the injection. Older data bridges ignore the header.
+- [java/operator,java/common] **Security:** authenticate data bridge injection with a per-instance token (#157). The operator keeps a random token per prewarmed instance in a Secret `instance-<n>-<appdef>-bridge-token`, hands it to the pod as `DATA_BRIDGE_TOKEN` via `secretKeyRef`, sends it as `Authorization: Bearer <token>` on `POST /data`, rotates it before the pod restarts on session release and whenever the deployment is created, and deletes it with an excess instance. Needs the EduIDE-Helm chart that grants the operator access to Secrets. A data bridge without the check (EduIDE-data-bridge#12) ignores the header.
 - [java/service,java/common] **Security:** refuse a launch or workspace creation with 403 when the requested name belongs to another user's workspace. Previously any logged-in user could start a session on another user's workspace, with their own environment variables, by sending its name, and could get an errored workspace of that user deleted. The refusal never deletes or modifies the other user's workspace. In anonymous mode the check compares the caller-supplied `user`, so it stops accidental name collisions but cannot stop a caller who claims to be the owner.
 - [java/operator] Keep waiting for the data bridge until the user opens the session, retry failed injections, stop when the session ended, and inject the session secret for the monitor
 - [ci] Skip the Sentry source bundle upload unless the repository variable `SENTRY_BUILD_ENABLED` is `true`

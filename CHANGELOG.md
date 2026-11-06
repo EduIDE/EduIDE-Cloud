@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- [theia,node] **Security:** fix the remaining fixable Dependabot alerts. The Theia example app moves to Theia 1.71 (with the `inversify` pin moved to 6.2.2), lerna to 9, and scoped resolutions and overrides lift minimatch, glob, tar, uuid, proxy-addr, `@tootallnate/once`, svgo, nth-check and postcss to patched versions. This also repairs `yarn build` under `theia/`, which the minimatch 11 resolution for lerna and a compile error in `config-store` had broken.
 - [java/service,java/common] **Security:** refuse a launch or workspace creation with 403 when the requested name belongs to another user's workspace. Previously any logged-in user could start a session on another user's workspace, with their own environment variables, by sending its name, and could get an errored workspace of that user deleted. The refusal never deletes or modifies the other user's workspace. In anonymous mode the check compares the caller-supplied `user`, so it stops accidental name collisions but cannot stop a caller who claims to be the owner.
 - [java/operator] Keep waiting for the data bridge until the user opens the session, retry failed injections, stop when the session ended, and inject the session secret for the monitor
 - [ci] Skip the Sentry source bundle upload unless the repository variable `SENTRY_BUILD_ENABLED` is `true`

@@ -3,7 +3,7 @@ import { BackendApplicationContribution } from '@theia/core/lib/node/backend-app
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { Application, Router } from 'express';
 
-import { ConfigStoreClient, ConfigStoreServer } from '../common/config-store-protocol';
+import { ConfigStoreClient, ConfigStoreServer, ConfigVariable } from '../common/config-store-protocol';
 
 const configStoreRestPath = '/theia-cloud/config-store';
 
@@ -36,6 +36,12 @@ export class ConfigStoreServerImpl implements ConfigStoreServer, BackendApplicat
   }
 
   getValue(key: string): Promise<string | undefined> {
+    throw new Error('Method not implemented.');
+  }
+  setValue(key: string, value: string | undefined): Promise<void> {
+    throw new Error('Method not implemented.');
+  }
+  getEntries(): Promise<ConfigVariable[]> {
     throw new Error('Method not implemented.');
   }
   sayHelloTo(name: string): Promise<string> {

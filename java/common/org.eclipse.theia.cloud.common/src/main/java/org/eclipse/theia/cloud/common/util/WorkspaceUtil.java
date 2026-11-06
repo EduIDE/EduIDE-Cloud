@@ -17,7 +17,11 @@ package org.eclipse.theia.cloud.common.util;
 
 import static org.eclipse.theia.cloud.common.util.NamingUtil.asValidName;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.util.HexFormat;
 
 import org.eclipse.theia.cloud.common.k8s.resource.workspace.Workspace;
 
@@ -25,6 +29,7 @@ public final class WorkspaceUtil {
     private static final String SESSION_SUFFIX = "-session";
     private static final String WORKSPACE_PREFIX = "ws-";
     private static final int WORKSPACE_NAME_LIMIT = NamingUtil.VALID_NAME_LIMIT - SESSION_SUFFIX.length();
+    private static final int DISCRIMINATOR_HASH_LENGTH = 10;
 
     private WorkspaceUtil() {
         // util
@@ -50,6 +55,29 @@ public final class WorkspaceUtil {
         return getSessionName(workspaceName);
     }
 
+    /**
+     * Returns the non-unique session name of the given user and app definition, told apart by a discriminator such as
+     * the repository the session works on. Only a hash of the discriminator enters the name, and it is kept in full
+     * when user and app definition have to be shortened, so truncation cannot make two discriminators share a session.
+     * A <code>null</code> or blank discriminator yields the same name as
+     * {@link #getSessionName(String, String, boolean)} with <code>unique == false</code>.
+     *
+     * @param user              the session's user
+     * @param appDefinitionName the session's app definition
+     * @param discriminator     what distinguishes sessions of the same user and app definition, may be
+     *                          <code>null</code>
+     * @return the session name, at most {@link NamingUtil#VALID_NAME_LIMIT} characters long
+     */
+    public static String getSessionName(String user, String appDefinitionName, String discriminator) {
+        if (discriminator == null || discriminator.isBlank()) {
+            return getSessionName(user, appDefinitionName, false);
+        }
+        String hashSuffix = "-" + sha256Hex(discriminator).substring(0, DISCRIMINATOR_HASH_LENGTH);
+        String workspaceName = asValidName(generateNonUniqueWorkspaceName(user, appDefinitionName),
+                WORKSPACE_NAME_LIMIT - hashSuffix.length());
+        return getSessionName(workspaceName + hashSuffix);
+    }
+
     public static String getStorageName(Workspace workspace) {
         return NamingUtil.createName(workspace);
     }
@@ -60,6 +88,16 @@ public final class WorkspaceUtil {
 
     protected static String getWorkspaceDescription(String appDefinitionName) {
         return (appDefinitionName == null || appDefinitionName.isBlank()) ? "Workspace" : appDefinitionName;
+    }
+
+    private static String sha256Hex(String text) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException e) {
+            // every Java platform is required to support SHA-256
+            throw new IllegalStateException(e);
+        }
     }
 
 }

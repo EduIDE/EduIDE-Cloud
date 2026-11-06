@@ -48,6 +48,7 @@ class AsyncDataInjectorTests {
 
     private final DataBridgeClient bridge = Mockito.mock(DataBridgeClient.class);
     private final SessionResourceClient sessions = Mockito.mock(SessionResourceClient.class);
+    private final DataBridgeTokenManager tokens = Mockito.mock(DataBridgeTokenManager.class);
     private final AsyncDataInjector injector = new AsyncDataInjector();
 
     @BeforeEach
@@ -56,6 +57,8 @@ class AsyncDataInjectorTests {
         when(client.sessions()).thenReturn(sessions);
         set("dataBridgeClient", bridge);
         set("client", client);
+        set("dataBridgeTokens", tokens);
+        when(tokens.readForSession(any(Session.class), anyString())).thenReturn(Optional.of("instance-token"));
     }
 
     @AfterEach
@@ -64,18 +67,18 @@ class AsyncDataInjectorTests {
     }
 
     @Test
-    void injectsTheEnvironmentAndSessionSecretOnceHealthy() {
+    void injectsTheEnvironmentSessionSecretAndInstanceTokenOnceHealthy() {
         Session session = session("uid-1");
         DataInjectionResponse success = success();
         when(sessions.get(NAME)).thenReturn(Optional.of(session));
         when(bridge.healthCheck(eq(NAME), anyString())).thenReturn(false, true);
-        when(bridge.injectData(any(Session.class), any(), anyString())).thenReturn(Optional.of(success));
+        when(bridge.injectData(any(Session.class), any(), any(), anyString())).thenReturn(Optional.of(success));
 
         injector.scheduleInjection(null, session, ENV, "cid");
 
         verify(bridge, timeout(5000)).injectData(session,
                 Map.of("GIT_URI", "https://example.org/repo.git", AsyncDataInjector.SESSION_SECRET_ENV, "secret"),
-                "cid");
+                "instance-token", "cid");
     }
 
     @Test
@@ -86,7 +89,7 @@ class AsyncDataInjectorTests {
 
         injector.scheduleInjection(null, session, ENV, "cid");
 
-        verify(bridge, after(500).never()).injectData(any(Session.class), any(), anyString());
+        verify(bridge, after(500).never()).injectData(any(Session.class), any(), any(), anyString());
     }
 
     @Test
@@ -98,7 +101,7 @@ class AsyncDataInjectorTests {
 
         injector.scheduleInjection(null, session, ENV, "cid");
 
-        verify(bridge, after(500).never()).injectData(any(Session.class), any(), anyString());
+        verify(bridge, after(500).never()).injectData(any(Session.class), any(), any(), anyString());
     }
 
     @Test
@@ -107,12 +110,12 @@ class AsyncDataInjectorTests {
         DataInjectionResponse success = success();
         when(sessions.get(NAME)).thenReturn(Optional.of(session));
         when(bridge.healthCheck(eq(NAME), anyString())).thenReturn(true);
-        when(bridge.injectData(any(Session.class), any(), anyString())).thenReturn(Optional.empty(),
+        when(bridge.injectData(any(Session.class), any(), any(), anyString())).thenReturn(Optional.empty(),
                 Optional.of(success));
 
         injector.scheduleInjection(null, session, ENV, "cid");
 
-        verify(bridge, timeout(5000).times(2)).injectData(any(Session.class), any(), anyString());
+        verify(bridge, timeout(5000).times(2)).injectData(any(Session.class), any(), any(), anyString());
     }
 
     @Test
@@ -121,11 +124,11 @@ class AsyncDataInjectorTests {
         DataInjectionResponse success = success();
         when(sessions.get(NAME)).thenThrow(new RuntimeException("api down")).thenReturn(Optional.of(session));
         when(bridge.healthCheck(eq(NAME), anyString())).thenReturn(true);
-        when(bridge.injectData(any(Session.class), any(), anyString())).thenReturn(Optional.of(success));
+        when(bridge.injectData(any(Session.class), any(), any(), anyString())).thenReturn(Optional.of(success));
 
         injector.scheduleInjection(null, session, ENV, "cid");
 
-        verify(bridge, timeout(5000).times(1)).injectData(any(Session.class), any(), anyString());
+        verify(bridge, timeout(5000).times(1)).injectData(any(Session.class), any(), any(), anyString());
         verify(sessions, times(2)).get(NAME);
     }
 

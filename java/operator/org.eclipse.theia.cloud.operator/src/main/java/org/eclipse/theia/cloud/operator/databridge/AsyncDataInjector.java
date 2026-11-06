@@ -57,6 +57,9 @@ public class AsyncDataInjector {
     @Inject
     private TheiaCloudClient client;
 
+    @Inject
+    private DataBridgeTokenManager dataBridgeTokens;
+
     public AsyncDataInjector() {
         this.scheduler = Executors.newScheduledThreadPool(4);
     }
@@ -163,7 +166,10 @@ public class AsyncDataInjector {
 
             String failureReason;
             try {
-                Optional<DataInjectionResponse> response = dataBridgeClient.injectData(session, envVars, correlationId);
+                // Read on every attempt: the operator may have restarted since the instance's pod started.
+                String token = dataBridgeTokens.readForSession(liveSession.get(), correlationId).orElse(null);
+                Optional<DataInjectionResponse> response = dataBridgeClient.injectData(session, envVars, token,
+                        correlationId);
 
                 if (response.isPresent() && response.get().isSuccess()) {
                     LOGGER.info(

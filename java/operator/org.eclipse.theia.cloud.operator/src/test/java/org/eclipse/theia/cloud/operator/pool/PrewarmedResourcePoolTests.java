@@ -33,7 +33,9 @@ import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
 import org.eclipse.theia.cloud.common.util.LabelsUtil;
 import org.eclipse.theia.cloud.common.k8s.resource.session.SessionSpec;
 import org.eclipse.theia.cloud.operator.handler.AddedHandlerUtil;
+import org.eclipse.theia.cloud.common.util.DataBridgeUtil;
 import org.eclipse.theia.cloud.operator.TheiaCloudOperatorArguments;
+import org.eclipse.theia.cloud.operator.databridge.DataBridgeTokenManager;
 import org.eclipse.theia.cloud.operator.handler.session.EagerSessionHandler;
 import org.eclipse.theia.cloud.operator.sidecar.SidecarManager;
 import org.eclipse.theia.cloud.operator.util.K8sResourceFactory;
@@ -41,6 +43,7 @@ import org.eclipse.theia.cloud.operator.util.TheiaCloudConfigMapUtil;
 import org.eclipse.theia.cloud.operator.util.TheiaCloudDeploymentUtil;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mockito;
 
 import io.fabric8.kubernetes.api.model.ConfigMap;
@@ -131,8 +134,79 @@ class PrewarmedResourcePoolTests {
                 any());
     }
 
+    // ========== data bridge token ==========
+
+    @Test
+    void reconcileInstance_excessInstance_deletesDataBridgeToken() throws Exception {
+        ReconcileFixture fixture = createReconcileFixture("6", true);
+        enableDataBridge(fixture.appDefinition);
+        setFieldUnchecked(fixture.appDefinition.getSpec(), "minInstances", 0);
+
+        fixture.pool.reconcileInstance(fixture.appDefinition, 1, "cid");
+
+        verify(fixture.deploymentResource).delete();
+        verify(fixture.dataBridgeTokens).delete(fixture.appDefinition, 1, "cid");
+    }
+
+    @Test
+    void reconcileInstance_excessInstanceWithoutDataBridge_leavesSecretsAlone() throws Exception {
+        ReconcileFixture fixture = createReconcileFixture("6", true);
+        setFieldUnchecked(fixture.appDefinition.getSpec(), "minInstances", 0);
+
+        fixture.pool.reconcileInstance(fixture.appDefinition, 1, "cid");
+
+        verify(fixture.dataBridgeTokens, never()).delete(any(), Mockito.anyInt(), any());
+    }
+
+    @Test
+    void reconcileInstance_upToDate_keepsDataBridgeToken() throws Exception {
+        ReconcileFixture fixture = createReconcileFixture("6", true);
+        enableDataBridge(fixture.appDefinition);
+
+        fixture.pool.reconcileInstance(fixture.appDefinition, 1, "cid");
+
+        verify(fixture.dataBridgeTokens, never()).delete(any(), Mockito.anyInt(), any());
+        verify(fixture.dataBridgeTokens, never()).rotate(any(), Mockito.anyInt(), any());
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void resetPod_rotatesTheTokenBeforeDeletingThePod() throws Exception {
+        AppDefinition appDefinition = createAppDefinition();
+        enableDataBridge(appDefinition);
+        String deploymentName = TheiaCloudDeploymentUtil.getDeploymentName(appDefinition, 1);
+
+        TheiaCloudClient client = Mockito.mock(TheiaCloudClient.class);
+        NamespacedKubernetesClient kubernetes = Mockito.mock(NamespacedKubernetesClient.class);
+        MixedOperation<Pod, PodList, PodResource> listedPods = Mockito.mock(MixedOperation.class);
+        MixedOperation<Pod, PodList, PodResource> deletedPods = Mockito.mock(MixedOperation.class);
+        PodResource podResource = Mockito.mock(PodResource.class);
+        Pod pod = createPod(deploymentName);
+        when(client.kubernetes()).thenReturn(kubernetes);
+        when(kubernetes.pods()).thenReturn(listedPods);
+        when(listedPods.list()).thenReturn(new PodListBuilder().withItems(pod).build());
+        when(client.pods()).thenReturn(deletedPods);
+        when(deletedPods.withName(pod.getMetadata().getName())).thenReturn(podResource);
+        DataBridgeTokenManager tokens = Mockito.mock(DataBridgeTokenManager.class);
+        PrewarmedResourcePool pool = new PrewarmedResourcePool();
+        setField(pool, "client", client);
+        setField(pool, "dataBridgeTokens", tokens);
+
+        pool.resetPod(appDefinition, 1, deploymentName, "cid");
+
+        InOrder order = Mockito.inOrder(tokens, podResource);
+        order.verify(tokens).rotate(appDefinition, 1, "cid");
+        order.verify(podResource).delete();
+    }
+
+    private void enableDataBridge(AppDefinition appDefinition) {
+        setFieldUnchecked(appDefinition.getSpec(), "options",
+                Map.of(DataBridgeUtil.DATA_BRIDGE_ENABLED_OPTION, "true"));
+    }
+
     private static class ReconcileFixture {
         private PrewarmedResourcePool pool;
+        private DataBridgeTokenManager dataBridgeTokens;
         private K8sResourceFactory resourceFactory;
         private AppDefinition appDefinition;
         private RollableScalableResource<Deployment> deploymentResource;
@@ -211,6 +285,8 @@ class PrewarmedResourcePoolTests {
         setField(fixture.pool, "resourceFactory", fixture.resourceFactory);
         setField(fixture.pool, "sidecarManager", Mockito.mock(SidecarManager.class));
         setField(fixture.pool, "arguments", Mockito.mock(TheiaCloudOperatorArguments.class));
+        fixture.dataBridgeTokens = Mockito.mock(DataBridgeTokenManager.class);
+        setField(fixture.pool, "dataBridgeTokens", fixture.dataBridgeTokens);
         return fixture;
     }
 

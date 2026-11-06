@@ -116,11 +116,11 @@ public class DefaultDataBridgeClient implements DataBridgeClient {
             return Optional.empty();
         }
 
-        return performInjection(url.get(), data, correlationId, sessionName);
+        return performInjection(url.get(), data, session.getSpec().getSessionSecret(), correlationId, sessionName);
     }
 
     private Optional<DataInjectionResponse> performInjection(String url, Map<String, String> data,
-            String correlationId, String sessionName) {
+            String sessionSecret, String correlationId, String sessionName) {
         LOGGER.info(formatLogMessage(correlationId, "Injecting data to session: " + sessionName + " at " + url));
 
         try {
@@ -131,9 +131,16 @@ public class DefaultDataBridgeClient implements DataBridgeClient {
 
             RequestBody body = RequestBody.create(requestBody.toString(), JSON_MEDIA_TYPE);
 
-            Request request = new Request.Builder().url(url).post(body).build();
+            Request.Builder request = new Request.Builder().url(url).post(body);
+            // The data bridge only accepts writes that carry the session's own secret. Older bridges ignore the header.
+            if (sessionSecret != null && !sessionSecret.isEmpty()) {
+                request.header("Authorization", "Bearer " + sessionSecret);
+            } else {
+                LOGGER.warn(formatLogMessage(correlationId,
+                        "Session " + sessionName + " has no session secret, injecting without Authorization header"));
+            }
 
-            try (Response response = httpClient.newCall(request).execute()) {
+            try (Response response = httpClient.newCall(request.build()).execute()) {
                 if (response.isSuccessful()) {
                     LOGGER.info(formatLogMessage(correlationId,
                             "Successfully injected data to: " + sessionName));

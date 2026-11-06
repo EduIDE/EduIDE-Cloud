@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- [java/service,java/common] **Security:** refuse a launch or workspace creation with 403 when the requested name belongs to another user's workspace. Previously any logged-in user could start a session on another user's workspace, with their own environment variables, by sending its name, and could get an errored workspace of that user deleted. The refusal never deletes or modifies the other user's workspace. In anonymous mode the check compares the caller-supplied `user`, so it stops accidental name collisions but cannot stop a caller who claims to be the owner.
 - [java/operator] Keep waiting for the data bridge until the user opens the session, retry failed injections, stop when the session ended, and inject the session secret for the monitor
 - [ci] Skip the Sentry source bundle upload unless the repository variable `SENTRY_BUILD_ENABLED` is `true`
 - [java/operator] Never time out a session on an unanswered activity poll. When the monitor activity read fails or returns no timestamp, the tracker now counts consecutive failures and keeps the session running instead of falling through to the timeout check against a `lastActivity` frozen at session start, which could delete an active session whose monitor was briefly unreachable.

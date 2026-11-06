@@ -13,8 +13,8 @@ export class MessagingModule implements MonitorModule {
   registerEndpoints(router: Router): Router {
     const messagingRouter = Router();
     messagingRouter.use(json());
-    messagingRouter.post('', (req, res) => {
-      if (isAuthorized(req)) {
+    messagingRouter.post('', async (req, res) => {
+      if (await isAuthorized(req)) {
         const body = req.body;
         if (body.level && body.message) {
           if (body.fullscreen) {

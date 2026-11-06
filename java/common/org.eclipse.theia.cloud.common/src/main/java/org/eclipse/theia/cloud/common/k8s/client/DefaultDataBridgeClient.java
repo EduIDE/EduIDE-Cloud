@@ -131,7 +131,6 @@ public class DefaultDataBridgeClient implements DataBridgeClient {
 
             RequestBody body = RequestBody.create(requestBody.toString(), JSON_MEDIA_TYPE);
 
-            // Build and execute request
             Request request = new Request.Builder().url(url).post(body).build();
 
             try (Response response = httpClient.newCall(request).execute()) {

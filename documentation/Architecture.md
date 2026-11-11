@@ -28,6 +28,7 @@ The following diagram sketches the basic idea.
 | --wondershaperImage | string                                                          | The image of the wondershaper init container                                          |
 | --sessionsPerUser   | number                                                          | The number of active sessions a user is allowed to have                               |
 | --appId             | string                                                          | The id of the application which sends requests to the REST service                    |
+| --sessionNodeSelector | comma-separated key=value pairs                               | Node labels every session pod (lazy, prewarmed and sidecar) is pinned to via nodeSelector, e.g. `aet.cit.tum.de/pool=pve`. Empty leaves the pod spec unchanged; a malformed pair stops the operator at startup |
 |                     | the following options are not fully supported at the moment:    |
 | --eagerStart        | boolean                                                         | Whether sessions will be created before there is a user to speed up starts            |
 

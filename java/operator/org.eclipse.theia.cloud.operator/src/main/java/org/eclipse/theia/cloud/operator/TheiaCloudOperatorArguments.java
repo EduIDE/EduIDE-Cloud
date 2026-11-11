@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 import java.util.logging.Logger;
 
 public class TheiaCloudOperatorArguments {
@@ -203,6 +204,26 @@ public class TheiaCloudOperatorArguments {
         return parseNodeSelector(sessionNodeSelector);
     }
 
+    // Kubernetes label syntax: a value (and the name part of a key) is at most 63 alphanumerics, '-', '_' or '.',
+    // starting and ending alphanumeric; a key may carry a DNS subdomain prefix of at most 253 characters.
+    private static final Pattern LABEL_NAME = Pattern.compile("[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?");
+    private static final Pattern DNS_SUBDOMAIN = Pattern
+            .compile("[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*");
+
+    static boolean isValidLabelKey(String key) {
+        int slash = key.lastIndexOf('/');
+        if (slash < 0) {
+            return LABEL_NAME.matcher(key).matches();
+        }
+        String prefix = key.substring(0, slash);
+        return prefix.length() <= 253 && DNS_SUBDOMAIN.matcher(prefix).matches()
+                && LABEL_NAME.matcher(key.substring(slash + 1)).matches();
+    }
+
+    static boolean isValidLabelValue(String labelValue) {
+        return labelValue.isEmpty() || LABEL_NAME.matcher(labelValue).matches();
+    }
+
     static Map<String, String> parseNodeSelector(String value) {
         Map<String, String> selector = new LinkedHashMap<>();
         if (value == null || value.trim().isEmpty()) {
@@ -216,7 +237,12 @@ public class TheiaCloudOperatorArguments {
                         "--sessionNodeSelector expects comma-separated key=value pairs, but got '" + pair + "' in '"
                                 + value + "'");
             }
-            selector.put(key, pair.substring(separator + 1).trim());
+            String labelValue = pair.substring(separator + 1).trim();
+            if (!isValidLabelKey(key) || !isValidLabelValue(labelValue)) {
+                throw new IllegalArgumentException("--sessionNodeSelector: '" + pair.trim()
+                        + "' is not a valid Kubernetes label (key and value must follow the label syntax)");
+            }
+            selector.put(key, labelValue);
         }
         return selector;
     }

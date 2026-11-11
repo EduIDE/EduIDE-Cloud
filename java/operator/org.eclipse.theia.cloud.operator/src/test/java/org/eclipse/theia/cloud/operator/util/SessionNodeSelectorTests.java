@@ -93,6 +93,32 @@ class SessionNodeSelectorTests {
         assertTrue(e.getMessage().contains("--sessionNodeSelector"), e.getMessage());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = { "pool==pve", "po ol=pve", "pool=p ve", "-pool=pve", "pool=pve-", "Example.com/pool=pve",
+            "a/b/c=d", "/pool=pve" })
+    void rejectsInvalidLabelsAtStartup(String value) {
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> arguments("--sessionNodeSelector", value));
+        assertTrue(e.getMessage().contains("--sessionNodeSelector"), e.getMessage());
+    }
+
+    @Test
+    void rejectsLabelsOverTheLengthLimits() {
+        String name64 = "a".repeat(64);
+        assertThrows(IllegalArgumentException.class, () -> arguments("--sessionNodeSelector", name64 + "=pve"));
+        assertThrows(IllegalArgumentException.class, () -> arguments("--sessionNodeSelector", "pool=" + name64));
+        String prefix254 = "a".repeat(254);
+        assertThrows(IllegalArgumentException.class,
+                () -> arguments("--sessionNodeSelector", prefix254 + "/pool=pve"));
+    }
+
+    @Test
+    void acceptsEmptyValuesAndPrefixedKeys() {
+        assertEquals(Map.of(POOL, "", "kubernetes.io/arch", "amd64", "tier_1", "a.b-c"),
+                arguments("--sessionNodeSelector", POOL + "=,kubernetes.io/arch=amd64,tier_1=a.b-c")
+                        .getSessionNodeSelector());
+    }
+
     // ========== Session deployments ==========
 
     @Test

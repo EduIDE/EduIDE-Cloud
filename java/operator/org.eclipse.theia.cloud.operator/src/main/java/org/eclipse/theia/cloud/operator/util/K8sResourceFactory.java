@@ -368,10 +368,29 @@ public class K8sResourceFactory {
             return Optional.empty();
         }
 
+        Consumer<Deployment> withNodeSelector = d -> {
+            if (postProcessor != null) {
+                postProcessor.accept(d);
+            }
+            addNodeSelector(d, arguments.getSessionNodeSelector());
+        };
         return K8sUtil.loadAndCreateDeploymentWithOwnerReference(client.kubernetes(), client.namespace(), correlationId,
                 yaml, owner.getApiVersion(), owner.getKind(), owner.getName(), owner.getUid(), 0,
-                labels != null ? labels : new HashMap<>(), postProcessor != null ? postProcessor : d -> {
-                });
+                labels != null ? labels : new HashMap<>(), withNodeSelector);
+    }
+
+    /**
+     * Merges the operator's session node selector into the pod template, keeping any selector the template carries.
+     */
+    public static void addNodeSelector(Deployment deployment, Map<String, String> nodeSelector) {
+        if (nodeSelector.isEmpty()) {
+            return;
+        }
+        PodSpec podSpec = deployment.getSpec().getTemplate().getSpec();
+        Map<String, String> merged = podSpec.getNodeSelector() != null ? new HashMap<>(podSpec.getNodeSelector())
+                : new HashMap<>();
+        merged.putAll(nodeSelector);
+        podSpec.setNodeSelector(merged);
     }
 
     private Optional<ConfigMap> createConfigMap(String templatePath, Map<String, String> replacements,

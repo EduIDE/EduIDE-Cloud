@@ -77,4 +77,21 @@ class WorkspaceUtilTests {
             assertEquals(name, NamingUtil.asValidName(name), "already a valid Kubernetes name");
         }
     }
+
+    @Test
+    void getSessionName_UsersStayApartWhenTheirNamesAreTruncated() {
+        // The readable part is cut before the user name, so only the hash tells these users apart.
+        String longApp = "a".repeat(NamingUtil.VALID_NAME_LIMIT - 24);
+
+        assertNotEquals(WorkspaceUtil.getSessionName("alice", longApp, REPO_A),
+                WorkspaceUtil.getSessionName("anna", longApp, REPO_A));
+    }
+
+    @Test
+    void getSessionName_AppDefinitionsStayApartWhenTruncated() {
+        String prefix = "b".repeat(NamingUtil.VALID_NAME_LIMIT);
+
+        assertNotEquals(WorkspaceUtil.getSessionName(USER, prefix + "-java", REPO_A),
+                WorkspaceUtil.getSessionName(USER, prefix + "-python", REPO_A));
+    }
 }

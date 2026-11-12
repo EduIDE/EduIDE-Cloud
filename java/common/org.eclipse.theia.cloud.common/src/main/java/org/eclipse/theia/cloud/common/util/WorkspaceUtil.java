@@ -57,8 +57,9 @@ public final class WorkspaceUtil {
 
     /**
      * Returns the non-unique session name of the given user and app definition, told apart by a discriminator such as
-     * the repository the session works on. Only a hash of the discriminator enters the name, and it is kept in full
-     * when user and app definition have to be shortened, so truncation cannot make two discriminators share a session.
+     * the repository the session works on. The name ends with a hash of user, app definition and discriminator, which
+     * is kept in full when the readable part has to be shortened. Truncation therefore cannot make two users, two app
+     * definitions or two discriminators share a session.
      * A <code>null</code> or blank discriminator yields the same name as
      * {@link #getSessionName(String, String, boolean)} with <code>unique == false</code>.
      *
@@ -72,7 +73,10 @@ public final class WorkspaceUtil {
         if (discriminator == null || discriminator.isBlank()) {
             return getSessionName(user, appDefinitionName, false);
         }
-        String hashSuffix = "-" + sha256Hex(discriminator).substring(0, DISCRIMINATOR_HASH_LENGTH);
+        // Length prefixes keep the hash input unambiguous, whatever characters the parts contain.
+        String hashInput = String.join("", lengthPrefixed(user), lengthPrefixed(appDefinitionName),
+                lengthPrefixed(discriminator));
+        String hashSuffix = "-" + sha256Hex(hashInput).substring(0, DISCRIMINATOR_HASH_LENGTH);
         String workspaceName = asValidName(generateNonUniqueWorkspaceName(user, appDefinitionName),
                 WORKSPACE_NAME_LIMIT - hashSuffix.length());
         return getSessionName(workspaceName + hashSuffix);
@@ -88,6 +92,11 @@ public final class WorkspaceUtil {
 
     protected static String getWorkspaceDescription(String appDefinitionName) {
         return (appDefinitionName == null || appDefinitionName.isBlank()) ? "Workspace" : appDefinitionName;
+    }
+
+    private static String lengthPrefixed(String part) {
+        String text = String.valueOf(part);
+        return text.length() + ":" + text;
     }
 
     private static String sha256Hex(String text) {

@@ -24,6 +24,8 @@ import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinitionSp
 import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
 import org.eclipse.theia.cloud.common.tracing.Tracing;
 import org.eclipse.theia.cloud.common.util.NamingUtil;
+import org.eclipse.theia.cloud.operator.TheiaCloudOperatorArguments;
+import org.eclipse.theia.cloud.operator.util.K8sResourceFactory;
 import org.eclipse.theia.cloud.operator.util.TheiaCloudPersistentVolumeUtil;
 
 import com.google.inject.Inject;
@@ -58,6 +60,9 @@ public class SidecarResourceFactory {
 
     @Inject
     private TheiaCloudClient client;
+
+    @Inject
+    private TheiaCloudOperatorArguments arguments;
 
     /** Exposed for SidecarManager to check existing resources / lookup PVCs. */
     public TheiaCloudClient getClient() {
@@ -355,7 +360,7 @@ public class SidecarResourceFactory {
     // ========== Private Helpers ==========
 
     private Deployment buildDeployment(String name, SidecarConfig config, OwnerReference ownerRef) {
-        return new DeploymentBuilder()
+        Deployment deployment = new DeploymentBuilder()
             .withNewMetadata()
                 .withName(name)
                 .withNamespace(client.namespace())
@@ -391,6 +396,8 @@ public class SidecarResourceFactory {
                 .endTemplate()
             .endSpec()
             .build();
+        K8sResourceFactory.addNodeSelector(deployment, arguments.getSessionNodeSelector());
+        return deployment;
     }
 
     private OwnerReference createOwnerReference(String apiVersion, String kind, String name, String uid) {

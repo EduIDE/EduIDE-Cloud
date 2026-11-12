@@ -17,6 +17,7 @@ package org.eclipse.theia.cloud.service;
 
 import static org.eclipse.theia.cloud.common.util.LogMessageUtil.generateCorrelationId;
 
+import org.eclipse.theia.cloud.common.k8s.resource.workspace.Workspace;
 import org.eclipse.theia.cloud.common.util.LogMessageUtil;
 import org.eclipse.theia.cloud.common.util.TheiaCloudError;
 import org.jboss.logging.Logger;
@@ -46,7 +47,11 @@ public class BaseResource {
 
     private String basicEvaluateRequest(ServiceRequest request) {
         String correlationId = generateCorrelationId();
-        if (request == null || request.appId == null || !request.appId.equals(appId)) {
+        if (request == null) {
+            info(correlationId, "Request without a body.");
+            throw new TheiaCloudWebException(TheiaCloudError.INVALID_APP_ID);
+        }
+        if (request.appId == null || !request.appId.equals(appId)) {
             info(correlationId, "Request '" + request.kind + "' without matching appId: " + request.appId);
             trace(correlationId, request.toString());
             throw new TheiaCloudWebException(TheiaCloudError.INVALID_APP_ID);
@@ -74,6 +79,14 @@ public class BaseResource {
                 throw new TheiaCloudWebException(Status.BAD_REQUEST,
                         "Property \"user\" was not specified for user scoped request.");
             }
+            // In anonymous mode the user identifier is attacker-controlled and ends up in resource
+            // names, labels, CR specs and pod manifests. Reject anything outside a conservative
+            // character set to prevent CRLF/log/YAML injection and path traversal.
+            if (!UserInputValidator.isValid(request.user)) {
+                info(correlationId, "Rejected user scoped request with an invalid \"user\" value.");
+                throw new TheiaCloudWebException(Status.BAD_REQUEST,
+                        "Property \"user\" contains invalid characters or is too long.");
+            }
             return new EvaluatedRequest(correlationId, request.user);
         }
 
@@ -89,6 +102,19 @@ public class BaseResource {
         } else {
             info(correlationId, "User specified in the request does not match the authenticated user.");
             trace(correlationId, request.toString());
+            throw new TheiaCloudWebException(Status.FORBIDDEN);
+        }
+    }
+
+    /**
+     * Refuses a workspace returned by {@link K8sUtil#createWorkspace}. That method hands back any existing workspace of
+     * the requested name, whoever owns it.
+     *
+     * @throws TheiaCloudWebException with status 403 if the workspace does not belong to the user
+     */
+    protected void throwIfNotOwner(String correlationId, String user, Workspace workspace) {
+        if (!user.equals(workspace.getSpec().getUser())) {
+            info(correlationId, "User " + user + " does not own workspace " + workspace.getSpec().getName());
             throw new TheiaCloudWebException(Status.FORBIDDEN);
         }
     }

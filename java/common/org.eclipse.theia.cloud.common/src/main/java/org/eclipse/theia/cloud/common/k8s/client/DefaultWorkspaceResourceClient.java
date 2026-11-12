@@ -15,6 +15,7 @@
  ********************************************************************************/
 package org.eclipse.theia.cloud.common.k8s.client;
 
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
 import org.eclipse.theia.cloud.common.k8s.resource.workspace.Workspace;
@@ -51,6 +52,11 @@ public class DefaultWorkspaceResourceClient extends BaseResourceClient<Workspace
         Workspace workspace = get(spec.getName()).orElseGet(() -> create(correlationId, spec));
         WorkspaceSpec workspaceSpec = workspace.getSpec();
         WorkspaceStatus workspaceStatus = workspace.getNonNullStatus();
+
+        // Someone else's workspace: the caller has to refuse it, and we must not delete or modify it below.
+        if (!Objects.equals(workspaceSpec.getUser(), spec.getUser())) {
+            return workspace;
+        }
 
         if (workspaceSpec.hasStorage()) {
             return workspace;

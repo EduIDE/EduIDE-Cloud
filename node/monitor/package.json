@@ -1,5 +1,6 @@
 {
   "name": "theia-cloud-monitor",
+  "publisher": "tum-aet",
   "displayName": "Theia Cloud Monitor extension",
   "description": "Monitor for Theia Cloud hosted tools",
   "version": "1.2.0-next",
@@ -54,5 +55,10 @@
     "@vscode/vsce": "^2.22.0",
     "webpack": "^5.105.4",
     "webpack-cli": "^4.10.0"
+  },
+  "overrides": {
+    "@vscode/vsce": {
+      "markdown-it": "^14.3.3"
+    }
   }
 }

@@ -17,6 +17,11 @@
 package org.eclipse.theia.cloud.operator;
 
 import picocli.CommandLine.Option;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.regex.Pattern;
 import java.util.logging.Logger;
 
 public class TheiaCloudOperatorArguments {
@@ -151,8 +156,95 @@ public class TheiaCloudOperatorArguments {
     @Option(names = { "--dependencyCacheUrl" }, description = "The URL of the dependency cache server (Reposilite).", required = false)
     private String dependencyCacheUrl;
 
+    @Option(names = {
+            "--allowedEnvFromSecrets" }, description = "Comma-separated allowlist of Secret names that a launch request may inject into a session via envFrom. Empty (the default) means no Secret may be injected.", required = false, split = ",")
+    private List<String> allowedEnvFromSecrets = new ArrayList<>();
+
+    @Option(names = {
+            "--allowedEnvFromConfigMaps" }, description = "Comma-separated allowlist of ConfigMap names that a launch request may inject into a session via envFrom. Empty (the default) means no ConfigMap may be injected.", required = false, split = ",")
+    private List<String> allowedEnvFromConfigMaps = new ArrayList<>();
+
+    @Option(names = {
+            "--allowCustomEnvFromMap" }, description = "Whether a launch request may set arbitrary environment variables via env.fromMap. Reserved platform variables are always dropped regardless of this flag.", required = false, defaultValue = "true")
+    private boolean allowCustomEnvFromMap = true;
+
+    @Option(names = {
+            "--sessionNodeSelector" }, description = "Comma-separated key=value node labels that every session pod (lazy and prewarmed) is pinned to via nodeSelector, e.g. aet.cit.tum.de/pool=pve. Empty (the default) leaves the pod spec unchanged.", required = false)
+    private String sessionNodeSelector;
+
     public boolean isUseKeycloak() {
         return useKeycloak;
+    }
+
+    /**
+     * @return the allowlist of Secret names a launch request may inject via envFrom. Empty means none are allowed.
+     */
+    public List<String> getAllowedEnvFromSecrets() {
+        return allowedEnvFromSecrets;
+    }
+
+    /**
+     * @return the allowlist of ConfigMap names a launch request may inject via envFrom. Empty means none are allowed.
+     */
+    public List<String> getAllowedEnvFromConfigMaps() {
+        return allowedEnvFromConfigMaps;
+    }
+
+    /**
+     * @return whether arbitrary env.fromMap variables are allowed (reserved platform variables are always dropped).
+     */
+    public boolean isAllowCustomEnvFromMap() {
+        return allowCustomEnvFromMap;
+    }
+
+    /**
+     * @return the node labels session pods are pinned to. Empty means no nodeSelector is added.
+     */
+    public Map<String, String> getSessionNodeSelector() {
+        return parseNodeSelector(sessionNodeSelector);
+    }
+
+    // Kubernetes label syntax: a value (and the name part of a key) is at most 63 alphanumerics, '-', '_' or '.',
+    // starting and ending alphanumeric; a key may carry a DNS subdomain prefix of at most 253 characters.
+    private static final Pattern LABEL_NAME = Pattern.compile("[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?");
+    private static final Pattern DNS_SUBDOMAIN = Pattern
+            .compile("[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*");
+
+    static boolean isValidLabelKey(String key) {
+        int slash = key.lastIndexOf('/');
+        if (slash < 0) {
+            return LABEL_NAME.matcher(key).matches();
+        }
+        String prefix = key.substring(0, slash);
+        return prefix.length() <= 253 && DNS_SUBDOMAIN.matcher(prefix).matches()
+                && LABEL_NAME.matcher(key.substring(slash + 1)).matches();
+    }
+
+    static boolean isValidLabelValue(String labelValue) {
+        return labelValue.isEmpty() || LABEL_NAME.matcher(labelValue).matches();
+    }
+
+    static Map<String, String> parseNodeSelector(String value) {
+        Map<String, String> selector = new LinkedHashMap<>();
+        if (value == null || value.trim().isEmpty()) {
+            return selector;
+        }
+        for (String pair : value.split(",", -1)) {
+            int separator = pair.indexOf('=');
+            String key = separator < 0 ? "" : pair.substring(0, separator).trim();
+            if (key.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "--sessionNodeSelector expects comma-separated key=value pairs, but got '" + pair + "' in '"
+                                + value + "'");
+            }
+            String labelValue = pair.substring(separator + 1).trim();
+            if (!isValidLabelKey(key) || !isValidLabelValue(labelValue)) {
+                throw new IllegalArgumentException("--sessionNodeSelector: '" + pair.trim()
+                        + "' is not a valid Kubernetes label (key and value must follow the label syntax)");
+            }
+            selector.put(key, labelValue);
+        }
+        return selector;
     }
 
     public boolean isEagerStart() {
@@ -304,7 +396,8 @@ public class TheiaCloudOperatorArguments {
      * Validates that required argument combinations are satisfied.
      * Must be called after argument parsing.
      *
-     * @throws IllegalArgumentException if a caching flag is enabled but its URL is missing
+     * @throws IllegalArgumentException if a caching flag is enabled but its URL is missing, or if
+     *                                  --sessionNodeSelector is malformed
      */
     public void validate() {
         if (enableBuildCaching
@@ -317,6 +410,7 @@ public class TheiaCloudOperatorArguments {
             throw new IllegalArgumentException(
                     "--dependencyCacheUrl is required when --enableDependencyCaching is set");
         }
+        parseNodeSelector(sessionNodeSelector);
     }
 
     public boolean isEnableBuildCaching() {
@@ -380,6 +474,7 @@ public class TheiaCloudOperatorArguments {
         result = prime * result + (enableBuildCachePush ? 1231 : 1237);
         result = prime * result + (enableDependencyCaching ? 1231 : 1237);
         result = prime * result + ((dependencyCacheUrl == null) ? 0 : dependencyCacheUrl.hashCode());
+        result = prime * result + ((sessionNodeSelector == null) ? 0 : sessionNodeSelector.hashCode());
         return result;
     }
 
@@ -512,6 +607,11 @@ public class TheiaCloudOperatorArguments {
                 return false;
         } else if (!dependencyCacheUrl.equals(other.dependencyCacheUrl))
             return false;
+        if (sessionNodeSelector == null) {
+            if (other.sessionNodeSelector != null)
+                return false;
+        } else if (!sessionNodeSelector.equals(other.sessionNodeSelector))
+            return false;
         return true;
     }
 
@@ -532,7 +632,7 @@ public class TheiaCloudOperatorArguments {
                 + ", buildCacheUrl=" + buildCacheUrl + ", bazelBuildCacheUrl=" + bazelBuildCacheUrl
                 + ", enableBuildCachePush=" + enableBuildCachePush
                 + ", enableDependencyCaching=" + enableDependencyCaching + ", dependencyCacheUrl="
-                + dependencyCacheUrl + "]";
+                + dependencyCacheUrl + ", sessionNodeSelector=" + sessionNodeSelector + "]";
     }
 
 }

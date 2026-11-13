@@ -9,6 +9,7 @@ import org.eclipse.theia.cloud.common.k8s.resource.OperatorStatus;
 import org.eclipse.theia.cloud.common.k8s.resource.ResourceStatus;
 import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
 import org.eclipse.theia.cloud.common.k8s.resource.session.SessionStatus;
+import org.eclipse.theia.cloud.common.util.TheiaCloudError;
 
 public final class SessionStatusUtil {
 
@@ -112,6 +113,10 @@ public final class SessionStatusUtil {
         client.sessions().updateStatus(correlationId, session, s -> {
             s.setOperatorStatus(OperatorStatus.ERROR);
             s.setOperatorMessage(message);
+            // The service only watches the error field; keep a more specific error (e.g. a limit) if already set
+            if (!s.hasError()) {
+                s.setError(new TheiaCloudError(TheiaCloudError.SESSION_LAUNCH_FAILED.getCode(), message));
+            }
         });
     }
 }

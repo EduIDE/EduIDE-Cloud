@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- [java/operator,java/common] Report operator failures during a session launch to the caller right away. The operator now sets the session `error` (new code 555 `Unable to launch session.`, with the concrete reason such as `App Definition not found.`) whenever it marks a session as failed, so the launch request fails immediately instead of waiting for the 3 minute launch timeout. More specific errors (552, 553, 554) are kept.
+
 ## [3.0.1] - 2026-11-16
 
 ### Upgrade notes

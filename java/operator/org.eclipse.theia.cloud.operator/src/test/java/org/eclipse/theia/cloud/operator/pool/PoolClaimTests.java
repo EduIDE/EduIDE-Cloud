@@ -280,6 +280,32 @@ class PoolClaimTests {
         verify(serviceResources.get(internal.getMetadata().getName())).delete();
     }
 
+    @Test
+    void releaseInstance_targetIdleDiscardsTheInstanceInsteadOfResettingIt() throws Exception {
+        setField(appDefinition.getSpec(), "targetIdle", 3);
+        listServices(service(external.getMetadata().getName(), SESSION_UID),
+                service(internal.getMetadata().getName(), SESSION_UID));
+        Mockito.doReturn(false).when(pool).needsRecreation(any(), anyInt());
+
+        assertTrue(pool.releaseInstance(session(SESSION_UID, "1"), appDefinition, "cid"));
+
+        verify(pool, never()).resetPod(any(), anyInt(), anyString(), anyString());
+        verify(deploymentResource).delete();
+        verify(serviceResources.get(external.getMetadata().getName())).delete();
+        verify(serviceResources.get(internal.getMetadata().getName())).delete();
+    }
+
+    @Test
+    void reconcileInstance_leavesATargetIdlePoolToReconcileIdle() throws Exception {
+        setField(appDefinition.getSpec(), "targetIdle", 3);
+        listServices();
+
+        pool.reconcileInstance(appDefinition, 1, "cid");
+
+        verify(pool, never()).createInstanceResources(any(), anyInt(), anyString());
+        verify(deploymentResource, never()).delete();
+    }
+
     // ========== orphaned claims ==========
 
     @Test

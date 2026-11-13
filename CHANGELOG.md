@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- [java/operator,java/common] Add `spec.targetIdle` to the AppDefinition: the operator keeps that many free prewarmed instances, refills after every claim, discards released instances (with sidecars and PVC) instead of handing them to the next person, hands out ready instances first, and reconciles every targetIdle pool every 30 seconds. Unset keeps today's behaviour. The CRD in EduIDE-Helm must carry the field before an AppDefinition uses it.
+- [java/operator] When session pods can not start because the quota or the nodes are full, free targetIdle instances make room and are not refilled; a session that still waits after 45 seconds fails with the new error 555 `CLUSTER_CAPACITY_EXHAUSTED`.
+- [java/operator,java/service] Export warm pool metrics on the operator's `/metrics` (`eduide_pool_instances`, `eduide_pool_target_idle`, `eduide_session_claims_total`, `eduide_session_rejected_total`, `eduide_pool_instances_evicted_total`, `eduide_pool_instance_ready_seconds`) and the launch duration as the histogram `application_eduide_session_startup_seconds` on the service.
+
 ## [3.0.1] - 2026-11-16
 
 ### Upgrade notes

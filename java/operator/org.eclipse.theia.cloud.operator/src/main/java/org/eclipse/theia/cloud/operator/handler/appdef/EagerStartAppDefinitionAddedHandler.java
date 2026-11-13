@@ -92,7 +92,7 @@ public class EagerStartAppDefinitionAddedHandler implements AppDefinitionHandler
             ISpan poolSpan = Tracing.childSpan(tx, "appdef.reconcile_pool", "Reconcile pool to target");
             poolSpan.setData("target_instances", minInstances);
 
-            boolean success = pool.reconcile(appDefinition, minInstances, correlationId);
+            boolean success = reconcilePool(appDefinition, correlationId);
 
             poolSpan.setTag("pool.operation", "reconcile");
             poolSpan.setTag("outcome", success ? "success" : "failure");
@@ -191,7 +191,7 @@ public class EagerStartAppDefinitionAddedHandler implements AppDefinitionHandler
             reconcileSpan.setData("target_instances", minInstances);
             reconcileSpan.setTag("pool.operation", "reconcile");
 
-            boolean success = pool.reconcile(appDefinition, minInstances, correlationId);
+            boolean success = reconcilePool(appDefinition, correlationId);
 
             reconcileSpan.setTag("outcome", success ? "success" : "failure");
             Tracing.finish(reconcileSpan, success ? SpanStatus.OK : SpanStatus.INTERNAL_ERROR);
@@ -203,5 +203,12 @@ public class EagerStartAppDefinitionAddedHandler implements AppDefinitionHandler
             Tracing.finishError(tx, e);
             throw e;
         }
+    }
+
+    private boolean reconcilePool(AppDefinition appDefinition, String correlationId) {
+        if (appDefinition.getSpec().getTargetIdle() != null) {
+            return pool.reconcileIdle(appDefinition, correlationId);
+        }
+        return pool.reconcile(appDefinition, appDefinition.getSpec().getMinInstances(), correlationId);
     }
 }

@@ -11,6 +11,7 @@ import org.apache.logging.log4j.Logger;
 import org.eclipse.theia.cloud.common.k8s.client.TheiaCloudClient;
 import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
 import org.eclipse.theia.cloud.common.tracing.Tracing;
+import org.eclipse.theia.cloud.operator.metrics.PoolMetrics;
 
 import com.google.inject.Inject;
 
@@ -80,6 +81,7 @@ public class EagerWithLazyFallbackSessionHandler implements SessionHandler {
         boolean lazyResult = lazy.sessionAdded(session, correlationId, lazySpan);
 
         if (lazyResult) {
+            PoolMetrics.recordClaim(session.getSpec().getAppDefinition(), PoolMetrics.CLAIM_COLD);
             annotateSessionStrategy(session, correlationId, SESSION_START_STRATEGY_LAZY_FALLBACK);
             Tracing.finishSuccess(lazySpan);
             span.setTag("session.strategy", "lazy-fallback");

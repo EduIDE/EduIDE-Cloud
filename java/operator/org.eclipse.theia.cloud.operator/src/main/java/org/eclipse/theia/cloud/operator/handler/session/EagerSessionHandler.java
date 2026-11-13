@@ -34,6 +34,7 @@ import org.eclipse.theia.cloud.operator.handler.AddedHandlerUtil;
 import org.eclipse.theia.cloud.operator.ingress.IngressManager;
 import org.eclipse.theia.cloud.operator.sidecar.SidecarConfig;
 import org.eclipse.theia.cloud.operator.sidecar.SidecarManager;
+import org.eclipse.theia.cloud.operator.pool.PoolMaintenance;
 import org.eclipse.theia.cloud.operator.pool.PrewarmedResourcePool;
 import org.eclipse.theia.cloud.common.tracing.Tracing;
 import org.eclipse.theia.cloud.operator.util.SessionEnvCollector;
@@ -85,6 +86,9 @@ public class EagerSessionHandler implements SessionHandler {
 
     @Inject
     private AsyncDataInjector asyncDataInjector;
+
+    @Inject
+    private PoolMaintenance poolMaintenance;
 
     @Override
     public boolean sessionAdded(Session session, String correlationId, ISpan span) {
@@ -211,6 +215,9 @@ public class EagerSessionHandler implements SessionHandler {
             PoolInstance instance = reservation.getInstance().get();
             reserveSpan.setData("instance_id", instance.getInstanceId());
             Tracing.finishSuccess(reserveSpan);
+            if (appDef.getSpec().getTargetIdle() != null) {
+                poolMaintenance.requestReconcile(appDef.getMetadata().getName());
+            }
 
             // Annotate session with start strategy and instance ID
             ISpan annotateSpan = Tracing.childSpan(span, "eager.annotate_session", "Annotate session");
@@ -311,8 +318,8 @@ public class EagerSessionHandler implements SessionHandler {
             }
             span.setData("instance_id", instanceId);
 
-            // A shared workspace volume means the instance is recreated below, which replaces the sidecar pods
-            if (!SidecarConfig.requiresSharedWorkspace(appDef)) {
+            // A shared workspace volume or targetIdle means the instance is discarded, which replaces the sidecar pods
+            if (!SidecarConfig.requiresSharedWorkspace(appDef) && appDef.getSpec().getTargetIdle() == null) {
                 sidecarManager.restartPrewarmedSidecarPods(appDef, instanceId, correlationId);
             }
 
@@ -323,11 +330,16 @@ public class EagerSessionHandler implements SessionHandler {
             releaseSpan.setTag("outcome", success ? "success" : "failure");
             Tracing.finish(releaseSpan, success ? SpanStatus.OK : SpanStatus.INTERNAL_ERROR);
 
-            // Recreate what the release discarded, in the background and with retries
-            ISpan reconcileSpan = Tracing.childSpan(span, "eager.reconcile_instance", "Reconcile released instance");
-            reconcileSpan.setData("instance_id", instanceId);
-            pool.scheduleInstanceRecreation(appDef, instanceId, correlationId);
-            Tracing.finishSuccess(reconcileSpan);
+            if (appDef.getSpec().getTargetIdle() != null) {
+                // The release discarded the instance, the pool reconcile refills to targetIdle
+                poolMaintenance.requestReconcile(appDef.getMetadata().getName());
+            } else {
+                // Recreate what the release discarded, in the background and with retries
+                ISpan reconcileSpan = Tracing.childSpan(span, "eager.reconcile_instance", "Reconcile released instance");
+                reconcileSpan.setData("instance_id", instanceId);
+                pool.scheduleInstanceRecreation(appDef, instanceId, correlationId);
+                Tracing.finishSuccess(reconcileSpan);
+            }
 
             span.setTag("outcome", success ? "success" : "failure");
             Tracing.finish(span, success ? SpanStatus.OK : SpanStatus.INTERNAL_ERROR);

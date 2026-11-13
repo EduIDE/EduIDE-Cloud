@@ -38,6 +38,7 @@ import org.eclipse.theia.cloud.common.util.WorkspaceUtil;
 import org.eclipse.theia.cloud.operator.TheiaCloudOperatorArguments;
 import org.eclipse.theia.cloud.operator.databridge.AsyncDataInjector;
 import org.eclipse.theia.cloud.operator.databridge.DataBridgeTokenManager;
+import org.eclipse.theia.cloud.operator.metrics.PoolMetrics;
 import org.eclipse.theia.cloud.operator.handler.AddedHandlerUtil;
 import org.eclipse.theia.cloud.operator.ingress.IngressManager;
 import org.eclipse.theia.cloud.operator.sidecar.SidecarManager;
@@ -381,6 +382,7 @@ public class LazySessionHandler implements SessionHandler {
         if (TheiaCloudK8sUtil.checkIfMaxInstancesReached(
                 client.kubernetes(), client.namespace(), session.getSpec(), appDef.getSpec(), correlationId)) {
             LOGGER.info(formatMetric(correlationId, "Max instances reached for " + appDef.getSpec().getName()));
+            PoolMetrics.recordRejected(appDef.getMetadata().getName(), PoolMetrics.REJECT_MAX_INSTANCES);
             client.sessions().updateStatus(correlationId, session, status -> {
                 status.setError(TheiaCloudError.SESSION_SERVER_LIMIT_REACHED);
             });

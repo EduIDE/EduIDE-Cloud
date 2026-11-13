@@ -67,7 +67,7 @@ public final class SessionEndMetrics {
     public static HttpServer serve(int port) throws IOException {
         HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
         server.createContext("/metrics", exchange -> {
-            byte[] body = scrape().getBytes(StandardCharsets.UTF_8);
+            byte[] body = (scrape() + PoolMetrics.scrape()).getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
             exchange.sendResponseHeaders(200, body.length);
             try (OutputStream stream = exchange.getResponseBody()) {

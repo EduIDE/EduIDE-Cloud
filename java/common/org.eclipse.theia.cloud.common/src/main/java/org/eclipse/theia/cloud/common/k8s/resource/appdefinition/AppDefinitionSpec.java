@@ -56,6 +56,10 @@ public class AppDefinitionSpec {
     @JsonProperty("maxInstances")
     private Integer maxInstances;
 
+    // Free prewarmed instances the operator keeps ready. Unset keeps the pool at minInstances in total.
+    @JsonProperty("targetIdle")
+    private Integer targetIdle;
+
     @JsonProperty("timeout")
     private Integer timeout;
 
@@ -108,6 +112,7 @@ public class AppDefinitionSpec {
         this.ingressname = fromHub.getIngressname().orElse(null); // required
         this.minInstances = fromHub.getMinInstances().orElse(0); // required
         this.maxInstances = fromHub.getMaxInstances().orElse(0); // required
+        this.targetIdle = fromHub.getTargetIdle().isPresent() ? fromHub.getTargetIdle().getAsInt() : null;
         this.requestsMemory = fromHub.getRequestsMemory().orElse(null); // required
         this.requestsCpu = fromHub.getRequestsCpu().orElse(null); // required
         this.limitsMemory = fromHub.getLimitsMemory().orElse(null); // required
@@ -178,6 +183,14 @@ public class AppDefinitionSpec {
 
     public void setMaxInstances(Integer maxInstances) {
         this.maxInstances = maxInstances;
+    }
+
+    public Integer getTargetIdle() {
+        return targetIdle;
+    }
+
+    public void setTargetIdle(Integer targetIdle) {
+        this.targetIdle = targetIdle;
     }
 
     public Integer getTimeout() {
@@ -251,7 +264,7 @@ public class AppDefinitionSpec {
         final String redactedPullSecret = "***";
         return "AppDefinitionSpec [name=" + name + ", image=" + image + ", imagePullPolicy=" + imagePullPolicy
                 + ", pullSecret=" + redactedPullSecret + ", uid=" + uid + ", port=" + port + ", ingressname="
-                + ingressname + ", minInstances=" + minInstances + ", maxInstances=" + maxInstances + ", timeout="
+                + ingressname + ", minInstances=" + minInstances + ", maxInstances=" + maxInstances + ", targetIdle=" + targetIdle + ", timeout="
                 + timeout + ", requestsMemory=" + requestsMemory + ", requestsCpu=" + requestsCpu + ", limitsMemory="
                 + limitsMemory + ", limitsCpu=" + limitsCpu + ", downlinkLimit=" + downlinkLimit + ", uplinkLimit="
                 + uplinkLimit + ", mountPath=" + mountPath + "]";

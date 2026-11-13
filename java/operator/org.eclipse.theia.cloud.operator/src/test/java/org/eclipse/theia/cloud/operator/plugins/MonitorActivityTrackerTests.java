@@ -171,6 +171,40 @@ class MonitorActivityTrackerTests {
         verify(sessions).delete(anyString(), eq(SESSION_NAME));
     }
 
+    @Test
+    void pingSession_monitorGoneAfterAnswering_andIdlePastTimeout_stopsTheSession() {
+        // The monitor lives in the IDE's plugin host, which ends when the student closes the tab.
+        Session session = createSession(minutesAgo(1));
+        FlakyPoll poll = new FlakyPoll(minutesAgo(1));
+        poll.recovered = true;
+        MonitorActivityTracker tracker = createTracker(poll);
+        tracker.pingSession(transaction, "cid", session, "10.0.0.1", PORT, SHUTDOWN_AFTER, NOTIFY_AFTER);
+
+        // Time passes with the tab closed: the last activity the monitor reported ages past the timeout.
+        poll.recovered = false;
+        session.getStatus().setLastActivity(minutesAgo(90));
+        boolean success = tracker.pingSession(transaction, "cid", session, "10.0.0.1", PORT, SHUTDOWN_AFTER,
+                NOTIFY_AFTER);
+
+        assertFalse(success);
+        verify(sessions).delete(anyString(), eq(SESSION_NAME));
+    }
+
+    @Test
+    void pingSession_monitorGoneAfterAnswering_butRecentlyActive_leavesTheSessionAlone() {
+        Session session = createSession(minutesAgo(1));
+        FlakyPoll poll = new FlakyPoll(minutesAgo(1));
+        poll.recovered = true;
+        MonitorActivityTracker tracker = createTracker(poll);
+        tracker.pingSession(transaction, "cid", session, "10.0.0.1", PORT, SHUTDOWN_AFTER, NOTIFY_AFTER);
+
+        // A network blip right after the student was active must not end the session.
+        poll.recovered = false;
+        tracker.pingSession(transaction, "cid", session, "10.0.0.1", PORT, SHUTDOWN_AFTER, NOTIFY_AFTER);
+
+        verify(sessions, never()).delete(anyString(), anyString());
+    }
+
     // ========== helpers ==========
 
     @FunctionalInterface

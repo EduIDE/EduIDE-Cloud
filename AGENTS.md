@@ -96,6 +96,13 @@ in EduIDE-Helm must not equal the app port: the operator drops the dedicated
 Service port when they match, and the poll then goes to the Service's `http`
 port, which targets oauth2-proxy and can never return 200.
 
+**A closed IDE tab looks like a dead monitor.** The monitor lives in Theia's
+plugin host, which ends when the last tab disconnects. `MonitorActivityTracker`
+therefore times out a session whose poll fails only if that session's monitor
+answered before (since operator start) and the last reported activity is older
+than `timeoutAfter`. A monitor that never answered never times a session out
+(#140): its `lastActivity` is only the start time.
+
 `node/monitor` is deliberately NOT in `node/package.json`'s workspaces. It
 installs and packages on its own.
 

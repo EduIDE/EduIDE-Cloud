@@ -32,6 +32,7 @@ import org.eclipse.theia.cloud.common.k8s.resource.session.SessionSpec;
 import org.eclipse.theia.cloud.common.k8s.resource.session.SessionStatus;
 import org.eclipse.theia.cloud.common.k8s.resource.workspace.Workspace;
 import org.eclipse.theia.cloud.operator.messaging.MonitorMessagingService;
+import org.eclipse.theia.cloud.operator.metrics.SessionEndMetrics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -137,6 +138,8 @@ class MonitorActivityTrackerTests {
         verify(workspaces).recordSessionEnd(anyString(), eq("ws-student"),
                 eq(Workspace.SESSION_END_REASON_INACTIVITY));
         verify(sessions).delete(anyString(), eq(SESSION_NAME));
+        assertTrue(SessionEndMetrics.scrape()
+                .contains("{reason=\"inactivity\",app_definition=\"java-17-latest\"}"));
     }
 
     @Test

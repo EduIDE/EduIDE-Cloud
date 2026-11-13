@@ -37,6 +37,7 @@ public class AppDefinitionHub {
     final Optional<String> ingressname;
     final OptionalInt minInstances;
     final OptionalInt maxInstances;
+    final OptionalInt targetIdle;
     final Optional<String> requestsMemory;
     final Optional<String> requestsCpu;
     final Optional<String> limitsMemory;
@@ -73,6 +74,8 @@ public class AppDefinitionHub {
         this.minInstances = OptionalInt.of(toHub.getSpec().getMinInstances());
         this.maxInstances = toHub.getSpec().getMaxInstances() != null
                 ? OptionalInt.of(toHub.getSpec().getMaxInstances())
+                : OptionalInt.empty();
+        this.targetIdle = toHub.getSpec().getTargetIdle() != null ? OptionalInt.of(toHub.getSpec().getTargetIdle())
                 : OptionalInt.empty();
         this.requestsMemory = Optional.ofNullable(toHub.getSpec().getRequestsMemory());
         this.requestsCpu = Optional.ofNullable(toHub.getSpec().getRequestsCpu());
@@ -129,6 +132,7 @@ public class AppDefinitionHub {
         this.ingressname = Optional.ofNullable(toHub.getSpec().getIngressname());
         this.minInstances = OptionalInt.of(toHub.getSpec().getMinInstances());
         this.maxInstances = OptionalInt.of(toHub.getSpec().getMaxInstances());
+        this.targetIdle = OptionalInt.empty();
         this.requestsMemory = Optional.ofNullable(toHub.getSpec().getRequestsMemory());
         this.requestsCpu = Optional.ofNullable(toHub.getSpec().getRequestsCpu());
         this.limitsMemory = Optional.ofNullable(toHub.getSpec().getLimitsMemory());
@@ -184,6 +188,7 @@ public class AppDefinitionHub {
         this.ingressname = Optional.ofNullable(toHub.getSpec().getIngressname());
         this.minInstances = OptionalInt.of(toHub.getSpec().getMinInstances());
         this.maxInstances = OptionalInt.of(toHub.getSpec().getMaxInstances());
+        this.targetIdle = OptionalInt.empty();
         this.requestsMemory = Optional.ofNullable(toHub.getSpec().getRequestsMemory());
         this.requestsCpu = Optional.ofNullable(toHub.getSpec().getRequestsCpu());
         this.limitsMemory = Optional.ofNullable(toHub.getSpec().getLimitsMemory());
@@ -270,6 +275,10 @@ public class AppDefinitionHub {
         return maxInstances;
     }
 
+    public OptionalInt getTargetIdle() {
+        return targetIdle;
+    }
+
     public Optional<String> getRequestsMemory() {
         return requestsMemory;
     }
@@ -351,6 +360,7 @@ public class AppDefinitionHub {
         this.ingressname = Optional.ofNullable(toHub.getSpec().getIngressname());
         this.minInstances = OptionalInt.of(toHub.getSpec().getMinInstances());
         this.maxInstances = OptionalInt.of(toHub.getSpec().getMaxInstances());
+        this.targetIdle = OptionalInt.empty();
         this.requestsMemory = Optional.ofNullable(toHub.getSpec().getRequestsMemory());
         this.requestsCpu = Optional.ofNullable(toHub.getSpec().getRequestsCpu());
         this.limitsMemory = Optional.ofNullable(toHub.getSpec().getLimitsMemory());

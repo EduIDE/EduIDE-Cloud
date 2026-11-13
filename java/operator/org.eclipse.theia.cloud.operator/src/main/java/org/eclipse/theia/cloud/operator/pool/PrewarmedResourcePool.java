@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 import org.apache.logging.log4j.LogManager;
@@ -26,6 +27,7 @@ import org.eclipse.theia.cloud.common.util.NamingUtil;
 import org.eclipse.theia.cloud.operator.TheiaCloudOperatorArguments;
 import org.eclipse.theia.cloud.operator.handler.AddedHandlerUtil;
 import org.eclipse.theia.cloud.operator.handler.session.EagerSessionHandler;
+import org.eclipse.theia.cloud.operator.metrics.PoolMetrics;
 import org.eclipse.theia.cloud.operator.sidecar.SidecarConfig;
 import org.eclipse.theia.cloud.operator.sidecar.SidecarManager;
 import org.eclipse.theia.cloud.operator.replacements.DefaultPersistentVolumeTemplateReplacements;
@@ -80,6 +82,17 @@ public class PrewarmedResourcePool {
     @Inject
     private TheiaCloudOperatorArguments arguments;
 
+    // Set while sessions wait for cluster resources. Free instances then make room instead of being refilled.
+    private volatile boolean capacityPressure;
+
+    public boolean isCapacityPressure() {
+        return capacityPressure;
+    }
+
+    public void setCapacityPressure(boolean capacityPressure) {
+        this.capacityPressure = capacityPressure;
+    }
+
     /**
      * Represents a reserved instance from the pool.
      */
@@ -88,12 +101,24 @@ public class PrewarmedResourcePool {
         private final Service externalService;
         private final Service internalService;
         private final String deploymentName;
+        private final boolean ready;
 
         public PoolInstance(int instanceId, Service externalService, Service internalService, String deploymentName) {
+            this(instanceId, externalService, internalService, deploymentName, false);
+        }
+
+        public PoolInstance(int instanceId, Service externalService, Service internalService, String deploymentName,
+                boolean ready) {
             this.instanceId = instanceId;
             this.externalService = externalService;
             this.internalService = internalService;
             this.deploymentName = deploymentName;
+            this.ready = ready;
+        }
+
+        /** Whether the instance's pod was ready when it was reserved. */
+        public boolean isReady() {
+            return ready;
         }
 
         public int getInstanceId() {
@@ -576,10 +601,12 @@ public class PrewarmedResourcePool {
             span.setData("found_deployments", instanceDeployments.size());
             span.setData("found_configmaps", instanceConfigMaps.size());
 
-            if (instanceId > minInstances) {
+            // With targetIdle a released instance is never handed to the next person, the pool refills with a
+            // fresh one instead.
+            if (instanceId > minInstances || appDef.getSpec().getTargetIdle() != null) {
                 span.setTag("action", "delete_excess");
-                LOGGER.info(formatLogMessage(correlationId,
-                        "Instance " + instanceId + " exceeds minInstances (" + minInstances + "), deleting"));
+                LOGGER.info(formatLogMessage(correlationId, "Instance " + instanceId + " exceeds minInstances ("
+                        + minInstances + ") or the pool keeps idle instances fresh, deleting"));
 
                 ISpan deleteSpan = span.startChild("pool.delete_excess_instance", "Delete excess instance");
                 deleteInstanceResources(instanceServices, instanceDeployments, instanceConfigMaps, correlationId);
@@ -640,6 +667,216 @@ public class PrewarmedResourcePool {
             Tracing.finishError(span, e);
             throw e;
         }
+    }
+
+    // shortcut: creates at most this many instances per pass so a reservation never waits long for the lock; the
+    // maintenance loop and every claim trigger the next pass. Raise it if refills lag behind big bursts.
+    static final int MAX_CREATIONS_PER_PASS = 10;
+
+    /**
+     * Number of free instances a targetIdle pool should hold. The pool as a whole never drops below minInstances and
+     * never grows beyond maxInstances. Under capacity pressure free instances make room for real sessions, so none are
+     * kept.
+     */
+    static int wantedIdle(int claimed, int targetIdle, int minInstances, Integer maxInstances,
+            boolean capacityPressure) {
+        if (capacityPressure) {
+            return 0;
+        }
+        int wanted = Math.max(targetIdle, minInstances - claimed);
+        if (maxInstances != null) {
+            wanted = Math.min(wanted, maxInstances - claimed);
+        }
+        return Math.max(0, wanted);
+    }
+
+    /**
+     * Picks the instance ids to create: the lowest ids for which no resource exists any more.
+     */
+    static List<Integer> lowestFreeIds(Set<Integer> usedIds, int count) {
+        List<Integer> ids = new java.util.ArrayList<>();
+        for (int id = 1; ids.size() < count; id++) {
+            if (!usedIds.contains(id)) {
+                ids.add(id);
+            }
+        }
+        return ids;
+    }
+
+    static final class IdlePlan {
+        final List<Integer> toDelete;
+        final List<Integer> toCreate;
+
+        IdlePlan(List<Integer> toDelete, List<Integer> toCreate) {
+            this.toDelete = toDelete;
+            this.toCreate = toCreate;
+        }
+    }
+
+    /**
+     * Decides which free instances go and which ids get a new one. {@code idleHealthy} is ordered by preference, the
+     * first {@code wanted} stay. Broken instances always go. Ids that exist in any form, including the ones deleted now
+     * and possibly still terminating, are not reused.
+     */
+    static IdlePlan planIdle(Set<Integer> allIds, List<Integer> idleHealthy, List<Integer> broken, int wanted) {
+        List<Integer> toDelete = new java.util.ArrayList<>(broken);
+        int kept = Math.min(idleHealthy.size(), wanted);
+        toDelete.addAll(idleHealthy.subList(kept, idleHealthy.size()));
+        int missing = Math.min(wanted - kept, MAX_CREATIONS_PER_PASS);
+        return new IdlePlan(toDelete, missing > 0 ? lowestFreeIds(allIds, missing) : List.of());
+    }
+
+    /**
+     * Brings a pool with targetIdle to the wanted number of free instances. Claimed instances are never touched. Free
+     * instances that are outdated or incomplete are deleted and replaced, surplus free instances are deleted, and
+     * missing ones are created with the lowest free ids. Runs under the same lock as reservations, so an instance can
+     * not be claimed while it is being deleted.
+     */
+    public synchronized boolean reconcileIdle(AppDefinition appDef, String correlationId) {
+        boolean capacityPressure = this.capacityPressure;
+        Integer targetIdle = appDef.getSpec().getTargetIdle();
+        if (targetIdle == null) {
+            return true;
+        }
+        String appDefName = appDef.getMetadata().getName();
+        ISpan span = Tracing.childSpan("pool.reconcile_idle", "Reconcile free pool instances");
+        span.setTag("app_definition", appDefName);
+        span.setData("target_idle", targetIdle);
+        try {
+            String ownerUID = appDef.getMetadata().getUid();
+            long generation = appDef.getMetadata().getGeneration();
+            List<Service> services = K8sUtil.getExistingServices(client.kubernetes(), client.namespace(), appDefName,
+                    ownerUID);
+            List<Deployment> deployments = K8sUtil.getExistingDeployments(client.kubernetes(), client.namespace(),
+                    appDefName, ownerUID);
+            List<ConfigMap> configMaps = K8sUtil.getExistingConfigMaps(client.kubernetes(), client.namespace(),
+                    appDefName, ownerUID);
+
+            Map<Integer, List<Service>> servicesById = new HashMap<>();
+            for (Service s : services) {
+                Integer id = parseInstanceId(s);
+                if (id != null) {
+                    servicesById.computeIfAbsent(id, k -> new java.util.ArrayList<>()).add(s);
+                }
+            }
+            Map<Integer, Deployment> deploymentsById = new HashMap<>();
+            for (Deployment d : deployments) {
+                Integer id = TheiaCloudDeploymentUtil.getId(correlationId, appDef, d);
+                if (id != null) {
+                    deploymentsById.putIfAbsent(id, d);
+                }
+            }
+            Map<Integer, List<ConfigMap>> configMapsById = new HashMap<>();
+            for (ConfigMap cm : configMaps) {
+                int id = parseConfigMapInstanceIdOrDefault(appDef, cm, -1);
+                if (id > 0) {
+                    configMapsById.computeIfAbsent(id, k -> new java.util.ArrayList<>()).add(cm);
+                }
+            }
+
+            Set<Integer> allIds = new TreeSet<>();
+            allIds.addAll(servicesById.keySet());
+            allIds.addAll(deploymentsById.keySet());
+            allIds.addAll(configMapsById.keySet());
+
+            Set<Integer> claimed = new TreeSet<>();
+            List<Integer> idleHealthy = new java.util.ArrayList<>();
+            List<Integer> broken = new java.util.ArrayList<>();
+            for (int id : allIds) {
+                List<Service> idServices = servicesById.getOrDefault(id, List.of());
+                if (idServices.stream().anyMatch(s -> !TheiaCloudServiceUtil.isUnusedService(s))) {
+                    claimed.add(id);
+                    continue;
+                }
+                Deployment deployment = deploymentsById.get(id);
+                boolean complete = idServices.size() == 2 && deployment != null
+                        && (!arguments.isUseKeycloak() || configMapsById.getOrDefault(id, List.of()).size() == 2);
+                boolean outdated = isOutdated(idServices, generation)
+                        || (deployment != null && isOutdated(deployment, generation))
+                        || isOutdated(configMapsById.getOrDefault(id, List.of()), generation);
+                if (complete && !outdated) {
+                    idleHealthy.add(id);
+                } else {
+                    broken.add(id);
+                }
+            }
+
+            int wanted = wantedIdle(claimed.size(), targetIdle, appDef.getSpec().getMinInstances(),
+                    appDef.getSpec().getMaxInstances(), capacityPressure);
+            // Keep the oldest ready instances, drop the rest first.
+            idleHealthy.sort(Comparator.<Integer, Boolean> comparing(id -> !isReady(deploymentsById.get(id)))
+                    .thenComparing(id -> creationTimestamp(deploymentsById.get(id))));
+            IdlePlan plan = planIdle(allIds, idleHealthy, broken, wanted);
+            List<Integer> toDelete = plan.toDelete;
+            for (int id : toDelete) {
+                deleteInstanceResources(servicesById.getOrDefault(id, List.of()),
+                        deploymentsById.containsKey(id) ? List.of(deploymentsById.get(id)) : List.of(),
+                        configMapsById.getOrDefault(id, List.of()), correlationId);
+                sidecarManager.deletePrewarmedSidecars(appDef, id, correlationId);
+                deleteInstancePvc(appDef, id, correlationId);
+                if (capacityPressure && !broken.contains(id)) {
+                    PoolMetrics.recordEvicted(appDefName);
+                }
+            }
+
+            List<Integer> toCreate = plan.toCreate;
+            for (int id : toCreate) {
+                createInstanceResources(appDef, id, correlationId);
+            }
+
+            span.setData("claimed", claimed.size());
+            span.setData("wanted_idle", wanted);
+            span.setData("deleted", toDelete.size());
+            span.setData("created", toCreate.size());
+            LOGGER.info(formatLogMessage(correlationId,
+                    "Reconciled free instances of " + appDefName + ": claimed=" + claimed.size() + ", wanted idle="
+                            + wanted + ", deleted=" + toDelete + ", created=" + toCreate));
+            Tracing.finishSuccess(span);
+            return true;
+        } catch (KubernetesClientException e) {
+            LOGGER.error(formatLogMessage(correlationId, "Failed to reconcile free instances of " + appDefName), e);
+            Tracing.finishError(span, e);
+            return false;
+        }
+    }
+
+    /** Counts the pool's instances as free and ready, free and starting, and claimed. */
+    public long[] countInstances(AppDefinition appDef) {
+        String appDefName = appDef.getMetadata().getName();
+        String ownerUID = appDef.getMetadata().getUid();
+        Set<Integer> claimed = new TreeSet<>();
+        for (Service s : K8sUtil.getExistingServices(client.kubernetes(), client.namespace(), appDefName, ownerUID)) {
+            Integer id = parseInstanceId(s);
+            if (id != null && !TheiaCloudServiceUtil.isUnusedService(s)) {
+                claimed.add(id);
+            }
+        }
+        long idleReady = 0;
+        long idleStarting = 0;
+        for (Deployment d : K8sUtil.getExistingDeployments(client.kubernetes(), client.namespace(), appDefName,
+                ownerUID)) {
+            Integer id = TheiaCloudDeploymentUtil.getId(null, appDef, d);
+            if (id == null || claimed.contains(id)) {
+                continue;
+            }
+            if (isReady(d)) {
+                idleReady++;
+            } else {
+                idleStarting++;
+            }
+        }
+        return new long[] { idleReady, idleStarting, claimed.size() };
+    }
+
+    static boolean isReady(Deployment deployment) {
+        return deployment != null && deployment.getStatus() != null
+                && deployment.getStatus().getReadyReplicas() != null && deployment.getStatus().getReadyReplicas() > 0;
+    }
+
+    private static String creationTimestamp(Deployment deployment) {
+        // RFC 3339 timestamps in UTC sort chronologically as strings; missing ones go last.
+        return deployment == null || deployment.getMetadata().getCreationTimestamp() == null ? "~"
+                : deployment.getMetadata().getCreationTimestamp();
     }
 
     private boolean isOutdated(List<? extends HasMetadata> resources, long currentGeneration) {
@@ -1021,11 +1258,25 @@ public class PrewarmedResourcePool {
             }
 
             // Find available instance
+            // Ready instances first, the longest waiting one first, so a starting pod is only handed out when no
+            // ready one is left.
+            Map<Integer, Deployment> deploymentsByInstance = new HashMap<>();
+            for (Deployment d : K8sUtil.getExistingDeployments(client.kubernetes(), client.namespace(),
+                    appDefOwnerName, appDefOwnerUID)) {
+                Integer id = TheiaCloudDeploymentUtil.getId(correlationId, appDef, d);
+                if (id != null) {
+                    deploymentsByInstance.putIfAbsent(id, d);
+                }
+            }
             List<Integer> availableIds = externalByInstance.entrySet().stream()
                     .filter(e -> TheiaCloudServiceUtil.isUnusedService(e.getValue())).filter(e -> {
                         Service internal = internalByInstance.get(e.getKey());
                         return internal != null && TheiaCloudServiceUtil.isUnusedService(internal);
-                    }).map(Map.Entry::getKey).sorted(Comparator.naturalOrder()).collect(Collectors.toList());
+                    }).map(Map.Entry::getKey)
+                    .sorted(Comparator.<Integer, Boolean> comparing(id -> !isReady(deploymentsByInstance.get(id)))
+                            .thenComparing(id -> creationTimestamp(deploymentsByInstance.get(id)))
+                            .thenComparing(Comparator.naturalOrder()))
+                    .collect(Collectors.toList());
 
             if (availableIds.isEmpty()) {
                 LOGGER.info(formatLogMessage(correlationId, "No prewarmed instances available"));
@@ -1069,11 +1320,15 @@ public class PrewarmedResourcePool {
             }
 
             String deploymentName = TheiaCloudDeploymentUtil.getDeploymentName(appDef, chosenInstance);
+            boolean ready = isReady(deploymentsByInstance.get(chosenInstance));
+            PoolMetrics.recordClaim(appDefOwnerName,
+                    ready ? PoolMetrics.CLAIM_WARM_READY : PoolMetrics.CLAIM_WARM_STARTING);
             span.setTag("pool.outcome", "success");
-                span.setData("instance_id", chosenInstance);;
+            span.setTag("pool.instance_ready", String.valueOf(ready));
+            span.setData("instance_id", chosenInstance);
             Tracing.finishSuccess(span);
             return ReservationResult
-                    .success(new PoolInstance(chosenInstance, chosenExternal, chosenInternal, deploymentName));
+                    .success(new PoolInstance(chosenInstance, chosenExternal, chosenInternal, deploymentName, ready));
 
         } catch (Exception e) {
             Tracing.finishError(span, e);

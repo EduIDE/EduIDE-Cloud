@@ -51,6 +51,9 @@ public class RootResource extends BaseResource {
     @Inject
     private MetricRegistry metricRegistry;
 
+    @Inject
+    SessionStartupHistogram startupHistogram;
+
     @Operation(summary = "Ping", description = "Replies if the service is available.")
     @GET
     @Path("/{appId}")
@@ -81,6 +84,8 @@ public class RootResource extends BaseResource {
 
         // Start timing
         Timer.Context timerContext = timer.time();
+        long startedNanos = System.nanoTime();
+        boolean failed = false;
 
         try {
             if (!k8sUtil.hasAppDefinition(request.appDefinition)) {
@@ -135,12 +140,15 @@ public class RootResource extends BaseResource {
                 throw exception;
             }
         } catch (Exception exception) {
+            failed = true;
             error(correlationId, "Failed to launch session " + request, exception);
             Sentry.captureException(exception);
             throw exception;
         } finally {
             // Stop timing and record the measurement
             timerContext.stop();
+            startupHistogram.observe(sanitizedAppDef, sanitizedNamespace, !failed,
+                    (System.nanoTime() - startedNanos) / 1e9);
         }
     }
 

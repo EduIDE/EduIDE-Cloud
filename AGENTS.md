@@ -166,11 +166,13 @@ Both paths must therefore reconcile. They used to differ - ADDED called
 production served a pull request's image from its warm pool for weeks because
 ten instances existed and none were missing.
 
-**Pool membership is a name count, not a state check.**
+**Pool membership is a name count, not a state check** - for pools without `targetIdle`.
 `TheiaCloudHandlerUtil.computeIdsOfMissing*` decides an instance is present if a
 resource whose name yields id *N* exists. Image, generation and readiness are
-not consulted, and `reserveInstance` hands out the lowest free instance without
-looking either. Anything that should replace an instance has to say so through
+not consulted. Pools with `targetIdle` go through `PrewarmedResourcePool.reconcileIdle`
+instead, which checks completeness, generation and claims, and which `PoolMaintenance`
+runs every 30 seconds on the leader. `reserveInstance` prefers ready instances, the
+oldest first, in every pool. Anything that should replace an instance has to say so through
 `isOutdated`; nothing else will notice.
 
 **The pool's email ConfigMaps carry live session state.** `instance-N-email-…`

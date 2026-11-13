@@ -9,6 +9,7 @@ export const ACTIVITY_TRACKER_PATH = '/activity';
 export const LAST_ACTIVITY_PATH = '/lastActivity';
 export const POST_POPUP = '/popup';
 export const COMMAND_ACTIVITY_REPORT_TITLE = 'theia.cloud.monitor.activity.report';
+export const COMMAND_TIMEOUT_WARNING = 'eduide.session.timeoutWarning';
 
 /**
  * This module tracks the last activity of the user.
@@ -89,9 +90,13 @@ export class ActivityTrackerModule implements MonitorModule {
   protected createPopup(): void {
     if (!this.messageAlreadyDisplayed) {
       const options: vscode.MessageOptions = {
-        detail: 'Pod will be shutdown after some inactivity',
+        detail: 'This session ends soon because nobody used it for a while. Click Yes to keep working.',
         modal: true
       };
+
+      // Lets the EduIDE frontend flag the browser tab, so a student in another tab notices the dialog.
+      // Rejects when no frontend registered the command, which is fine.
+      vscode.commands.executeCommand(COMMAND_TIMEOUT_WARNING).then(undefined, () => undefined);
 
       const yesOption: vscode.MessageItem = { title: 'Yes', isCloseAffordance: true };
 

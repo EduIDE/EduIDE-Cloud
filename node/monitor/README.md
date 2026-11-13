@@ -28,6 +28,9 @@ Events that extensions fire on their own do not count, because they kept idle se
 Examples are output channel appends (the Artemis extension logs every 5 seconds), diagnostics, configuration writes and documents opened in the background.
 Other extensions can still report activity explicitly with the `theia.cloud.monitor.activity.report` command.
 
+When the operator asks for the "Are you still here?" dialog, the monitor also executes `eduide.session.timeoutWarning`.
+The EduIDE frontend registers that command and blinks the tab title, and it reports any keyboard, mouse or scroll input in the tab through `theia.cloud.monitor.activity.report`.
+
 Run `npm test` to check these rules.
 
 ## Debugging the extension

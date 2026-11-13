@@ -41,6 +41,7 @@ import org.eclipse.theia.cloud.common.k8s.resource.OperatorStatus;
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinition;
 import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
 import org.eclipse.theia.cloud.common.k8s.resource.workspace.Workspace;
+import org.eclipse.theia.cloud.operator.metrics.SessionEndMetrics;
 import org.eclipse.theia.cloud.operator.TheiaCloudOperatorArguments;
 import org.eclipse.theia.cloud.operator.messaging.MonitorMessagingService;
 
@@ -363,6 +364,8 @@ public class MonitorActivityTracker implements OperatorPlugin {
             resourceClient.workspaces().recordSessionEnd(correlationId, session.getSpec().getWorkspace(),
                     Workspace.SESSION_END_REASON_INACTIVITY);
             resourceClient.sessions().delete(COR_ID_NOACTIVITYPREFIX + correlationId, sessionName);
+            SessionEndMetrics.recordSessionEnd(Workspace.SESSION_END_REASON_INACTIVITY,
+                    session.getSpec().getAppDefinition());
             deleteSpan.setStatus(SpanStatus.OK);
             Sentry.captureMessage(
                     "Session stopped due to inactivity: " + sessionName + " (timeout: " + shutdownAfter + " minutes)");

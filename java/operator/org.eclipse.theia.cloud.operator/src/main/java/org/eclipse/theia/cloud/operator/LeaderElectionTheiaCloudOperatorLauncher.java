@@ -17,12 +17,14 @@ package org.eclipse.theia.cloud.operator;
 
 import static org.eclipse.theia.cloud.common.util.LogMessageUtil.formatLogMessage;
 
+import java.io.IOException;
 import java.time.Duration;
 import java.util.UUID;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.theia.cloud.operator.di.AbstractTheiaCloudOperatorModule;
+import org.eclipse.theia.cloud.operator.metrics.SessionEndMetrics;
 
 import com.google.inject.Guice;
 import com.google.inject.Injector;
@@ -50,6 +52,15 @@ public abstract class LeaderElectionTheiaCloudOperatorLauncher extends TheiaClou
     @Override
     public void runMain(String[] args) throws InterruptedException {
         this.args = createArguments(args);
+
+        // Every replica serves metrics, not just the leader, so a standby does not show as a down target.
+        if (this.args.getMetricsPort() > 0) {
+            try {
+                SessionEndMetrics.serve(this.args.getMetricsPort());
+            } catch (IOException e) {
+                LOGGER.error(formatLogMessage(COR_ID_INIT, "Could not serve metrics, continuing without them"), e);
+            }
+        }
 
         LOGGER.info(formatLogMessage(COR_ID_INIT, "Launching Theia Cloud Leader Election now"));
 

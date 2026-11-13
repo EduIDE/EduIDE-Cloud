@@ -44,10 +44,12 @@ public class UserWorkspace {
     @Schema(description = "Whether the workspace is in use at the moment.", required = true)
     public boolean active;
 
-    @Schema(description = "Why the last session on this workspace ended: 'inactivity' or 'lifetime'.", required = false)
+    @Schema(description = "Why the operator last stopped a session on this workspace: 'inactivity' or 'lifetime'. "
+            + "Sessions stopped any other way leave it unchanged, so compare lastSessionEndTime with the start of "
+            + "the session in question.", required = false)
     public String lastSessionEndReason;
 
-    @Schema(description = "When the last session on this workspace ended, as an ISO-8601 instant.", required = false)
+    @Schema(description = "When the operator last stopped a session on this workspace, as an ISO-8601 instant.", required = false)
     public String lastSessionEndTime;
 
     public UserWorkspace() {

@@ -607,11 +607,11 @@
           },
           "lastSessionEndReason": {
             "type": "string",
-            "description": "Why the last session on this workspace ended: 'inactivity' or 'lifetime'."
+            "description": "Why the operator last stopped a session on this workspace: 'inactivity' or 'lifetime'. Sessions stopped any other way leave it unchanged, so compare lastSessionEndTime with the start of the session in question."
           },
           "lastSessionEndTime": {
             "type": "string",
-            "description": "When the last session on this workspace ended, as an ISO-8601 instant."
+            "description": "When the operator last stopped a session on this workspace, as an ISO-8601 instant."
           }
         }
       },

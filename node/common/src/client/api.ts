@@ -891,13 +891,13 @@ export interface UserWorkspace {
      */
     'active': boolean;
     /**
-     * Why the last session on this workspace ended: \'inactivity\' or \'lifetime\'.
+     * Why the operator last stopped a session on this workspace: \'inactivity\' or \'lifetime\'. Sessions stopped any other way leave it unchanged, so compare lastSessionEndTime with the start of the session in question.
      * @type {string}
      * @memberof UserWorkspace
      */
     'lastSessionEndReason'?: string;
     /**
-     * When the last session on this workspace ended, as an ISO-8601 instant.
+     * When the operator last stopped a session on this workspace, as an ISO-8601 instant.
      * @type {string}
      * @memberof UserWorkspace
      */

@@ -202,15 +202,16 @@ it in the run page. If the `release` job fails, its message says what to fix;
 fix it in a new pull request. Until the last job (`publish-release`) succeeds,
 the GitHub Release is a draft and the tag does not exist. If a later job
 fails, fix the cause and use "Re-run failed jobs": the draft is reused and
-jobs that succeeded do not run again. A new dispatch of the same version
+jobs that succeeded do not run again. A rerun builds the original commit, so
+when the fix is a code change, merge it and dispatch again. A new dispatch of the same version
 replaces the leftover draft, but fails where a version cannot be pushed twice
 (a chart, Open VSX), so prefer the rerun. Once the release is published, never
 delete its tag or release; ship the next patch version instead.
 
-Image builds: if the multi-arch merge of an image fails, "Re-run failed jobs"
-cannot find the per-architecture digests of the earlier attempt (the shared
-builder names them per attempt). Use "Re-run all jobs" instead; the release is
-still a draft, so the rerun replaces it and pushes the images again.
+Image builds: if an image build or its multi-arch merge fails, "Re-run failed
+jobs" cannot reuse the per-architecture digests of the earlier attempt (the
+shared builder names them per attempt). Use "Re-run all jobs" instead; the
+release is still a draft, so the rerun replaces it and pushes the images again.
 
 ## 7. Verify what was published
 

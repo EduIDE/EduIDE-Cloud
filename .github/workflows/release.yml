@@ -74,7 +74,8 @@ jobs:
     needs: [release, images, attach-monitor]
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      # The release is still a draft; reading a draft needs push access.
+      contents: write
       packages: read
     env:
       VERSION: ${{ inputs.version }}

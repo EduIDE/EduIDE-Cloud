@@ -40,6 +40,7 @@ import org.eclipse.theia.cloud.common.k8s.client.TheiaCloudClient;
 import org.eclipse.theia.cloud.common.k8s.resource.OperatorStatus;
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinition;
 import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
+import org.eclipse.theia.cloud.common.k8s.resource.workspace.Workspace;
 import org.eclipse.theia.cloud.operator.TheiaCloudOperatorArguments;
 import org.eclipse.theia.cloud.operator.messaging.MonitorMessagingService;
 
@@ -93,6 +94,13 @@ public class MonitorActivityTracker implements OperatorPlugin {
     /** Consecutive failed activity polls per session name. Entries are dropped once a poll succeeds. */
     private final Map<String, Integer> consecutivePollFailures = new ConcurrentHashMap<>();
 
+    /**
+     * Sessions whose monitor answered at least once since the operator started. The monitor lives in the IDE's plugin
+     * host, which ends when the user closes the last tab, so for these an unanswered poll means "tab closed", not
+     * "monitor broken".
+     */
+    private final Set<String> answeredSessions = ConcurrentHashMap.newKeySet();
+
     @Override
     public void start() {
         if (arguments.isEnableMonitor() && arguments.isEnableActivityTracker()) {
@@ -114,6 +122,7 @@ public class MonitorActivityTracker implements OperatorPlugin {
             Set<String> liveSessionNames = sessions.stream().map(session -> session.getSpec().getName())
                     .collect(Collectors.toSet());
             consecutivePollFailures.keySet().retainAll(liveSessionNames);
+            answeredSessions.retainAll(liveSessionNames);
 
             LOGGER.debug("Pinging sessions: " + sessions);
 
@@ -183,6 +192,7 @@ public class MonitorActivityTracker implements OperatorPlugin {
                 Optional<Long> lastReportedMilliseconds = fetchLastActivity(session, getActivityURL);
                 if (lastReportedMilliseconds.isEmpty()) {
                     recordPollFailure(sessionSpan, sessionName, "GET " + getActivityURL + " returned no timestamp");
+                    stopIfGoneSinceTimeout(sessionSpan, correlationId, session, shutdownAfter);
                     return false;
                 }
 
@@ -190,6 +200,7 @@ public class MonitorActivityTracker implements OperatorPlugin {
                 recordPollSuccess(sessionName);
             } catch (IOException | RuntimeException e) {
                 recordPollFailure(sessionSpan, sessionName, "GET " + getActivityURL + " failed: " + e);
+                stopIfGoneSinceTimeout(sessionSpan, correlationId, session, shutdownAfter);
                 return false;
             }
 
@@ -277,7 +288,29 @@ public class MonitorActivityTracker implements OperatorPlugin {
         }
     }
 
+    /**
+     * Times out a session whose monitor stopped answering, but only if it answered before and the last activity it
+     * reported is already older than the timeout. A monitor that never answered keeps the #140 protection: its
+     * lastActivity is only the start time, so it says nothing about the user.
+     */
+    protected void stopIfGoneSinceTimeout(ISpan sessionSpan, String correlationId, Session session,
+            int shutdownAfter) {
+        String sessionName = session.getSpec().getName();
+        if (!answeredSessions.contains(sessionName)) {
+            return;
+        }
+        long minutesPassed = getMinutesPassed(new Date(session.getNonNullStatus().getLastActivity()),
+                new Date(OffsetDateTime.now(ZoneOffset.UTC).toInstant().toEpochMilli()));
+        if (minutesPassed >= shutdownAfter) {
+            logInfo(sessionName, "Monitor stopped answering (IDE tab closed?) and the last reported activity was "
+                    + minutesPassed + " minutes ago.");
+            sessionSpan.setData("action", "timeout_shutdown_unreachable");
+            stopNonActiveSession(sessionSpan, correlationId, session, shutdownAfter);
+        }
+    }
+
     protected void recordPollSuccess(String sessionName) {
+        answeredSessions.add(sessionName);
         Integer previousFailures = consecutivePollFailures.remove(sessionName);
         if (previousFailures != null && previousFailures >= POLL_FAILURE_ALERT_THRESHOLD) {
             logWarn(sessionName, "Activity monitor is answering again after " + previousFailures + " failed polls.");
@@ -290,7 +323,7 @@ public class MonitorActivityTracker implements OperatorPlugin {
         sessionSpan.setStatus(SpanStatus.UNAVAILABLE);
 
         String message = "Could not read activity (" + failures
-                + " consecutive failures). Session will NOT be timed out on this data. " + detail;
+                + " consecutive failures). This poll is no evidence of inactivity. " + detail;
         if (failures == POLL_FAILURE_ALERT_THRESHOLD) {
             // Say it once, loudly. Repeating every interval would drown the log for a session nobody can fix quickly.
             logError(sessionName, message);
@@ -327,6 +360,8 @@ public class MonitorActivityTracker implements OperatorPlugin {
             this.messagingService.sendTimeoutMessage(session,
                     "Timeout of " + shutdownAfter + " minutes of inactivity was reached!");
             logInfo(sessionName, "Deleting session as timeout of " + shutdownAfter + " minutes was reached!");
+            resourceClient.workspaces().recordSessionEnd(correlationId, session.getSpec().getWorkspace(),
+                    Workspace.SESSION_END_REASON_INACTIVITY);
             resourceClient.sessions().delete(COR_ID_NOACTIVITYPREFIX + correlationId, sessionName);
             deleteSpan.setStatus(SpanStatus.OK);
             Sentry.captureMessage(

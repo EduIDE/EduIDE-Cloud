@@ -422,16 +422,18 @@ public class BasicTheiaCloudOperator implements TheiaCloudOperator {
         String correlationId = generateCorrelationId();
 
         try {
-            Set<String> timedOutSessions = new LinkedHashSet<>();
+            Set<Session> timedOutSessions = new LinkedHashSet<>();
             Instant now = Instant.now();
             for (Session session : resourceClient.sessions().list()) {
                 if (isSessionTimedOut(correlationId, now, session)) {
-                    timedOutSessions.add(session.getSpec().getName());
+                    timedOutSessions.add(session);
                 }
             }
 
-            for (String sessionName : timedOutSessions) {
-                resourceClient.sessions().delete(COR_ID_TIMEOUTPREFIX + correlationId, sessionName);
+            for (Session session : timedOutSessions) {
+                resourceClient.workspaces().recordSessionEnd(correlationId, session.getSpec().getWorkspace(),
+                        Workspace.SESSION_END_REASON_LIFETIME);
+                resourceClient.sessions().delete(COR_ID_TIMEOUTPREFIX + correlationId, session.getSpec().getName());
             }
         } catch (Exception e) {
             LOGGER.error(formatLogMessage(COR_ID_TIMEOUTPREFIX, correlationId, "Exception in kill after runnable"), e);

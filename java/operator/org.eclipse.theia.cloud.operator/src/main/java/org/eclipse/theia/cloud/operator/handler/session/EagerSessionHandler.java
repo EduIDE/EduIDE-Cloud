@@ -33,6 +33,7 @@ import org.eclipse.theia.cloud.operator.databridge.AsyncDataInjector;
 import org.eclipse.theia.cloud.operator.handler.AddedHandlerUtil;
 import org.eclipse.theia.cloud.operator.ingress.IngressManager;
 import org.eclipse.theia.cloud.operator.sidecar.SidecarManager;
+import org.eclipse.theia.cloud.operator.pool.PoolMaintenance;
 import org.eclipse.theia.cloud.operator.pool.PrewarmedResourcePool;
 import org.eclipse.theia.cloud.common.tracing.Tracing;
 import org.eclipse.theia.cloud.operator.util.SessionEnvCollector;
@@ -84,6 +85,9 @@ public class EagerSessionHandler implements SessionHandler {
 
     @Inject
     private AsyncDataInjector asyncDataInjector;
+
+    @Inject
+    private PoolMaintenance poolMaintenance;
 
     @Override
     public boolean sessionAdded(Session session, String correlationId, ISpan span) {
@@ -210,6 +214,9 @@ public class EagerSessionHandler implements SessionHandler {
             PoolInstance instance = reservation.getInstance().get();
             reserveSpan.setData("instance_id", instance.getInstanceId());
             Tracing.finishSuccess(reserveSpan);
+            if (appDef.getSpec().getTargetIdle() != null) {
+                poolMaintenance.requestReconcile(appDef.getMetadata().getName());
+            }
 
             // Annotate session with start strategy and instance ID
             ISpan annotateSpan = Tracing.childSpan(span, "eager.annotate_session", "Annotate session");
@@ -324,6 +331,9 @@ public class EagerSessionHandler implements SessionHandler {
             reconcileSpan.setData("instance_id", instanceId);
             pool.reconcileInstance(appDef, instanceId, correlationId);
             Tracing.finishSuccess(reconcileSpan);
+            if (appDef.getSpec().getTargetIdle() != null) {
+                poolMaintenance.requestReconcile(appDef.getMetadata().getName());
+            }
 
             span.setTag("outcome", success ? "success" : "failure");
             Tracing.finish(span, success ? SpanStatus.OK : SpanStatus.INTERNAL_ERROR);

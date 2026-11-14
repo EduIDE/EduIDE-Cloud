@@ -46,6 +46,8 @@ public class TheiaCloudError {
             "No more sessions allowed for this user, you reached your limit.");
     public static final TheiaCloudError SESSION_USER_NO_SESSIONS = new TheiaCloudError(554,
             "No sessions allowed for this user.");
+    public static final TheiaCloudError CLUSTER_CAPACITY_EXHAUSTED = new TheiaCloudError(555,
+            "No resources available right now. Please try again in a few minutes.");
 
     // server errors: 58x optional features
     public static final TheiaCloudError CONFIG_STORE_NOT_AVAILABLE = new TheiaCloudError(580,

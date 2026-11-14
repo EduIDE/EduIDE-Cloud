@@ -48,6 +48,7 @@ A App Definition describing a specific type of a session.\
 | ingressname    | string  | Name of the ingress where the rules for sessions will be added                |
 | minInstances   | integer | Instances that should be started eagerly without an existing user             |
 | maxInstances   | integer | Upper bound for number of sessions that will be launched.                     |
+| targetIdle     | integer | Free prewarmed instances kept ready; the pool refills after every claim and discards released instances. Unset keeps `minInstances` as the pool size. Written by the pool scaler |
 | timeout        | object  | Sessions will timeout after the according to the specified strategy and limit |
 | requestsMemory | string  | K8s memory requests                                                           |
 | requestsCpu    | string  | K8s CPU requests                                                              |
@@ -55,6 +56,19 @@ A App Definition describing a specific type of a session.\
 | limitsCpu      | string  | K8s CPU limits                                                                |
 | downlinkLimit  | integer | Downlink bandwidth limit (kilobits per second)                                |
 | uplinkLimit    | integer | Uplink bandwidth limit (kilobits per second)                                  |
+
+#### Warm pool with targetIdle
+
+With `targetIdle` set and `--eagerStart`, the operator keeps that many unclaimed instances, never fewer than `minInstances` instances in total and never more than `maxInstances`.
+A claim hands out a ready instance first, the longest waiting one, and only then a starting one.
+Releasing a session deletes its instance, including sidecars and PVC, so nobody gets an instance someone used before.
+The leader reconciles every targetIdle pool every 30 seconds and after each claim and release, which also replaces instances that are outdated, incomplete or deleted by hand.
+
+When a session's pod can not start because the namespace quota or the nodes are full, the free instances of all targetIdle pools are deleted and not refilled until no session waits any more.
+A session that still waits after 45 seconds with no free instance left gets error 555 `CLUSTER_CAPACITY_EXHAUSTED`, which the service returns to the landing page.
+
+The operator's `/metrics` endpoint (`--metricsPort`) exports `eduide_pool_instances{state}`, `eduide_pool_target_idle`, `eduide_session_claims_total{result}`, `eduide_session_rejected_total{reason}`, `eduide_pool_instances_evicted_total` and the histogram `eduide_pool_instance_ready_seconds`, all with the label `app_definition`.
+The service additionally exports the launch duration as the histogram `application_eduide_session_startup_seconds` with the labels `app_definition`, `namespace` and `outcome`.
 
 ### Workspace
 

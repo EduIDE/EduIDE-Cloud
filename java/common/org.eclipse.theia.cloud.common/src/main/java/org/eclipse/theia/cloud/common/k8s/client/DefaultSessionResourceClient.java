@@ -89,9 +89,9 @@ public class DefaultSessionResourceClient extends BaseResourceClient<Session, Se
                 completedSession.set(changedSession);
                 return true;
             }, timeout, unit);
-            // Never create the session again here: a concurrent launch may have deleted it after an error.
-            // Recreating it would hand back a fresh session without URL.
-            session = get(sessionName).orElse(completedSession.get());
+            // Use the state the watch saw, not a new lookup: a concurrent launch may have deleted the session
+            // after an error and created a fresh one without URL.
+            session = completedSession.get();
         } catch (InterruptedException exception) {
             error(correlationId, "Timeout while waiting for URL for " + session.getSpec().getName(), exception);
             session = updateStatus(correlationId, session,

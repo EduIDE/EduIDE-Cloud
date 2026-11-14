@@ -46,15 +46,15 @@ class DefaultSessionResourceClientTests {
 
     @Test
     @SuppressWarnings("unchecked")
-    void launch_sessionDeletedAfterConcurrentTimeout_returnsErrorAndDoesNotRecreate() throws Exception {
+    void launch_sessionReplacedAfterConcurrentTimeout_returnsObservedErrorAndDoesNotRecreate() throws Exception {
         SessionSpec spec = new SessionSpec(NAME, "app", "user");
         Session pending = session(spec, new SessionStatus());
         Session timedOut = session(spec, new SessionStatus());
         timedOut.getStatus().setError(TheiaCloudError.SESSION_LAUNCH_TIMEOUT);
 
         DefaultSessionResourceClient client = spy(new DefaultSessionResourceClient(mock(NamespacedKubernetesClient.class)));
-        // First lookup finds the pending session, the lookup after the watch finds it deleted
-        doReturn(Optional.of(pending), Optional.empty()).when(client).get(NAME);
+        // First lookup finds the pending session, a later one would find a fresh replacement without URL
+        doReturn(Optional.of(pending), Optional.of(session(spec, new SessionStatus()))).when(client).get(NAME);
         doReturn(List.of()).when(client).delete(anyString(), anyString());
         // Another request times out and sets the error, which this watch sees
         doAnswer(invocation -> {

@@ -19,18 +19,18 @@
         <quarkus.platform.artifact-id>quarkus-bom</quarkus.platform.artifact-id>
         <quarkus.platform.group-id>io.quarkus.platform</quarkus.platform.group-id>
         <guice.version>7.0.0</guice.version>
-        <log4j.version>2.25.1</log4j.version>
-        <maven-assembly-plugin.version>3.7.1</maven-assembly-plugin.version>
-        <maven-compiler-plugin.version>3.14.0</maven-compiler-plugin.version>
-        <surefire-plugin.version>3.5.3</surefire-plugin.version>
+        <log4j.version>2.25.5</log4j.version>
+        <maven-assembly-plugin.version>3.8.0</maven-assembly-plugin.version>
+        <maven-compiler-plugin.version>3.16.0</maven-compiler-plugin.version>
+        <surefire-plugin.version>3.6.1</surefire-plugin.version>
         <google.artifactregistry-maven-wagon-version>2.2.5</google.artifactregistry-maven-wagon-version>
-        <junit-jupiter.version>5.13.4</junit-jupiter.version>
-        <mockito.version>5.18.0</mockito.version>
+        <junit-jupiter.version>5.14.4</junit-jupiter.version>
+        <mockito.version>5.24.0</mockito.version>
         <org.json.version>20250517</org.json.version>
         <picocli.version>4.7.7</picocli.version>
-        <webhooks.framework.core.version>3.0.1</webhooks.framework.core.version>
-        <slf4j.version>2.0.17</slf4j.version>
-        <kubernetes-client.version>7.3.1</kubernetes-client.version>
+        <webhooks.framework.core.version>3.0.5</webhooks.framework.core.version>
+        <slf4j.version>2.0.20</slf4j.version>
+        <kubernetes-client.version>7.9.0</kubernetes-client.version>
         <quarkus.platform.version>3.25.1</quarkus.platform.version>
     </properties>
 
@@ -56,7 +56,7 @@
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>flatten-maven-plugin</artifactId>
-                <version>1.6.0</version>
+                <version>1.9.0</version>
                 <configuration>
                     <updatePomFile>true</updatePomFile>
                     <flattenMode>resolveCiFriendliesOnly</flattenMode>

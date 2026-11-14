@@ -172,6 +172,10 @@ public class TheiaCloudOperatorArguments {
             "--sessionNodeSelector" }, description = "Comma-separated key=value node labels that every session pod (lazy and prewarmed) is pinned to via nodeSelector, e.g. aet.cit.tum.de/pool=pve. Empty (the default) leaves the pod spec unchanged.", required = false)
     private String sessionNodeSelector;
 
+    @Option(names = {
+            "--metricsPort" }, description = "Port that serves Prometheus metrics at /metrics on every operator replica. 0 (the default) serves none.", required = false)
+    private int metricsPort;
+
     public boolean isUseKeycloak() {
         return useKeycloak;
     }
@@ -200,6 +204,10 @@ public class TheiaCloudOperatorArguments {
     /**
      * @return the node labels session pods are pinned to. Empty means no nodeSelector is added.
      */
+    public int getMetricsPort() {
+        return metricsPort;
+    }
+
     public Map<String, String> getSessionNodeSelector() {
         return parseNodeSelector(sessionNodeSelector);
     }
@@ -475,6 +483,7 @@ public class TheiaCloudOperatorArguments {
         result = prime * result + (enableDependencyCaching ? 1231 : 1237);
         result = prime * result + ((dependencyCacheUrl == null) ? 0 : dependencyCacheUrl.hashCode());
         result = prime * result + ((sessionNodeSelector == null) ? 0 : sessionNodeSelector.hashCode());
+        result = prime * result + metricsPort;
         return result;
     }
 
@@ -612,6 +621,8 @@ public class TheiaCloudOperatorArguments {
                 return false;
         } else if (!sessionNodeSelector.equals(other.sessionNodeSelector))
             return false;
+        if (metricsPort != other.metricsPort)
+            return false;
         return true;
     }
 
@@ -632,7 +643,7 @@ public class TheiaCloudOperatorArguments {
                 + ", buildCacheUrl=" + buildCacheUrl + ", bazelBuildCacheUrl=" + bazelBuildCacheUrl
                 + ", enableBuildCachePush=" + enableBuildCachePush
                 + ", enableDependencyCaching=" + enableDependencyCaching + ", dependencyCacheUrl="
-                + dependencyCacheUrl + ", sessionNodeSelector=" + sessionNodeSelector + "]";
+                + dependencyCacheUrl + ", sessionNodeSelector=" + sessionNodeSelector + ", metricsPort=" + metricsPort + "]";
     }
 
 }

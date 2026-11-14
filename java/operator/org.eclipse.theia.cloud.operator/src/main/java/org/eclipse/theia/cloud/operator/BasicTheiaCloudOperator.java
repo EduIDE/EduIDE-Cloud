@@ -40,6 +40,7 @@ import org.eclipse.theia.cloud.common.k8s.client.TheiaCloudClient;
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinition;
 import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
 import org.eclipse.theia.cloud.common.k8s.resource.workspace.Workspace;
+import org.eclipse.theia.cloud.operator.metrics.SessionEndMetrics;
 import org.eclipse.theia.cloud.common.tracing.TraceContext;
 import org.eclipse.theia.cloud.common.tracing.Tracing;
 import org.eclipse.theia.cloud.operator.handler.appdef.AppDefinitionHandler;
@@ -422,16 +423,20 @@ public class BasicTheiaCloudOperator implements TheiaCloudOperator {
         String correlationId = generateCorrelationId();
 
         try {
-            Set<String> timedOutSessions = new LinkedHashSet<>();
+            Set<Session> timedOutSessions = new LinkedHashSet<>();
             Instant now = Instant.now();
             for (Session session : resourceClient.sessions().list()) {
                 if (isSessionTimedOut(correlationId, now, session)) {
-                    timedOutSessions.add(session.getSpec().getName());
+                    timedOutSessions.add(session);
                 }
             }
 
-            for (String sessionName : timedOutSessions) {
-                resourceClient.sessions().delete(COR_ID_TIMEOUTPREFIX + correlationId, sessionName);
+            for (Session session : timedOutSessions) {
+                resourceClient.workspaces().recordSessionEnd(correlationId, session.getSpec().getWorkspace(),
+                        Workspace.SESSION_END_REASON_LIFETIME);
+                resourceClient.sessions().delete(COR_ID_TIMEOUTPREFIX + correlationId, session.getSpec().getName());
+                SessionEndMetrics.recordSessionEnd(Workspace.SESSION_END_REASON_LIFETIME,
+                        session.getSpec().getAppDefinition());
             }
         } catch (Exception e) {
             LOGGER.error(formatLogMessage(COR_ID_TIMEOUTPREFIX, correlationId, "Exception in kill after runnable"), e);

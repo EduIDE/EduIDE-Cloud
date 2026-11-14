@@ -39,6 +39,12 @@ public class Workspace extends CustomResource<WorkspaceSpec, WorkspaceStatus> im
     public static final String CRD_NAME = "workspaces.theia.cloud";
     public static final String KIND = "Workspace";
 
+    // Why the last session on this workspace ended, so the landing page can tell the student.
+    public static final String ANNOTATION_LAST_SESSION_END_REASON = "theia-cloud.io/last-session-end-reason";
+    public static final String ANNOTATION_LAST_SESSION_END_TIME = "theia-cloud.io/last-session-end-time";
+    public static final String SESSION_END_REASON_INACTIVITY = "inactivity";
+    public static final String SESSION_END_REASON_LIFETIME = "lifetime";
+
     private static final long serialVersionUID = 6437279756051357397L;
 
     public Workspace() {

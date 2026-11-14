@@ -890,6 +890,18 @@ export interface UserWorkspace {
      * @memberof UserWorkspace
      */
     'active': boolean;
+    /**
+     * Why the operator last stopped a session on this workspace: \'inactivity\' or \'lifetime\'. Sessions stopped any other way leave it unchanged, so compare lastSessionEndTime with the start of the session in question.
+     * @type {string}
+     * @memberof UserWorkspace
+     */
+    'lastSessionEndReason'?: string;
+    /**
+     * When the operator last stopped a session on this workspace, as an ISO-8601 instant.
+     * @type {string}
+     * @memberof UserWorkspace
+     */
+    'lastSessionEndTime'?: string;
 }
 /**
  * Request to create a new workspace.

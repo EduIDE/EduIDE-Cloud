@@ -228,7 +228,7 @@ public final class K8sUtil {
         List<Workspace> workspaces = CLIENT.workspaces().list(user);
 
         List<UserWorkspace> userWorkspaces = workspaces.stream()
-                .map(workspace -> new UserWorkspace(workspace.getSpec())).collect(Collectors.toList());
+                .map(UserWorkspace::new).collect(Collectors.toList());
 
         for (UserWorkspace userWorkspace : userWorkspaces) {
             String sessionName = getSessionName(userWorkspace.name);

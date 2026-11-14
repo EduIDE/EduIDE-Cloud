@@ -57,7 +57,7 @@ There is **no `npm run test`**. The Playwright suite is
 
 ## No CI runs the tests
 
-`.github/workflows/` builds and packages, and never tests: `build.yml` (three
+`.github/workflows/` builds and packages, and tests only the monitor (`npm test` in `monitor-vsix.yml`): `build.yml` (three
 images, via the shared org workflow), `monitor-vsix.yml` (the monitor extension),
 `tag-format.yml`, `dependency-review.yml`, `docs-check.yml`, `auto-assign.yml`.
 **Nothing runs `mvn test`, `npm run lint` or anything under `theia/`.**
@@ -95,6 +95,18 @@ It is `tum-aet`, matching data-bridge, so the extension id is
 in EduIDE-Helm must not equal the app port: the operator drops the dedicated
 Service port when they match, and the poll then goes to the Service's `http`
 port, which targets oauth2-proxy and can never return 200.
+
+**A closed IDE tab looks like a dead monitor.** The monitor lives in Theia's
+plugin host, which ends when the last tab disconnects. `MonitorActivityTracker`
+therefore times out a session whose poll fails only if that session's monitor
+answered before (since operator start) and the last reported activity is older
+than `timeoutAfter`. A monitor that never answered never times a session out
+(#140): its `lastActivity` is only the start time.
+
+Only user-caused events may report activity (see `node/monitor/README.md`). An
+event an extension fires on its own, such as an output channel append, keeps
+every idle session alive until the lifetime limit. `npm test` in `node/monitor`
+runs the only node test, and `monitor-vsix.yml` runs it.
 
 `node/monitor` is deliberately NOT in `node/package.json`'s workspaces. It
 installs and packages on its own.

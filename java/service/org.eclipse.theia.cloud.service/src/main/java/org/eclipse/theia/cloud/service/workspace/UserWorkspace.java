@@ -19,9 +19,11 @@ import static org.eclipse.theia.cloud.common.util.NamingUtil.asValidName;
 import static org.eclipse.theia.cloud.common.util.WorkspaceUtil.generateUniqueWorkspaceName;
 import static org.eclipse.theia.cloud.common.util.WorkspaceUtil.generateWorkspaceLabel;
 
+import java.util.Map;
 import java.util.Optional;
 
 import org.eclipse.microprofile.openapi.annotations.media.Schema;
+import org.eclipse.theia.cloud.common.k8s.resource.workspace.Workspace;
 import org.eclipse.theia.cloud.common.k8s.resource.workspace.WorkspaceSpec;
 
 @Schema(name = "UserWorkspace", description = "Description of a user workspace")
@@ -41,6 +43,14 @@ public class UserWorkspace {
 
     @Schema(description = "Whether the workspace is in use at the moment.", required = true)
     public boolean active;
+
+    @Schema(description = "Why the operator last stopped a session on this workspace: 'inactivity' or 'lifetime'. "
+            + "Sessions stopped any other way leave it unchanged, so compare lastSessionEndTime with the start of "
+            + "the session in question.", required = false)
+    public String lastSessionEndReason;
+
+    @Schema(description = "When the operator last stopped a session on this workspace, as an ISO-8601 instant.", required = false)
+    public String lastSessionEndTime;
 
     public UserWorkspace() {
     }
@@ -65,6 +75,16 @@ public class UserWorkspace {
         this(data.getAppDefinition(), data.getUser(), data.getName(), data.getLabel());
     }
 
+    public UserWorkspace(Workspace workspace) {
+        this(workspace.getSpec());
+        Map<String, String> annotations = workspace.getMetadata() == null ? null
+                : workspace.getMetadata().getAnnotations();
+        if (annotations != null) {
+            this.lastSessionEndReason = annotations.get(Workspace.ANNOTATION_LAST_SESSION_END_REASON);
+            this.lastSessionEndTime = annotations.get(Workspace.ANNOTATION_LAST_SESSION_END_TIME);
+        }
+    }
+
     @Schema(hidden = true)
     public void setActive(boolean active) {
         this.active = active;
@@ -78,7 +98,7 @@ public class UserWorkspace {
     @Override
     public String toString() {
         return "UserWorkspace [name=" + name + ", label=" + label + ", appDefinition=" + appDefinition + ", user="
-                + user + ", active=" + active + "]";
+                + user + ", active=" + active + ", lastSessionEndReason=" + lastSessionEndReason + "]";
     }
 
 }

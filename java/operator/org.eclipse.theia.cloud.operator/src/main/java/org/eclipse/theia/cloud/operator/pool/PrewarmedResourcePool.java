@@ -21,9 +21,11 @@ import org.eclipse.theia.cloud.common.k8s.client.TheiaCloudClient;
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinition;
 import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
 import org.eclipse.theia.cloud.common.k8s.resource.session.SessionSpec;
+import org.eclipse.theia.cloud.common.util.DataBridgeUtil;
 import org.eclipse.theia.cloud.common.util.LabelsUtil;
 import org.eclipse.theia.cloud.common.util.NamingUtil;
 import org.eclipse.theia.cloud.operator.TheiaCloudOperatorArguments;
+import org.eclipse.theia.cloud.operator.databridge.DataBridgeTokenManager;
 import org.eclipse.theia.cloud.operator.handler.AddedHandlerUtil;
 import org.eclipse.theia.cloud.operator.handler.session.EagerSessionHandler;
 import org.eclipse.theia.cloud.operator.sidecar.SidecarConfig;
@@ -79,6 +81,9 @@ public class PrewarmedResourcePool {
 
     @Inject
     private TheiaCloudOperatorArguments arguments;
+
+    @Inject
+    private DataBridgeTokenManager dataBridgeTokens;
 
     /**
      * Represents a reserved instance from the pool.
@@ -512,6 +517,12 @@ public class PrewarmedResourcePool {
                                 }
                             }).build());
             success &= deployResult.isSuccess();
+            for (Deployment d : existingDeployments) {
+                Integer id = TheiaCloudDeploymentUtil.getId(correlationId, appDef, d);
+                if (id != null && id > targetInstances && OwnershipManager.isOwnedSolelyBy(d, owner)) {
+                    deleteDataBridgeToken(appDef, id, correlationId);
+                }
+            }
 
             deploySpan.setData("created_count", deployResult.getCreated());
             deploySpan.setData("deleted_count", deployResult.getDeleted());
@@ -585,6 +596,7 @@ public class PrewarmedResourcePool {
                 deleteInstanceResources(instanceServices, instanceDeployments, instanceConfigMaps, correlationId);
                 sidecarManager.deletePrewarmedSidecars(appDef, instanceId, correlationId);
                 deleteInstancePvc(appDef, instanceId, correlationId);
+                deleteDataBridgeToken(appDef, instanceId, correlationId);
                 Tracing.finishSuccess(deleteSpan);
                 Tracing.finishSuccess(span);
                 return;
@@ -1254,7 +1266,7 @@ public class PrewarmedResourcePool {
 
             // Delete pod to reset state
             ISpan podSpan = span.startChild("pool.delete_pod", "Delete pod to reset state");
-            deletePod(deploymentName, correlationId);
+            resetPod(appDef, instanceId, deploymentName, correlationId);
             Tracing.finishSuccess(podSpan);
 
             span.setTag("outcome", success ? "success" : "failure"); Tracing.finish(span, success ? SpanStatus.OK : SpanStatus.INTERNAL_ERROR);
@@ -1423,6 +1435,22 @@ public class PrewarmedResourcePool {
                     });
         } catch (KubernetesClientException e) {
             LOGGER.warn(formatLogMessage(correlationId, "Failed to refresh pods"), e);
+        }
+    }
+
+    /**
+     * The previous user could read the data bridge token in their pod, so the next pod has to start with a new one.
+     */
+    void resetPod(AppDefinition appDef, int instanceId, String deploymentName, String correlationId) {
+        if (DataBridgeUtil.isDataBridgeEnabled(appDef.getSpec())) {
+            dataBridgeTokens.rotate(appDef, instanceId, correlationId);
+        }
+        deletePod(deploymentName, correlationId);
+    }
+
+    private void deleteDataBridgeToken(AppDefinition appDef, int instanceId, String correlationId) {
+        if (DataBridgeUtil.isDataBridgeEnabled(appDef.getSpec())) {
+            dataBridgeTokens.delete(appDef, instanceId, correlationId);
         }
     }
 

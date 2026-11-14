@@ -66,6 +66,9 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
+      - name: Test
+        run: npm test
+
       # vsce runs `vscode:prepublish` (webpack --mode production) itself, so the bundle
       # in the vsix is always built from this checkout.
       - name: Package VSIX

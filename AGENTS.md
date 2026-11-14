@@ -59,6 +59,7 @@ There is **no `npm run test`**. The Playwright suite is
 
 `.github/workflows/` builds and packages, and tests only the monitor (`npm test` in `monitor-vsix.yml`): `build.yml` (three
 images, via the shared org workflow), `monitor-vsix.yml` (the monitor extension),
+`release.yml` (the only way to release: `gh workflow run release.yml -f version=X.Y.Z`, see the `release` skill),
 `tag-format.yml`, `dependency-review.yml`, `docs-check.yml`, `auto-assign.yml`.
 **Nothing runs `mvn test`, `npm run lint` or anything under `theia/`.**
 `dockerfiles/service/Dockerfile` even builds with `-Dmaven.test.skip=true`.
@@ -81,8 +82,8 @@ polls - `GET /monitor/activity/lastActivity`, `POST /monitor/activity/popup` and
 `THEIACLOUD_SESSION_SECRET`. Without it in the session image, the operator's
 `MonitorActivityTracker` polls something that does not answer.
 
-`monitor-vsix.yml` packages it on every release and attaches
-`theia-cloud-monitor-<version>.vsix` to that release. The EduIDE image consumes
+`release.yml` calls `monitor-vsix.yml` and attaches
+`theia-cloud-monitor-<version>.vsix` to the release. The EduIDE image consumes
 it by URL from its own base-IDE plugin list, exactly as it consumes data-bridge.
 Nothing publishes it to a marketplace.
 

@@ -136,6 +136,10 @@ public final class K8sUtil {
     private String launchSession(String correlationId, SessionSpec sessionSpec, int timeout) {
         SessionStatus status = CLIENT.sessions().launch(correlationId, sessionSpec, timeout).getNonNullStatus();
         TheiaCloudWebException.throwIfErroneous(status);
+        if (!status.hasUrl()) {
+            // An empty 200 would redirect the browser to "https://". Let the client retry instead.
+            throw new TheiaCloudWebException(Status.SERVICE_UNAVAILABLE, "Session is still starting.");
+        }
         return status.getUrl();
     }
 

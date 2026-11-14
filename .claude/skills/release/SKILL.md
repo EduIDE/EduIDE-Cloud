@@ -41,7 +41,7 @@ Who pins this repository (tell the user after the release):
 
 ```bash
 gh release list -R EduIDE/EduIDE-Cloud --limit 10
-LAST=$(gh release list -R EduIDE/EduIDE-Cloud --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName')
+LAST=$(gh release list -R EduIDE/EduIDE-Cloud --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName')
 git fetch origin --tags
 git log --first-parent --format='%h %s' "$LAST"..origin/main
 ```
@@ -85,7 +85,7 @@ For each row of "EduIDE dependencies":
 
 1. Read the current pin from the file.
 2. Find the latest release of that repository:
-   `gh release list -R EduIDE/<repo> --exclude-pre-releases --limit 1`
+   `gh release list -R EduIDE/<repo> --exclude-drafts --exclude-pre-releases --limit 1`
    (for a prerelease of this repository, also look at its prereleases).
 3. Check whether it has unreleased changes on main:
    `gh api repos/EduIDE/<repo>/compare/<its last tag>...main --jq '.ahead_by, (.commits[].commit.message | split("\n")[0])'`
@@ -152,6 +152,9 @@ Rules:
   prefixes in EduIDE-Helm, `**Security:**` markers).
 - Add `### Upgrade notes` when an operator has to do something beyond
   installing the new version.
+- If an earlier `-rc.N` of this version got a section of its own, copy its
+  entries into the stable section: the stable notes cover everything since the
+  last stable release.
 - Use hyphens, never em or en dashes.
 
 ## 5. Open the release pull request
@@ -173,36 +176,49 @@ gh pr create -R EduIDE/EduIDE-Cloud --title "chore(release): X.Y.Z" --body-file 
 Give the user the PR link, watch CI and fix failures. Do not merge it yourself
 unless the user asks.
 
-**Release candidate:** a `-rc.N` needs no version bump, but release.yml still
-refuses a version without a `## [X.Y.Z-rc.N]` section in CHANGELOG.md. Put that
-section on the branch to test and dispatch from it (step 6 with
-`--ref <branch>`). A prerelease never becomes "latest".
+**Release candidate shortcut:** a `-rc.N` needs no release pull request.
+release.yml does not check version files for a prerelease and falls back to the
+Unreleased section for the notes. Dispatch it from the branch to test
+(step 6 with `--ref <branch>`). A prerelease never becomes "latest". Its
+entries stay under Unreleased, so the later stable section still lists every
+change since the last stable release.
 
 ## 6. Run release.yml after the merge
 
 ```bash
+START=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 gh workflow run release.yml -R EduIDE/EduIDE-Cloud --ref main -f version=X.Y.Z
-sleep 5
-RUN=$(gh run list -R EduIDE/EduIDE-Cloud --workflow release.yml --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId')
+# The run of this dispatch: yours, created after START. The release
+# concurrency group runs one release per repository at a time.
+ME=$(gh api user --jq .login)
+until RUN=$(gh run list -R EduIDE/EduIDE-Cloud --workflow release.yml --event workflow_dispatch \
+    --user "$ME" --created ">=$START" --limit 1 --json databaseId --jq '.[0].databaseId // empty') \
+    && [[ -n "$RUN" ]]; do sleep 3; done
 gh run watch "$RUN" -R EduIDE/EduIDE-Cloud --exit-status
 ```
 
 If a job waits for an environment approval (`prod`), tell the user to approve
-it in the run page. If `validate` fails, the message says what to fix; fix it
-in a new pull request, never by editing tags. If a later job fails, fix the
-cause and use "Re-run failed jobs": the tag stays, nothing is published twice.
-Never delete a tag or a release once something was published under it; ship
-the next patch version instead.
+it in the run page. If the `release` job fails, its message says what to fix;
+fix it in a new pull request. Until the last job (`publish-release`) succeeds,
+the GitHub Release is a draft and the tag does not exist. If a later job
+fails, fix the cause and use "Re-run failed jobs": the draft is reused and
+jobs that succeeded do not run again. A new dispatch of the same version
+replaces the leftover draft, but fails where a version cannot be pushed twice
+(a chart, Open VSX), so prefer the rerun. Once the release is published, never
+delete its tag or release; ship the next patch version instead.
+
+Image builds: if the multi-arch merge of an image fails, "Re-run failed jobs"
+cannot find the per-architecture digests of the earlier attempt (the shared
+builder names them per attempt). Use "Re-run all jobs" instead; the release is
+still a draft, so the rerun replaces it and pushes the images again.
 
 ## 7. Verify what was published
 
-Check every row of "What a release publishes", for example:
+Check every row of "What a release publishes" with the command in its Check
+column (the `verify` job already ran them), and that the release is public:
 
 ```bash
-gh release view vX.Y.Z -R EduIDE/EduIDE-Cloud --json url,isPrerelease,assets --jq '{url, isPrerelease, assets: [.assets[].name]}'
-crane manifest ghcr.io/eduide/<image>:X.Y.Z | jq -r '[.manifests[].platform.architecture] | join(",")'   # amd64 and arm64
-helm show chart oci://ghcr.io/eduide/charts/<chart> --version X.Y.Z
-curl -fsS https://open-vsx.org/api/<namespace>/<name>/X.Y.Z | jq -r .version
+gh release view vX.Y.Z -R EduIDE/EduIDE-Cloud --json url,isDraft,isPrerelease,assets --jq '{url, isDraft, isPrerelease, assets: [.assets[].name]}'
 ```
 
 Report to the user: the release link, the artifacts with their check result,

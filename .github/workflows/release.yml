@@ -63,12 +63,12 @@ jobs:
           path: .
 
       # Named with the version, so the URL in EduIDE's package.json.patch pins one build.
-      # No --clobber: a rerun fails rather than replacing a published asset.
+      # The release is still a draft here, so --clobber only makes a rerun work.
       - name: Attach to release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.release.outputs.tag }}
-        run: gh release upload "$TAG" theia-cloud-monitor-*.vsix --repo "$GITHUB_REPOSITORY"
+        run: gh release upload "$TAG" theia-cloud-monitor-*.vsix --repo "$GITHUB_REPOSITORY" --clobber
 
   verify:
     needs: [release, images, attach-monitor]
@@ -101,3 +101,13 @@ jobs:
         run: |
           echo "## Released ${TAG}" >> "$GITHUB_STEP_SUMMARY"
           echo "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}" >> "$GITHUB_STEP_SUMMARY"
+
+  # Last: publishing the draft creates the tag. Until here a failed job leaves
+  # a draft and no tag.
+  publish-release:
+    needs: [release, verify]
+    permissions:
+      contents: write
+    uses: EduIDE/.github/.github/workflows/release-publish.yml@main
+    with:
+      tag: ${{ needs.release.outputs.tag }}

@@ -60,7 +60,7 @@ Releases are manual. Merge a release pull request that moves the `CHANGELOG.md` 
 gh workflow run release.yml -f version=X.Y.Z
 ```
 
-`release.yml` creates the `vX.Y.Z` tag and the GitHub Release, builds the three images as `X.Y.Z`, attaches `theia-cloud-monitor-X.Y.Z.vsix` and verifies them. Use `X.Y.Z-rc.N` for a prerelease. The `release` skill (`.claude/skills/release/SKILL.md`) walks through all of it.
+`release.yml` drafts the GitHub Release, builds the three images as `X.Y.Z`, attaches `theia-cloud-monitor-X.Y.Z.vsix`, verifies them and then publishes the release, which creates the `vX.Y.Z` tag. Use `X.Y.Z-rc.N` for a prerelease. The `release` skill (`.claude/skills/release/SKILL.md`) walks through all of it.
 
 ## Building
 

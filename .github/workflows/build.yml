@@ -12,10 +12,18 @@ on:
   schedule:
     - cron: '0 2 * * *'
 
-  release:
-    types:
-      - published
-      - prereleased
+  # Called by release.yml, which passes the release version as image_tag.
+  workflow_call:
+    inputs:
+      image_tag:
+        description: "Image tag, e.g. 2.3.0 (no leading v)"
+        required: false
+        default: ""
+        type: string
+      disable_layer_cache:
+        required: false
+        default: false
+        type: boolean
 
   workflow_dispatch:
     inputs:
@@ -54,16 +62,17 @@ jobs:
       docker-file: dockerfiles/${{ matrix.component }}/Dockerfile
       image-name: eduide/eduide-cloud/${{ matrix.component }}
       docker-context: .
-      # Deliberately NOT passed on a release. An override is used verbatim by
-      # the shared workflow, which would defeat its `${RELEASE_TAG#v}`
-      # normalisation and publish `v1.2.0` instead of `1.2.0` - a tag no chart
-      # can consume, since appVersion and the image tag must be one string.
-      image-tag: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || '' }}
+      # release.yml passes the version here, without a leading v. An override
+      # is used verbatim by the shared workflow, so a `v1.2.0` would be
+      # published as `v1.2.0` - a tag no chart can consume, since appVersion
+      # and the image tag must be one string. Without it, a run on main would
+      # derive `latest`.
+      image-tag: ${{ inputs.image_tag || '' }}
       # The Java build stamps the version into the jar manifest, so the version
       # inside the image should match the tag on the outside. The shared workflow
       # derives the tag (stripping any leading v) and passes it as APP_VERSION.
       stamp-app-version: true
-      no-cache: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.disable_layer_cache) || false }}
+      no-cache: ${{ github.event_name == 'schedule' || inputs.disable_layer_cache || false }}
       # These are small Java images; the disk-reclaim step is not worth the time.
       free-disk-space: false
     secrets:

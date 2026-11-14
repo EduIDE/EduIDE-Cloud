@@ -1,0 +1,114 @@
+# Manual release, the only way this repository releases.
+#
+#   gh workflow run release.yml -f version=1.5.0
+#
+# The release pull request (CHANGELOG.md section) is merged first, see
+# .claude/skills/release/SKILL.md. A Release created with GITHUB_TOKEN triggers
+# no other workflow, so the image build and the monitor vsix are called from here.
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version without the leading v, e.g. 1.5.0 or 1.5.0-rc.1"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    uses: EduIDE/.github/.github/workflows/release.yml@main
+    permissions:
+      contents: write
+    with:
+      version: ${{ inputs.version }}
+      tag_prefix: "v"
+
+  images:
+    needs: release
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/build.yml
+    with:
+      # Passed explicitly: without it the shared build workflow derives `latest`.
+      image_tag: ${{ inputs.version }}
+    secrets: inherit
+
+  monitor:
+    needs: release
+    permissions:
+      contents: read
+    uses: ./.github/workflows/monitor-vsix.yml
+    with:
+      version: ${{ inputs.version }}
+
+  attach-monitor:
+    needs: [release, monitor]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: theia-cloud-monitor-vsix
+          path: .
+
+      # Named with the version, so the URL in EduIDE's package.json.patch pins one build.
+      # The release is still a draft here, so --clobber only makes a rerun work.
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: gh release upload "$TAG" theia-cloud-monitor-*.vsix --repo "$GITHUB_REPOSITORY" --clobber
+
+  verify:
+    needs: [release, images, attach-monitor]
+    runs-on: ubuntu-latest
+    permissions:
+      # The release is still a draft; reading a draft needs push access.
+      contents: write
+      packages: read
+    env:
+      VERSION: ${{ inputs.version }}
+      TAG: ${{ needs.release.outputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Every image exists for amd64 and arm64
+        run: |
+          set -euo pipefail
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          for component in operator service conversion-webhook; do
+            ref="ghcr.io/eduide/eduide-cloud/${component}:${VERSION}"
+            archs=$(docker buildx imagetools inspect "$ref" --raw | jq -r '[.manifests[].platform.architecture] | join(",")')
+            echo "${ref} -> ${archs}"
+            [[ "$archs" == *amd64* && "$archs" == *arm64* ]] || { echo "::error::${ref} is missing amd64 or arm64 (${archs})"; exit 1; }
+          done
+
+      - name: Monitor vsix is attached to the release
+        run: |
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' \
+            | grep -qx "theia-cloud-monitor-${VERSION}.vsix"
+
+      - name: Summary
+        run: |
+          echo "## Released ${TAG}" >> "$GITHUB_STEP_SUMMARY"
+          echo "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}" >> "$GITHUB_STEP_SUMMARY"
+
+  # Last: publishing the draft creates the tag. Until here a failed job leaves
+  # a draft and no tag.
+  publish-release:
+    needs: [release, verify]
+    permissions:
+      contents: write
+    uses: EduIDE/.github/.github/workflows/release-publish.yml@main
+    with:
+      tag: ${{ needs.release.outputs.tag }}

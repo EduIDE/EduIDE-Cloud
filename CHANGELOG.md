@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixes
+
+- [java/operator] Deliver the environment of a lazy session through the data bridge too. Extensions that read it only through the bridge (the Artemis extension reads `ARTEMIS_URL` and `ARTEMIS_TOKEN` that way and treats `DATA_BRIDGE_ENABLED` other than `1` as "not managed") could not log in in a session without a warm pool. For an app with the data bridge enabled, a lazy session now gets `DATA_BRIDGE_ENABLED=1`, the bridge port and strategy like an eager one, a token Secret of its own (owned by the session, so it is deleted with it) read by the IDE container as `DATA_BRIDGE_TOKEN`, and the operator injects the session environment once the bridge answers. The variables stay in the pod environment as well, which Scorpio falls back to when the bridge delivers nothing in time. Apps without the data bridge are unchanged
+
 ## [3.0.0] - 2026-11-16
 
 Security release. It contains the fixes of an internal security audit (CL-01 to CL-14, DB-01, DEP-01, CI-01) and several breaking changes. Read the upgrade notes before you upgrade.

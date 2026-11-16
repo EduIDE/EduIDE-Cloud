@@ -31,15 +31,19 @@ import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinitionSp
 import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
 import org.eclipse.theia.cloud.common.k8s.resource.session.SessionSpec;
 import org.eclipse.theia.cloud.common.k8s.resource.workspace.Workspace;
+import org.eclipse.theia.cloud.common.util.DataBridgeUtil;
 import org.eclipse.theia.cloud.common.util.LabelsUtil;
 import org.eclipse.theia.cloud.common.util.TheiaCloudError;
 import org.eclipse.theia.cloud.common.util.WorkspaceUtil;
 import org.eclipse.theia.cloud.operator.TheiaCloudOperatorArguments;
+import org.eclipse.theia.cloud.operator.databridge.AsyncDataInjector;
+import org.eclipse.theia.cloud.operator.databridge.DataBridgeTokenManager;
 import org.eclipse.theia.cloud.operator.handler.AddedHandlerUtil;
 import org.eclipse.theia.cloud.operator.ingress.IngressManager;
 import org.eclipse.theia.cloud.operator.sidecar.SidecarManager;
 import org.eclipse.theia.cloud.operator.util.K8sResourceFactory;
 import org.eclipse.theia.cloud.operator.util.K8sUtil;
+import org.eclipse.theia.cloud.operator.util.SessionEnvCollector;
 import org.eclipse.theia.cloud.operator.util.TheiaCloudK8sUtil;
 import org.eclipse.theia.cloud.common.tracing.Tracing;
 import org.eclipse.theia.cloud.operator.util.TheiaCloudPersistentVolumeUtil;
@@ -86,6 +90,15 @@ public class LazySessionHandler implements SessionHandler {
 
     @Inject
     protected SidecarManager sidecarManager;
+
+    @Inject
+    protected DataBridgeTokenManager dataBridgeTokens;
+
+    @Inject
+    protected SessionEnvCollector sessionEnvCollector;
+
+    @Inject
+    protected AsyncDataInjector asyncDataInjector;
 
     @Override
     public boolean sessionAdded(Session session, String correlationId, ISpan parentSpan) {
@@ -273,9 +286,11 @@ public class LazySessionHandler implements SessionHandler {
                 deployment -> {
                     storageName.ifPresent(name -> addVolumeClaim(deployment, name, appDefSpec));
                     sidecarManager.injectSidecarEnvVars(session, deployment, appDef, correlationId);
+                    dataBridgeTokens.prepareDeployment(deployment, appDef, session, correlationId);
                 },
                 correlationId);
         Tracing.finishSuccess(deploymentSpan);
+        scheduleDataBridgeInjection(span, session, appDef, correlationId);
 
         // Sidecar setup is best-effort: the session remains usable even if sidecar creation fails.
         if (!sidecarManager.createSidecars(session, appDef, storageName, correlationId)) {
@@ -309,6 +324,15 @@ public class LazySessionHandler implements SessionHandler {
         span.setTag("outcome", "success");
         Tracing.finishSuccess(span);
         return true;
+    }
+
+    /** Hands the environment of the session to the data bridge of its pod, like the eager sessions do. */
+    public void scheduleDataBridgeInjection(ISpan span, Session session, AppDefinition appDef, String correlationId) {
+        if (!DataBridgeUtil.isDataBridgeEnabled(appDef.getSpec())) {
+            return;
+        }
+        Map<String, String> envVars = sessionEnvCollector.collect(session, correlationId);
+        asyncDataInjector.scheduleInjection(span, session, envVars, correlationId);
     }
 
     @Override

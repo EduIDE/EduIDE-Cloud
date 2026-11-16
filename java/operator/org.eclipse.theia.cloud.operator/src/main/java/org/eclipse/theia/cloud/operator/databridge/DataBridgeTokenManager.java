@@ -61,6 +61,11 @@ public class DataBridgeTokenManager {
         return NamingUtil.createNameWithSuffix(appDef, instance, NAME_SUFFIX);
     }
 
+    /** Name of the token Secret of a lazy session. */
+    public static String getSecretName(Session session) {
+        return NamingUtil.createNameWithSuffix(session, NAME_SUFFIX);
+    }
+
     /**
      * Writes a fresh token into the instance's Secret, creating it if needed. A pod started afterwards gets the new
      * token, a running pod keeps the one it started with.
@@ -68,11 +73,16 @@ public class DataBridgeTokenManager {
      * @return false if the Secret could not be written
      */
     public boolean rotate(AppDefinition appDef, int instance, String correlationId) {
-        String name = getSecretName(appDef, instance);
+        return writeSecret(getSecretName(appDef, instance), AppDefinition.API, AppDefinition.KIND,
+                appDef.getMetadata().getName(), appDef.getMetadata().getUid(), correlationId);
+    }
+
+    private boolean writeSecret(String name, String ownerApi, String ownerKind, String ownerName, String ownerUid,
+            String correlationId) {
         Secret secret = new SecretBuilder().withNewMetadata().withName(name).withNamespace(client.namespace())
-                .addNewOwnerReference().withApiVersion(AppDefinition.API).withKind(AppDefinition.KIND)
-                .withName(appDef.getMetadata().getName()).withUid(appDef.getMetadata().getUid()).endOwnerReference()
-                .endMetadata().withType("Opaque").withData(Map.of(TOKEN_KEY, newToken())).build();
+                .addNewOwnerReference().withApiVersion(ownerApi).withKind(ownerKind).withName(ownerName)
+                .withUid(ownerUid).endOwnerReference().endMetadata().withType("Opaque")
+                .withData(Map.of(TOKEN_KEY, newToken())).build();
         try {
             client.kubernetes().secrets().inNamespace(client.namespace()).resource(secret)
                     .createOr(NonDeletingOperation::update);
@@ -86,7 +96,10 @@ public class DataBridgeTokenManager {
 
     /** Reads the token the instance's pod started with. Empty if the Secret is missing or unreadable. */
     public Optional<String> read(AppDefinition appDef, int instance, String correlationId) {
-        String name = getSecretName(appDef, instance);
+        return read(getSecretName(appDef, instance), correlationId);
+    }
+
+    private Optional<String> read(String name, String correlationId) {
         try {
             Secret secret = client.kubernetes().secrets().inNamespace(client.namespace()).withName(name).get();
             if (secret == null || secret.getData() == null || secret.getData().get(TOKEN_KEY) == null) {
@@ -107,9 +120,9 @@ public class DataBridgeTokenManager {
         String instance = annotations == null ? null
                 : annotations.get(EagerSessionHandler.SESSION_INSTANCE_ID_ANNOTATION);
         if (instance == null) {
-            LOGGER.warn(formatLogMessage(correlationId,
-                    "Session " + session.getMetadata().getName() + " has no instance, sending no data bridge token"));
-            return Optional.empty();
+            // A lazy session has a token Secret of its own
+            return session.getMetadata().getUid() == null ? Optional.empty()
+                    : read(getSecretName(session), correlationId);
         }
         try {
             Optional<AppDefinition> appDef = client.appDefinitions().get(session.getSpec().getAppDefinition());
@@ -139,6 +152,10 @@ public class DataBridgeTokenManager {
         if (!DataBridgeUtil.isDataBridgeEnabled(appDef.getSpec()) || !rotate(appDef, instance, correlationId)) {
             return;
         }
+        addTokenReference(deployment, appDef, getSecretName(appDef, instance));
+    }
+
+    private void addTokenReference(Deployment deployment, AppDefinition appDef, String secretName) {
         Container container = TheiaCloudPersistentVolumeUtil
                 .getTheiaContainer(deployment.getSpec().getTemplate().getSpec(), appDef.getSpec());
         if (container.getEnv() == null) {
@@ -146,8 +163,25 @@ public class DataBridgeTokenManager {
         }
         container.getEnv().removeIf(env -> TOKEN_ENV.equals(env.getName()));
         container.getEnv().add(new EnvVarBuilder().withName(TOKEN_ENV).withNewValueFrom().withNewSecretKeyRef()
-                .withName(getSecretName(appDef, instance)).withKey(TOKEN_KEY).endSecretKeyRef().endValueFrom()
-                .build());
+                .withName(secretName).withKey(TOKEN_KEY).endSecretKeyRef().endValueFrom().build());
+    }
+
+    /**
+     * Gives the deployment of a lazy session a token of its own: a Secret owned by the session, so that it goes away
+     * with it, and a reference to it in the Theia container. Without a Secret the deployment gets no reference, see
+     * {@link #prepareDeployment(Deployment, AppDefinition, int, String)}.
+     */
+    public void prepareDeployment(Deployment deployment, AppDefinition appDef, Session session,
+            String correlationId) {
+        if (!DataBridgeUtil.isDataBridgeEnabled(appDef.getSpec())) {
+            return;
+        }
+        String name = getSecretName(session);
+        if (!writeSecret(name, Session.API, Session.KIND, session.getMetadata().getName(),
+                session.getMetadata().getUid(), correlationId)) {
+            return;
+        }
+        addTokenReference(deployment, appDef, name);
     }
 
     /**

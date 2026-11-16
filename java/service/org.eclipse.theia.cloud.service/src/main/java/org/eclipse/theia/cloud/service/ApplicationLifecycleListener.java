@@ -15,21 +15,16 @@
  ********************************************************************************/
 package org.eclipse.theia.cloud.service;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
-import java.util.stream.StreamSupport;
+import java.util.TreeSet;
 
-import org.eclipse.microprofile.config.Config;
 import org.eclipse.microprofile.config.ConfigProvider;
 import org.eclipse.microprofile.config.spi.ConfigSource;
 import org.jboss.logging.Logger;
 
 import io.quarkus.runtime.StartupEvent;
-import io.vertx.core.json.JsonObject;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
+import jakarta.inject.Inject;
 
 import io.sentry.Sentry;
 
@@ -37,38 +32,25 @@ import io.sentry.Sentry;
 public class ApplicationLifecycleListener {
     protected Logger logger;
 
+    @Inject
+    ApplicationProperties applicationProperties;
+
     protected void onStart(@Observes StartupEvent event) {
         logger = Logger.getLogger(getClass());
         Sentry.configureScope(scope -> {
             scope.setTag("component", "service");
         });
+        // The bean is created lazily. Reading it here makes a missing service auth token stop the start.
+        applicationProperties.getServiceAuthToken();
         logConfiguration();
     }
 
+    /** Logs where configuration comes from and which keys it sets, never the values: they hold credentials. */
     private void logConfiguration() {
-        logConfigurationSources();
-        logQuarkusConfiguration();
-    }
-
-    private void logConfigurationSources() {
         for (ConfigSource configSource : ConfigProvider.getConfig().getConfigSources()) {
-            logger.info(configSource.getName() + " (" + configSource.getOrdinal() + ")");
-            logger.info(new JsonObject(new HashMap<String, Object>(configSource.getProperties())).encodePrettily());
+            logger.info(configSource.getName() + " (" + configSource.getOrdinal() + "): "
+                    + new TreeSet<>(configSource.getPropertyNames()));
         }
-    }
-
-    private void logQuarkusConfiguration() {
-        Config configuration = ConfigProvider.getConfig();
-        Map<String, Object> quarkusProperties = StreamSupport
-                .stream(configuration.getPropertyNames().spliterator(), false).filter(this::isQuarkusProperty) //
-                .collect(Collectors.toMap(Function.identity(),
-                        property -> configuration.getValue(property, String.class)));
-        logger.info("Resulting Quarkus Configuration");
-        logger.info(new JsonObject(quarkusProperties).encodePrettily());
-    }
-
-    private boolean isQuarkusProperty(Object name) {
-        return name.toString().startsWith("quarkus.");
     }
 
 }

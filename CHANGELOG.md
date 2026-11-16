@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Security
+
+Fixes from the internal security audit 2026-11-16 (CL-04 to CL-10, CL-14).
+
+- [java/service] Remove the unauthenticated `PATCH /service/session` activity endpoint. The operator already polls the monitor in the session pod; nothing called it. (CL-04)
+- [java/service] Stop writing configuration values to the log at startup. Only the names of the config keys are logged. Rotate the admin API token and the OIDC client secret in every environment that ran an earlier version. (CL-05)
+- [java/service] `POST /service/session` runs the same AppDefinition checks as `POST /service`: the AppDefinition must exist and have a free instance, and it must match the one of the workspace. A request can no longer rewrite the AppDefinition of a workspace. (CL-06)
+- [java/service] CORS is off unless `CORS_ORIGINS` is set (the chart passes the landing page origin). `GET /service/appdefinition/{appId}` returns only the names of the AppDefinitions; the full spec stays with the admin API. Health, metrics and OpenAPI move to a management port (9000), which is not routed through the gateway. The Prometheus scrape of `/q/metrics` must use that port. (CL-07)
+- [java/service] The OIDC token audience is checked when `KEYCLOAK_AUDIENCE` is set (the Keycloak client needs an audience mapper). TLS verification of the identity provider is always on; a private CA goes into a trust store (`KEYCLOAK_TRUSTSTORE_FILE`, `KEYCLOAK_TRUSTSTORE_PASSWORD`). (CL-08)
+- [java/service] In Keycloak mode the email claim must pass the same character check as an anonymous `user`; otherwise the caller is treated as anonymous. (CL-09)
+- [java/service] The AppDefinition is checked before the startup-time metric tag is created, so callers cannot add metric series. New `SESSIONS_PER_USER` limits the active sessions per user on all launch paths (0, the default, means no limit). (CL-10)
+- [java/service] Launch request logging, and so Sentry events, no longer contain the values of `env.fromMap`. The service refuses to start without a service auth token instead of falling back to a built-in default. The image reads the secrets from environment variables instead of `-D` arguments, drops the default `APPID` and runs as a non-root user. (CL-14)
+
 ## [2.0.1] - 2026-11-16
 
 ### Fixes

@@ -15,6 +15,8 @@
  ********************************************************************************/
 package org.eclipse.theia.cloud.service;
 
+import java.util.function.Function;
+
 import org.jboss.logging.Logger;
 
 import jakarta.enterprise.context.ApplicationScoped;
@@ -32,6 +34,8 @@ public class ApplicationProperties {
     private static final String THEIACLOUD_ADMIN_GROUP_NAME = "theia.cloud.auth.admin.group";
     private static final String THEIACLOUD_ADMIN_API_TOKEN = "theia.cloud.admin.api.token";
 
+    private static final String THEIACLOUD_SESSIONS_PER_USER = "theia.cloud.sessions.per.user";
+
     private static final String DEFAULT_ADMIN_GROUP_NAME = "theia-cloud/admin";
 
     private final Logger logger;
@@ -40,12 +44,21 @@ public class ApplicationProperties {
     private final String serviceAuthToken;
     private final String adminGroupName;
     private final String adminApiToken;
+    private final int sessionsPerUser;
+
+    private final Function<String, String> environment;
 
     public ApplicationProperties() {
+        this(System::getenv);
+    }
+
+    ApplicationProperties(Function<String, String> environment) {
+        this.environment = environment;
         logger = Logger.getLogger(getClass());
         serviceAuthToken = getServiceAuthTokenWithFallback();
         adminGroupName = System.getProperty(THEIACLOUD_ADMIN_GROUP_NAME, DEFAULT_ADMIN_GROUP_NAME);
         adminApiToken = getAdminApiTokenFromConfig();
+        sessionsPerUser = parseSessionsPerUser();
         // Only disable keycloak if the value was explicitly set to exactly "false".
         useKeycloak = !"false".equals(System.getProperty(THEIACLOUD_USE_KEYCLOAK));
         if (!useKeycloak) {
@@ -77,6 +90,13 @@ public class ApplicationProperties {
     }
 
     /**
+     * @return the maximum number of active sessions per user, or 0 if there is no limit
+     */
+    public int getSessionsPerUser() {
+        return sessionsPerUser;
+    }
+
+    /**
      * @return the group name that identifies admin users in the MicroProfile JWT token's groups claim
      */
     public String getAdminGroupName() {
@@ -95,22 +115,54 @@ public class ApplicationProperties {
      * property is used.
      */
     private String getServiceAuthTokenWithFallback() {
-        String serviceAuthToken = System.getProperty(THEIACLOUD_SERVICE_AUTH_TOKEN);
+        String serviceAuthToken = read(THEIACLOUD_SERVICE_AUTH_TOKEN);
         if (serviceAuthToken != null) {
             return serviceAuthToken;
         }
 
-        String appId = System.getProperty(THEIACLOUD_APP_ID);
+        String appId = read(THEIACLOUD_APP_ID);
         if (appId != null) {
             logger.warn("Using deprecated property '" + THEIACLOUD_APP_ID + "'. " + "Please migrate to '"
                     + THEIACLOUD_SERVICE_AUTH_TOKEN + "' in your configuration.");
             return appId;
         }
 
-        return "asdfghjkl"; // Default value
+        throw new IllegalStateException("No service auth token configured. Set '" + THEIACLOUD_SERVICE_AUTH_TOKEN
+                + "' (or the environment variable " + toEnvName(THEIACLOUD_SERVICE_AUTH_TOKEN) + ").");
     }
 
     private String getAdminApiTokenFromConfig() {
-        return System.getProperty(THEIACLOUD_ADMIN_API_TOKEN, "").trim();
+        String token = read(THEIACLOUD_ADMIN_API_TOKEN);
+        return token == null ? "" : token.trim();
+    }
+
+    private int parseSessionsPerUser() {
+        String value = read(THEIACLOUD_SESSIONS_PER_USER);
+        if (value == null) {
+            return 0;
+        }
+        try {
+            return Math.max(0, Integer.parseInt(value.trim()));
+        } catch (NumberFormatException e) {
+            logger.warn("Ignoring invalid value for '" + THEIACLOUD_SESSIONS_PER_USER + "'. No session limit applies.");
+            return 0;
+        }
+    }
+
+    /**
+     * Reads a property from the JVM system properties and falls back to the environment variable of the same name
+     * (upper case, dots as underscores). Secrets use the environment so they stay off the process command line. Blank
+     * values count as not set.
+     */
+    private String read(String property) {
+        String value = System.getProperty(property);
+        if (value == null || value.isBlank()) {
+            value = environment.apply(toEnvName(property));
+        }
+        return value == null || value.isBlank() ? null : value;
+    }
+
+    private static String toEnvName(String property) {
+        return property.toUpperCase().replace('.', '_');
     }
 }

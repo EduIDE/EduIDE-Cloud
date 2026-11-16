@@ -84,34 +84,39 @@ public interface TheiaCloudClient extends NamespacedKubernetesClient {
         return new BaseResourceClient<T, L>(kubernetes(), operation, typeClass);
     }
 
+    /** Label of the Services of sidecars. They are owned by the session too, but are not the IDE. */
+    String SIDECAR_LABEL = "theia-cloud.io/sidecar";
+
     default Optional<String> getClusterIPFromSessionName(String sessionName) {
         try (final KubernetesClient client = CustomResourceUtil.createClient()) {
-            ServiceList svcList = client.services().inNamespace(namespace()).list();
-            for (Service svc : svcList.getItems()) {
-                if (svc.getMetadata().getName().endsWith("-int")) {
-                    continue;
-                }
-                for (OwnerReference ownerReference : svc.getMetadata().getOwnerReferences()) {
-                    if (sessionName.equals(ownerReference.getName()) && "Session".equals(ownerReference.getKind())) {
-                        return Optional.of(svc.getSpec().getClusterIP());
-                    }
-                }
-            }
+            return selectSessionServiceIP(client.services().inNamespace(namespace()).list().getItems(), sessionName,
+                    false);
         }
-        return Optional.empty();
     }
 
     default Optional<String> getInternalClusterIPFromSessionName(String sessionName) {
         try (final KubernetesClient client = CustomResourceUtil.createClient()) {
-            ServiceList svcList = client.services().inNamespace(namespace()).list();
-            for (Service svc : svcList.getItems()) {
-                if (!svc.getMetadata().getName().endsWith("-int")) {
-                    continue;
-                }
-                for (OwnerReference ownerReference : svc.getMetadata().getOwnerReferences()) {
-                    if (sessionName.equals(ownerReference.getName()) && "Session".equals(ownerReference.getKind())) {
-                        return Optional.of(svc.getSpec().getClusterIP());
-                    }
+            return selectSessionServiceIP(client.services().inNamespace(namespace()).list().getItems(), sessionName,
+                    true);
+        }
+    }
+
+    /**
+     * The cluster IP of the IDE Service (or its internal one) that belongs to the session. Services of the session's
+     * sidecars are owned by the session as well and must not be mistaken for it.
+     */
+    static Optional<String> selectSessionServiceIP(java.util.List<Service> services, String sessionName,
+            boolean internal) {
+        for (Service svc : services) {
+            if (svc.getMetadata().getName().endsWith("-int") != internal) {
+                continue;
+            }
+            if (svc.getMetadata().getLabels() != null && svc.getMetadata().getLabels().containsKey(SIDECAR_LABEL)) {
+                continue;
+            }
+            for (OwnerReference ownerReference : svc.getMetadata().getOwnerReferences()) {
+                if (sessionName.equals(ownerReference.getName()) && "Session".equals(ownerReference.getKind())) {
+                    return Optional.of(svc.getSpec().getClusterIP());
                 }
             }
         }

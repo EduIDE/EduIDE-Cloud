@@ -8,7 +8,7 @@ Security release. It contains the fixes of an internal security audit (CL-01 to 
 
 ### Breaking changes / Upgrade notes
 
-- Upgrade the `eduide-cluster` chart first. The operator needs `create`, `get` and `delete` on `networkpolicies` for the per-session sidecar NetworkPolicies, and `get`, `create`, `update` and `delete` on Secrets (a Role in the chart) for the data bridge token. Without the permission a session with sidecars fails to start, and the pool is built without tokens.
+- Upgrade the `eduide-cluster` chart first. The operator needs `create`, `get` and `delete` on `networkpolicies` for the per-session sidecar NetworkPolicies, and the Secret Role of the chart for the data bridge token. Without the permission a session with sidecars fails to start, and the pool is built without tokens.
 - Ship this release before the data bridge 2.0.0 IDE image. A data bridge without the token check ignores the header, so the order matters only for the protection, not for the function.
 - The unauthenticated session keep-alive `PATCH /service/session` is removed, and `TheiaCloud.Session.reportSessionActivity` is removed from `@eclipse-theiacloud/common`. The operator polls the monitor in the session pod instead. ([#179](https://github.com/EduIDE/EduIDE-Cloud/pull/179))
 - CORS is off unless `CORS_ORIGINS` is set. The chart passes the landing page origin; set it for other deployments. `GET /service/appdefinition/{appId}` returns only the names of the AppDefinitions. ([#179](https://github.com/EduIDE/EduIDE-Cloud/pull/179))

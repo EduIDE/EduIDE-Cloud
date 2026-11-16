@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Breaking changes
+
+- [java/operator,java/common] **Security:** the operator authenticates data bridge injection with a per-instance token. It keeps a random token per prewarmed instance in a Secret `instance-<n>-<appdef>-bridge-token`, hands it to the pod as `DATA_BRIDGE_TOKEN` through a `secretKeyRef`, sends it as `Authorization: Bearer <token>` on `POST /data`, writes a new one whenever it creates the instance's deployment and before the pod restarts after a session, and deletes it with an excess instance. Install the EduIDE-Helm chart that lets the operator manage Secrets first, otherwise the pool is built without tokens. On release the pod and token are reset before the instance can be claimed again, a failed rotation replaces the deployment, and pool deployments without the token reference are recreated. `DataBridgeClient.injectData` takes the token as a new parameter, and the operator logs the names of keys the data bridge ignored. A data bridge without the check ignores the header. ([#156](https://github.com/EduIDE/EduIDE-Cloud/pull/156))
+
 ### Dependencies
 
 - Update the Quarkus platform from 3.25.1 to 3.27.6.1 (LTS). The service now ships jackson 2.21.7 (was 2.19.2) and netty 4.1.139.Final (was 4.1.121.Final), which fixes several denial-of-service advisories, for example the HTTP/2 reset flood GHSA-prj3-ccx8-p6x4. The fabric8 Kubernetes client stays at 7.3.1, the version this Quarkus release manages, so `kubernetes-client.version` and the BOM agree. The operator modules have no Quarkus BOM, so they now import the jackson BOM (`jackson.version` 2.21.7 in maven-conf) ahead of fabric8 and exclude the unused Vert.x HTTP client of fabric8 (they build clients with OkHttp), which removes netty from the operator. Quarkus 3.31 and later drop `quarkus-smallrye-metrics`, so the service stays on the 3.27 LTS line until its metrics move to Micrometer. Found by an internal security audit 2026-11-16, DEP-01.

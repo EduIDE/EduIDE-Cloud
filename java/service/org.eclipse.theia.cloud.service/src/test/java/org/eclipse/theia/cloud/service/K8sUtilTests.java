@@ -250,6 +250,27 @@ class K8sUtilTests {
                 launchedSessionName(util, env("https://github.com/octocat/Hello-World")));
     }
 
+    @Test
+    void launchEphemeralSession_earlierSessionOfAnotherAppDefinition_isNotReused() throws Exception {
+        // Both earlier names truncate the app definition, so these two share them.
+        String java = "a".repeat(54) + "-java";
+        String python = "a".repeat(54) + "-python";
+        String legacy = WorkspaceUtil.getLegacyEphemeralSessionName("alice", python);
+        assertEquals(WorkspaceUtil.getLegacyEphemeralSessionName("alice", java), legacy);
+        K8sUtil util = createK8sUtil();
+        Session javaSession = new Session();
+        javaSession.setSpec(new SessionSpec(legacy, java, "alice", null, Map.of()));
+        Mockito.when(util.CLIENT.appDefinitions().get(python)).thenReturn(Optional.empty());
+        Mockito.when(util.CLIENT.sessions().get(legacy)).thenReturn(Optional.of(javaSession));
+        Mockito.when(util.CLIENT.sessions().launch(anyString(), any(), anyInt())).thenReturn(launchedSession("https://example.test"));
+
+        util.launchEphemeralSession("corr", python, "alice", 3, null);
+
+        ArgumentCaptor<SessionSpec> spec = ArgumentCaptor.forClass(SessionSpec.class);
+        Mockito.verify(util.CLIENT.sessions()).launch(anyString(), spec.capture(), anyInt());
+        assertEquals(WorkspaceUtil.getSessionName("alice", python, false), spec.getValue().getName());
+    }
+
     private Session earlierSession(String name, Map<String, String> envVars) {
         Session session = new Session();
         session.setSpec(new SessionSpec(name, "test-app", "alice", null, envVars));

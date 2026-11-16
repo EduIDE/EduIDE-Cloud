@@ -151,7 +151,8 @@ public final class K8sUtil {
      * Returns the name of a running ephemeral session of the user that was started under an earlier naming scheme and
      * works on the same repository. Such a session keeps its name until it ends, so a relaunch has to find it to not
      * count as a second session. The earlier names are the one before the reserved prefix and the hash, and, for a
-     * launch with a repository, the one without the repository.
+     * launch with a repository, the one without the repository. Both truncate a long app definition, so the session's
+     * own app definition is compared too.
      */
     private Optional<String> earlierEphemeralSessionName(String user, String appDefinition, String repository) {
         List<String> earlierNames = repository == null
@@ -162,6 +163,7 @@ public final class K8sUtil {
                 .filter(name -> CLIENT.sessions().get(name)
                         .map(Session::getSpec)
                         .filter(spec -> Objects.equals(spec.getUser(), user)
+                                && Objects.equals(spec.getAppDefinition(), appDefinition)
                                 && (spec.getWorkspace() == null || spec.getWorkspace().isEmpty())
                                 && Objects.equals(repositoryOf(spec.getEnvVars()), repository))
                         .isPresent())

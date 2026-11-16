@@ -14,7 +14,9 @@ This project implements the default Kubernetes Operator for Theia Cloud.
 #### Build and Run
 
 ```sh
-mvn clean install
+# no aggregator POM exists: build maven-conf, common and the operator library first (see AGENTS.md, Building)
+cd org.eclipse.theia.cloud.defaultoperator
+mvn clean verify -Drevision=1.2.0-SNAPSHOT
 java -jar target/defaultoperator-1.2.0-SNAPSHOT-jar-with-dependencies.jar
 ```
 

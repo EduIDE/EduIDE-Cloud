@@ -69,9 +69,7 @@ Run the service tests locally like this:
 cd java/service/org.eclipse.theia.cloud.service && mvn verify
 ```
 
-15 test classes over 208 source files, 11 of them in `service`. `operator` has
-two (`SidecarConfigTests`, `PrewarmedResourcePoolTests`); `conversion` and
-`defaultoperator` have none.
+Test classes live in `service`, `operator` and `common`; `conversion` and `defaultoperator` have none.
 
 ## The session monitor ships as a release asset, not an image
 
@@ -218,7 +216,7 @@ untracked.
 
 - Java 21. EPL-2.0 header on every file, though ~20 lack one and nothing
   enforces it.
-- Test classes end in `Tests`, never `Test`. All 14 follow this.
+- Test classes end in `Tests`, never `Test`.
 - Operator uses Guice `@Inject`; service uses Jakarta CDI `@Inject`.
 - Prettier config is duplicated at `theia/.prettierrc.js` and
   `node/.prettierrc.js` — change both.

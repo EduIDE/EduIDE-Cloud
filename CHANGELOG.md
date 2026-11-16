@@ -4,7 +4,7 @@
 
 ### Dependencies
 
-- Update the Java dependencies: Maven wrapper 3.3.4 (Maven 3.10.0), Sentry 8.63.0, sentry-maven-plugin 0.12.0, flatten-maven-plugin 1.9.0, slf4j 2.0.20, kubernetes-webhooks-framework-core 3.0.5, log4j 2.25.5, JUnit 5.14.4, Mockito 5.24.0 and the compiler, surefire and assembly plugins. The fabric8 Kubernetes client stays at 7.3.1 and Renovate no longer proposes it on its own, because the service takes fabric8 from Quarkus and a separate bump mixes jar versions. ([#163](https://github.com/EduIDE/EduIDE-Cloud/pull/163))
+- Update the Java dependencies: Maven wrapper 3.3.4 (Maven 3.10.0), Sentry 8.63.0, sentry-maven-plugin 0.12.0, flatten-maven-plugin 1.9.0, slf4j 2.0.20, kubernetes-webhooks-framework-core 3.0.5, log4j 2.25.5, JUnit 5.14.4, Mockito 5.24.0 and the compiler, surefire and assembly plugins. The fabric8 Kubernetes client stays at 7.3.1 and Renovate no longer proposes it on its own, because the service takes fabric8 from Quarkus and a separate bump mixes jar versions. ([#176](https://github.com/EduIDE/EduIDE-Cloud/pull/176))
 
 ## [2.0.1] - 2026-11-16
 

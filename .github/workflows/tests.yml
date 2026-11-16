@@ -43,7 +43,10 @@ jobs:
         working-directory: java/operator/org.eclipse.theia.cloud.operator
         run: mvn -B -ntp test
 
-      # The service tests start a Keycloak dev service, so they need the Docker daemon of the runner.
+      # The service tests start a Keycloak dev service, so they need the Docker daemon of the runner. Current
+      # Docker engines refuse the older API version that Testcontainers asks for, so it is pinned.
       - name: Service tests
         working-directory: java/service/org.eclipse.theia.cloud.service
-        run: mvn -B -ntp verify
+        env:
+          DOCKER_API_VERSION: "1.44"
+        run: mvn -B -ntp verify -Dapi.version=1.44

@@ -36,6 +36,8 @@ import io.fabric8.kubernetes.api.model.Container;
 import io.fabric8.kubernetes.api.model.EnvVar;
 import io.fabric8.kubernetes.api.model.EnvVarBuilder;
 import io.fabric8.kubernetes.api.model.IntOrString;
+import io.fabric8.kubernetes.client.KubernetesClientException;
+import io.fabric8.kubernetes.client.dsl.NonDeletingOperation;
 import io.fabric8.kubernetes.api.model.LabelSelector;
 import io.fabric8.kubernetes.api.model.networking.v1.NetworkPolicy;
 import io.fabric8.kubernetes.api.model.networking.v1.NetworkPolicyBuilder;
@@ -300,9 +302,17 @@ public class SidecarResourceFactory {
             .build();
         try {
             client.kubernetes().network().v1().networkPolicies().inNamespace(client.namespace()).resource(policy)
-                .create();
-            LOGGER.info(formatLogMessage(correlationId, "[Sidecar] Created network policy " + name));
+                .createOr(NonDeletingOperation::update);
+            LOGGER.info(formatLogMessage(correlationId, "[Sidecar] Applied network policy " + name));
             return true;
+        } catch (KubernetesClientException e) {
+            if (e.getCode() == 403) {
+                LOGGER.error(formatLogMessage(correlationId, "[Sidecar] The operator may not manage networkpolicies, "
+                        + "so the sidecars of " + name + " would be unreachable. Upgrade the eduide-cluster chart."), e);
+            } else {
+                LOGGER.error(formatLogMessage(correlationId, "[Sidecar] Error creating network policy " + name), e);
+            }
+            return false;
         } catch (Exception e) {
             LOGGER.error(formatLogMessage(correlationId, "[Sidecar] Error creating network policy " + name), e);
             return false;

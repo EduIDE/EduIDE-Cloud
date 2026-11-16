@@ -311,7 +311,10 @@ public class EagerSessionHandler implements SessionHandler {
             }
             span.setData("instance_id", instanceId);
 
-            sidecarManager.restartPrewarmedSidecarPods(appDef, instanceId, correlationId);
+            // A shared workspace volume means the instance is recreated below, which replaces the sidecar pods
+            if (!SidecarConfig.requiresSharedWorkspace(appDef)) {
+                sidecarManager.restartPrewarmedSidecarPods(appDef, instanceId, correlationId);
+            }
 
             // Release instance back to pool
             ISpan releaseSpan = Tracing.childSpan(span, "eager.release_instance", "Release pool instance");

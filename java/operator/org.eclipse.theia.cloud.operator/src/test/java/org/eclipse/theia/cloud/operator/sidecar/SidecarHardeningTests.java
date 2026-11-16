@@ -67,6 +67,7 @@ class SidecarHardeningTests {
 
     private NonNamespaceOperation<Deployment, DeploymentList, RollableScalableResource<Deployment>> deployments;
     private NonNamespaceOperation<NetworkPolicy, NetworkPolicyList, Resource<NetworkPolicy>> policies;
+    private Resource<NetworkPolicy> policyResource;
     private SidecarResourceFactory factory;
 
     @BeforeEach
@@ -89,8 +90,8 @@ class SidecarHardeningTests {
         when(network.v1()).thenReturn(v1);
         when(v1.networkPolicies()).thenReturn(allPolicies);
         when(allPolicies.inNamespace("theiacloud")).thenReturn(policies);
-        when(policies.resource(org.mockito.ArgumentMatchers.any(NetworkPolicy.class)))
-                .thenReturn(mock(Resource.class));
+        policyResource = mock(Resource.class);
+        when(policies.resource(org.mockito.ArgumentMatchers.any(NetworkPolicy.class))).thenReturn(policyResource);
         TheiaCloudClient client = mock(TheiaCloudClient.class);
         when(client.namespace()).thenReturn("theiacloud");
         when(client.kubernetes()).thenReturn(kubernetes);
@@ -164,6 +165,7 @@ class SidecarHardeningTests {
         assertEquals(own, spec.getEgress().get(0).getTo().get(0).getPodSelector());
         assertEquals(1, spec.getEgress().get(0).getTo().size());
         assertFalse(spec.getEgress().get(0).getPorts().isEmpty());
+        verify(policyResource).createOr(org.mockito.ArgumentMatchers.any());
     }
 
     private static AppDefinition appDefinition() throws Exception {

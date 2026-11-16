@@ -123,6 +123,15 @@ class LazyWorkspaceHandlerTests {
     }
 
     @Test
+    void workspaceDeleted_keepsASessionOfTheSameWorkspaceNameOfAnotherUser() {
+        doReturn(Optional.of(sessionOf("ws-name", "someone-else"))).when(sessionClient).get("ws-name-session");
+
+        handler.workspaceDeleted(workspace, CORRELATION_ID);
+
+        verify(sessionClient, never()).delete(anyString(), anyString());
+    }
+
+    @Test
     void workspaceDeleted_keepsASessionOfAnotherWorkspaceOfTheSameName() {
         doReturn(Optional.of(sessionOf("other", "user"))).when(sessionClient).get("ws-name-session");
 

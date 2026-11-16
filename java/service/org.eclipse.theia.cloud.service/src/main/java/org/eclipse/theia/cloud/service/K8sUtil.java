@@ -116,7 +116,14 @@ public final class K8sUtil {
                     "Ephemeral sessions are not supported for app definitions whose sidecars mount the workspace. Use a workspace-backed session.");
         }
 
-        SessionSpec sessionSpec = new SessionSpec(getSessionName(user, appDefinition, false), appDefinition, user);
+        // A session started before the naming change keeps its name until it ends
+        String legacyName = WorkspaceUtil.getLegacyEphemeralSessionName(user, appDefinition);
+        boolean legacyRunning = CLIENT.sessions().get(legacyName)
+                .filter(session -> Objects.equals(session.getSpec().getUser(), user)
+                        && (session.getSpec().getWorkspace() == null || session.getSpec().getWorkspace().isEmpty()))
+                .isPresent();
+        SessionSpec sessionSpec = new SessionSpec(
+                legacyRunning ? legacyName : getSessionName(user, appDefinition, false), appDefinition, user);
         sessionSpec = sessionSpecWithEnv(sessionSpec, env);
 
         return launchSession(correlationId, sessionSpec, timeout);

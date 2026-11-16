@@ -6,13 +6,19 @@
 
 Fixes from an internal security audit (2026-11-16): CL-01, CL-02, CL-03, CL-12, CL-13 and the operator parts of CL-14.
 
-- [java/operator] CL-01: the oauth2-proxy sidecar of a session no longer carries `--skip-auth-route=/monitor/*`. The route was not anchored to the exact endpoints. The monitor listens on its own port, which the operator polls directly, so nothing needs the route. This also applies to the demo custom template. Sessions that run today keep the old argument until they are recreated. A monitor port equal to the app port is no longer reachable through the proxy; keep them different (the chart does)
-- [java/common,java/service] CL-02: launching a session whose name already exists for another user is refused with 403 instead of returning that session. Ephemeral session names now start with `eph-` and end with a short hash of the exact user, and a workspace name starting with `eph-` is rejected, so they cannot collide with workspace sessions or with each other. Ephemeral sessions that run during the upgrade keep their old name until they end
+- [java/operator] CL-01: the oauth2-proxy sidecar of a session no longer carries `--skip-auth-route=/monitor/*`. The route was not anchored to the exact endpoints. The monitor listens on its own port, which the operator polls directly, so nothing needs the route. This also applies to the demo custom template. Sessions that run today keep the old argument until they are recreated. Unclaimed warm pool instances that carry it, and unclaimed warm pool sidecar pods without the new labels, are recreated by the operator after the upgrade. A monitor port equal to the app port is no longer reachable through the proxy; keep them different (the chart does)
+- [java/common,java/service] CL-02: launching a session whose name already exists for another user is refused with 403 instead of returning that session. Ephemeral session names now start with `eph-` and end with a hash of the exact user, and a workspace name starting with `eph-` is rejected, so they cannot collide with workspace sessions or with each other. A user whose ephemeral session started under the old name keeps that session until it ends (a relaunch finds it, so `sessionsPerUser` does not block it)
 - [java/operator] CL-03: deleting a workspace deletes only the session that belongs to that workspace and user
-- [java/operator] CL-12: sidecar pods carry the session labels (including the per-session UUID), run with the restrictions of the IDE container (user, no privilege escalation, no capabilities, seccomp), and mount no service account token. The operator creates one NetworkPolicy per session, or per pool instance for eager sessions, that connects the IDE pod and its own sidecars on the sidecar ports only. It needs `create`, `get` and `delete` on `networkpolicies` (EduIDE-Helm `eduide-cluster` chart). Eager sidecar pods that exist before the upgrade keep their old pod spec until they are recreated
+- [java/operator] CL-12: sidecar pods carry the session labels (including the per-session UUID), run with the restrictions of the IDE container (user, no privilege escalation, no capabilities, seccomp), and mount no service account token. The operator creates one NetworkPolicy per session, or per pool instance for eager sessions, that connects the IDE pod and its own sidecars on the sidecar ports only. It needs `create`, `get` and `delete` on `networkpolicies` (EduIDE-Helm `eduide-cluster` chart).
 - [java/operator] CL-13: a released eager pool instance whose workspace volume is shared with sidecars is recreated with a new volume, so the next user does not see the previous user's files. Releasing such an instance takes longer
 - [java/operator] CL-14: the operator no longer logs rendered templates or replacement values at TRACE level, which included the session secret
 - [java/operator] CL-14: `--oAuth2ProxyVersion` defaults to `v7.12.0`, the version of the chart, instead of `latest`
+
+Upgrade notes:
+
+- Upgrade the `eduide-cluster` chart first: the operator needs the `networkpolicies` permission. Without it a session with sidecars fails to start and the operator logs the missing permission.
+- Warm pool instances that serve a session are not touched. Their pods keep the old arguments and, for sidecars, the old pod spec until the session ends and the instance is released and recreated.
+- Restart the operator after upgrading the `eduide` chart so the pool is reconciled and outdated unclaimed instances are replaced.
 
 ## [2.0.1] - 2026-11-16
 

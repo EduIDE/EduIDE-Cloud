@@ -477,7 +477,8 @@ public class PrewarmedResourcePool {
             }
 
             // Reconcile sidecar resources BEFORE Theia deployments so DNS resolves at pod startup
-            success &= sidecarManager.reconcilePrewarmedSidecars(appDef, targetInstances, labels, correlationId);
+            success &= sidecarManager.reconcilePrewarmedSidecars(appDef, targetInstances, labels,
+                    computeClaimedInstances(appDef, client.sessions().list()).keySet(), correlationId);
 
             // Reconcile deployments
             ISpan deploySpan = span.startChild("pool.reconcile_deployments", "Reconcile deployments");
@@ -599,7 +600,9 @@ public class PrewarmedResourcePool {
                 return;
             }
 
-            boolean outdated = forceRecreate || isOutdated(instanceServices, currentGeneration)
+            boolean missingVolume = SidecarConfig.requiresSharedWorkspace(appDef) && !instanceDeployments.isEmpty()
+                    && client.persistentVolumeClaimsClient().get(getInstancePvcName(appDef, instanceId)).isEmpty();
+            boolean outdated = forceRecreate || missingVolume || isOutdated(instanceServices, currentGeneration)
                     || isOutdated(instanceDeployments, currentGeneration)
                     || isOutdated(instanceConfigMaps, currentGeneration);
 
@@ -618,7 +621,8 @@ public class PrewarmedResourcePool {
                 return;
             }
 
-            if (instanceDeployments.stream().anyMatch(PrewarmedResourcePool::lacksNetworkPolicyLabels)) {
+            if (instanceDeployments.stream().anyMatch(PrewarmedResourcePool::lacksNetworkPolicyLabels)
+                    || instanceDeployments.stream().anyMatch(PrewarmedResourcePool::usesSkipAuthRoute)) {
                 // Only the pod labels are wrong, so the PVC and the workspace stored on it stay.
                 span.setTag("action", "repair_labels");
                 LOGGER.info(formatLogMessage(correlationId,
@@ -661,7 +665,23 @@ public class PrewarmedResourcePool {
     }
 
     private boolean isOutdated(Deployment deployment, long currentGeneration) {
-        return isOutdated((HasMetadata) deployment, currentGeneration) || lacksNetworkPolicyLabels(deployment);
+        return isOutdated((HasMetadata) deployment, currentGeneration) || lacksNetworkPolicyLabels(deployment)
+                || usesSkipAuthRoute(deployment);
+    }
+
+    /**
+     * Pods created by an older operator carry a proxy argument that the current templates no longer have. The
+     * AppDefinition generation does not change with an operator upgrade, so look for the argument itself.
+     */
+    static boolean usesSkipAuthRoute(Deployment deployment) {
+        var podSpec = deployment.getSpec().getTemplate().getSpec();
+        if (podSpec == null || podSpec.getContainers() == null) {
+            return false;
+        }
+        return podSpec.getContainers().stream()
+                .flatMap(container -> container.getArgs() == null ? java.util.stream.Stream.<String> empty()
+                        : container.getArgs().stream())
+                .anyMatch(arg -> arg.startsWith("--skip-auth-route"));
     }
 
     /**
@@ -725,6 +745,15 @@ public class PrewarmedResourcePool {
     private void createInstanceResources(AppDefinition appDef, int instanceId, String correlationId) {
         Map<String, String> labels = new HashMap<>();
 
+        Optional<String> pvcName = createInstancePvc(appDef, instanceId, correlationId);
+        if (pvcName.isEmpty() && SidecarConfig.requiresSharedWorkspace(appDef)) {
+            // The old volume is still being deleted. Create nothing, so no session can claim a half-built instance. The
+            // next reconcile creates the missing resources once the volume is gone.
+            LOGGER.warn(formatLogMessage(correlationId, "Volume of instance " + instanceId
+                    + " is not available yet, leaving the instance to the next reconcile"));
+            return;
+        }
+
         resourceFactory.createServiceForEagerInstance(appDef, instanceId, labels, correlationId);
         resourceFactory.createInternalServiceForEagerInstance(appDef, instanceId, labels, correlationId);
 
@@ -732,8 +761,6 @@ public class PrewarmedResourcePool {
             resourceFactory.createProxyConfigMapForEagerInstance(appDef, instanceId, labels, correlationId);
             resourceFactory.createEmailConfigMapForEagerInstance(appDef, instanceId, labels, correlationId);
         }
-
-        Optional<String> pvcName = createInstancePvc(appDef, instanceId, correlationId);
 
         // Create sidecar Deployment+Service BEFORE Theia Deployment so DNS resolves at pod startup
         sidecarManager.createPrewarmedSidecars(appDef, instanceId, pvcName, labels, correlationId);
@@ -1170,7 +1197,7 @@ public class PrewarmedResourcePool {
      * Releases an instance back to the pool (used when session ends). Removes session ownership and clears
      * session-specific data.
      */
-    public boolean releaseInstance(Session session, AppDefinition appDef, String correlationId) {
+    public synchronized boolean releaseInstance(Session session, AppDefinition appDef, String correlationId) {
         String sessionName = session.getSpec().getName();
         String appDefName = appDef.getSpec().getName();
 
@@ -1266,6 +1293,14 @@ public class PrewarmedResourcePool {
             deletePod(deploymentName, correlationId);
             Tracing.finishSuccess(podSpan);
 
+            if (SidecarConfig.requiresSharedWorkspace(appDef)) {
+                // The workspace volume outlives the pod. While the lock is held nothing can claim the instance, so take it
+                // away now: no services to claim, no deployment to start a pod on the old volume, volume deleted. The
+                // caller recreates the instance afterwards.
+                discardInstanceWithSharedWorkspace(appDef, instanceId, externalService, internalService, deploymentName,
+                        correlationId);
+            }
+
             span.setTag("outcome", success ? "success" : "failure"); Tracing.finish(span, success ? SpanStatus.OK : SpanStatus.INTERNAL_ERROR);
             return success;
 
@@ -1273,6 +1308,26 @@ public class PrewarmedResourcePool {
             Tracing.finishError(span, e);
             throw e;
         }
+    }
+
+    private void discardInstanceWithSharedWorkspace(AppDefinition appDef, int instanceId, Service externalService,
+            Service internalService, String deploymentName, String correlationId) {
+        for (Service service : List.of(externalService, internalService)) {
+            try {
+                client.kubernetes().services().inNamespace(client.namespace()).withName(service.getMetadata().getName())
+                        .delete();
+            } catch (KubernetesClientException e) {
+                LOGGER.warn(formatLogMessage(correlationId,
+                        "Failed to delete service " + service.getMetadata().getName()), e);
+            }
+        }
+        try {
+            client.kubernetes().apps().deployments().inNamespace(client.namespace()).withName(deploymentName).delete();
+        } catch (KubernetesClientException e) {
+            LOGGER.warn(formatLogMessage(correlationId, "Failed to delete deployment " + deploymentName), e);
+        }
+        sidecarManager.deletePrewarmedSidecars(appDef, instanceId, correlationId);
+        deleteInstancePvc(appDef, instanceId, correlationId);
     }
 
     // ========== Helper Methods ==========
@@ -1451,7 +1506,7 @@ public class PrewarmedResourcePool {
     // ========== PVC Management ==========
 
     private static final String TEMPLATE_PERSISTENTVOLUMECLAIM_YAML = "/templatePersistentVolumeClaim.yaml";
-    private static final int PVC_DELETION_WAIT_ATTEMPTS = 30;
+    private static final int PVC_DELETION_WAIT_ATTEMPTS = 120;
     private static final long PVC_DELETION_WAIT_MILLIS = 1000;
 
     static String getInstancePvcName(AppDefinition appDef, int instanceId) {

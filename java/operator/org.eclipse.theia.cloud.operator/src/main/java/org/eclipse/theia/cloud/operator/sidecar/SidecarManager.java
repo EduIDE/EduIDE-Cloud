@@ -419,6 +419,20 @@ public class SidecarManager {
             int minInstances,
             Map<String, String> labels,
             String correlationId) {
+        return ensurePrewarmedSidecarCapacity(appDef, minInstances, labels, null, correlationId);
+    }
+
+    /**
+     * @param claimedInstances instances that serve a session. A sidecar deployment of any other instance that was
+     *                         created by an older operator (no session labels, service account token) is recreated.
+     *                         Null leaves existing deployments alone.
+     */
+    public boolean ensurePrewarmedSidecarCapacity(
+            AppDefinition appDef,
+            int minInstances,
+            Map<String, String> labels,
+            Set<Integer> claimedInstances,
+            String correlationId) {
 
         Optional<List<SidecarConfig>> configsOpt = getValidatedSidecarConfigs(appDef, correlationId);
         if (configsOpt.isEmpty()) {
@@ -438,8 +452,16 @@ public class SidecarManager {
                 String namespace = factory.getClient().namespace();
 
                 boolean serviceExists = kube.services().inNamespace(namespace).withName(resourceName).get() != null;
-                boolean deploymentExists = kube.apps().deployments().inNamespace(namespace).withName(resourceName)
-                        .get() != null;
+                Deployment existingDeployment = kube.apps().deployments().inNamespace(namespace).withName(resourceName)
+                        .get();
+                if (existingDeployment != null && claimedInstances != null && !claimedInstances.contains(instance)
+                        && isOutdatedSidecarDeployment(existingDeployment)) {
+                    LOGGER.info(formatLogMessage(correlationId,
+                            "[Sidecar] Recreating outdated sidecar deployment " + resourceName));
+                    kube.apps().deployments().inNamespace(namespace).withName(resourceName).delete();
+                    existingDeployment = null;
+                }
+                boolean deploymentExists = existingDeployment != null;
 
                 Optional<String> pvcName = factory.lookupExistingPvc(appDef, instance);
 
@@ -457,6 +479,13 @@ public class SidecarManager {
         return success;
     }
 
+    /** Sidecar pods of an older operator lack the session labels and still mount a service account token. */
+    static boolean isOutdatedSidecarDeployment(Deployment deployment) {
+        Map<String, String> labels = deployment.getSpec().getTemplate().getMetadata().getLabels();
+        return labels == null || !LabelsUtil.LABEL_VALUE_SESSION.equals(labels.get(LabelsUtil.LABEL_KEY_SESSION))
+                || !Boolean.FALSE.equals(deployment.getSpec().getTemplate().getSpec().getAutomountServiceAccountToken());
+    }
+
     /**
      * The IDE pod of a pool instance has no session labels until it is claimed, so the policy that connects it to its
      * own sidecars selects the pods by their app labels.
@@ -464,11 +493,6 @@ public class SidecarManager {
     private boolean ensurePrewarmedNetworkPolicy(AppDefinition appDef, int instance, List<SidecarConfig> configs,
             String correlationId) {
         String name = SidecarResourceFactory.getPrewarmedNetworkPolicyName(appDef, instance);
-        var client = factory.getClient();
-        if (client.kubernetes().network().v1().networkPolicies().inNamespace(client.namespace()).withName(name)
-                .get() != null) {
-            return true;
-        }
         List<String> apps = new ArrayList<>();
         apps.add(TheiaCloudHandlerUtil.getAppSelector(appDef, instance));
         configs.forEach(config -> apps.add(SidecarResourceFactory.getPrewarmedResourceName(appDef, instance, config)));
@@ -486,9 +510,9 @@ public class SidecarManager {
             AppDefinition appDef,
             int targetInstances,
             Map<String, String> labels,
+            Set<Integer> claimedInstances,
             String correlationId) {
-        // Same logic as ensureCapacity — create any missing
-        return ensurePrewarmedSidecarCapacity(appDef, targetInstances, labels, correlationId);
+        return ensurePrewarmedSidecarCapacity(appDef, targetInstances, labels, claimedInstances, correlationId);
     }
 
     private Optional<List<SidecarConfig>> getValidatedSidecarConfigs(AppDefinition appDef, String correlationId) {

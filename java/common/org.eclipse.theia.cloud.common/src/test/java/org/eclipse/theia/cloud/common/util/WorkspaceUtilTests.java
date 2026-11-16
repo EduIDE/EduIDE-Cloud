@@ -59,4 +59,10 @@ class WorkspaceUtilTests {
         assertFalse(WorkspaceUtil.isReservedWorkspaceName("ws-java-17-playground-alice-1a2b3c"));
         assertFalse(WorkspaceUtil.isReservedWorkspaceName(null));
     }
+
+    @Test
+    void legacyEphemeralSessionNameIsTheOldFormat() {
+        assertEquals("ws-ide-alice-example-org-session",
+                WorkspaceUtil.getLegacyEphemeralSessionName("alice@example.org", "ide"));
+    }
 }

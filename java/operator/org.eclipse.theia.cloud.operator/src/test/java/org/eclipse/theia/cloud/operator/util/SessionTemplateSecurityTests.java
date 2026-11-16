@@ -66,6 +66,11 @@ class SessionTemplateSecurityTests {
     }
 
     @Test
+    void operatorTemplateHasNoSkipAuthRoute() throws IOException {
+        assertFalse(Files.readString(Paths.get("src/main/resources/templateDeployment.yaml")).contains("--skip-auth-route"));
+    }
+
+    @Test
     void oAuth2ProxyVersionDefaultIsPinned() {
         TheiaCloudOperatorArguments arguments = new TheiaCloudOperatorArguments();
         new CommandLine(arguments).parseArgs("--instancesHost", "example.org");

@@ -30,7 +30,7 @@ public final class WorkspaceUtil {
     private static final String WORKSPACE_PREFIX = "ws-";
     /** Prefix of ephemeral session names. Users cannot create workspaces with this prefix. */
     private static final String EPHEMERAL_PREFIX = "eph-";
-    private static final int EPHEMERAL_HASH_LENGTH = 8;
+    private static final int EPHEMERAL_HASH_LENGTH = 16;
     private static final int WORKSPACE_NAME_LIMIT = NamingUtil.VALID_NAME_LIMIT - SESSION_SUFFIX.length();
 
     private WorkspaceUtil() {
@@ -51,6 +51,16 @@ public final class WorkspaceUtil {
                 (EPHEMERAL_PREFIX + getWorkspaceDescription(appDefinitionName) + "-" + user).toLowerCase(),
                 WORKSPACE_NAME_LIMIT - EPHEMERAL_HASH_LENGTH - 1);
         return readable + "-" + hash(user);
+    }
+
+    /**
+     * The name ephemeral sessions had before they got the reserved prefix and the hash. Sessions that were started
+     * under it keep running, and a relaunch has to find them to not count as a second session.
+     */
+    public static String getLegacyEphemeralSessionName(String user, String appDefinitionName) {
+        return getSessionName(asValidName(
+                (WORKSPACE_PREFIX + getWorkspaceDescription(appDefinitionName) + "-" + user).toLowerCase(),
+                WORKSPACE_NAME_LIMIT));
     }
 
     public static boolean isReservedWorkspaceName(String workspaceName) {

@@ -323,11 +323,10 @@ public class EagerSessionHandler implements SessionHandler {
             releaseSpan.setTag("outcome", success ? "success" : "failure");
             Tracing.finish(releaseSpan, success ? SpanStatus.OK : SpanStatus.INTERNAL_ERROR);
 
-            // Reconcile the specific instance
+            // Recreate what the release discarded, in the background and with retries
             ISpan reconcileSpan = Tracing.childSpan(span, "eager.reconcile_instance", "Reconcile released instance");
             reconcileSpan.setData("instance_id", instanceId);
-            // A workspace volume shared with sidecars outlives the pod, so the next user would see these files
-            pool.reconcileInstance(appDef, instanceId, SidecarConfig.requiresSharedWorkspace(appDef), correlationId);
+            pool.scheduleInstanceRecreation(appDef, instanceId, correlationId);
             Tracing.finishSuccess(reconcileSpan);
 
             span.setTag("outcome", success ? "success" : "failure");

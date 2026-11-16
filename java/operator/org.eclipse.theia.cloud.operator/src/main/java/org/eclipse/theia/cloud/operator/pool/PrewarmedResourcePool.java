@@ -11,8 +11,13 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import org.apache.logging.log4j.LogManager;
@@ -66,6 +71,27 @@ import io.sentry.SpanStatus;
 public class PrewarmedResourcePool {
 
     private static final Logger LOGGER = LogManager.getLogger(PrewarmedResourcePool.class);
+
+    /**
+     * Set on both services of an instance in the same edit that adds the claiming session as owner, and removed only
+     * when the instance is reset. Its value is the UID of the session. A session has no finalizer, so the garbage
+     * collector can drop its owner reference before the operator handles the deletion; the label keeps such an instance
+     * from looking free until it was reset.
+     */
+    public static final String CLAIM_LABEL = "theia-cloud.io/claimed";
+
+    private static final ScheduledExecutorService BACKGROUND = Executors.newSingleThreadScheduledExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "pool-background");
+        thread.setDaemon(true);
+        return thread;
+    });
+    private static final int MAX_RECREATION_ATTEMPTS = 8;
+    private final Set<String> pendingReconciles = ConcurrentHashMap.newKeySet();
+
+    static boolean isClaimed(HasMetadata resource) {
+        return resource.getMetadata().getLabels() != null
+                && resource.getMetadata().getLabels().containsKey(CLAIM_LABEL);
+    }
 
     public static final String EAGER_START_REFRESH_ANNOTATION = "theia-cloud.io/eager-start-refresh";
     public static final String APPDEFINITION_GENERATION_LABEL = "theia-cloud.io/appdefinition-generation";
@@ -327,6 +353,10 @@ public class PrewarmedResourcePool {
             long currentGeneration = appDef.getMetadata().getGeneration();
             Map<String, String> labels = new HashMap<>();
 
+            // Instances whose session is gone and that were never reset, e.g. because the operator was down
+            resetOrphanedClaims(appDef, correlationId);
+            Set<Integer> claimedIds = claimedInstanceIds(appDef);
+
             boolean success = true;
 
             // Reconcile services
@@ -355,7 +385,7 @@ public class PrewarmedResourcePool {
                             .resourceTypeName("service").createResource(instance -> {
                                 resourceFactory.createServiceForEagerInstance(appDef, instance, labels, correlationId);
                             }).shouldRecreate(
-                                    s -> OwnershipManager.isOwnedSolelyBy(s, owner)
+                                    s -> OwnershipManager.isOwnedSolelyBy(s, owner) && !isClaimed(s)
                                             && isOutdated(s, currentGeneration))
                             .recreateResource(s -> {
                                 Integer id = TheiaCloudServiceUtil.getId(correlationId, appDef, s);
@@ -377,7 +407,7 @@ public class PrewarmedResourcePool {
                                 resourceFactory.createInternalServiceForEagerInstance(appDef, instance, labels,
                                         correlationId);
                             }).shouldRecreate(
-                                    s -> OwnershipManager.isOwnedSolelyBy(s, owner)
+                                    s -> OwnershipManager.isOwnedSolelyBy(s, owner) && !isClaimed(s)
                                             && isOutdated(s, currentGeneration))
                             .recreateResource(s -> {
                                 Integer id = TheiaCloudServiceUtil.getId(correlationId, appDef, s);
@@ -429,6 +459,7 @@ public class PrewarmedResourcePool {
                                 .createResource(instance -> resourceFactory.createProxyConfigMapForEagerInstance(appDef,
                                         instance, labels, correlationId))
                                 .shouldRecreate(cm -> OwnershipManager.isOwnedSolelyBy(cm, owner)
+                                        && !claimedIds.contains(parseConfigMapInstanceIdOrDefault(appDef, cm, -1))
                                         && isOutdated(cm, currentGeneration))
                                 .recreateResource(cm -> {
                                     Integer id = TheiaCloudConfigMapUtil.getProxyId(correlationId, appDef, cm);
@@ -450,6 +481,7 @@ public class PrewarmedResourcePool {
                                 .createResource(instance -> resourceFactory.createEmailConfigMapForEagerInstance(appDef,
                                         instance, labels, correlationId))
                                 .shouldRecreate(cm -> OwnershipManager.isOwnedSolelyBy(cm, owner)
+                                        && !claimedIds.contains(parseConfigMapInstanceIdOrDefault(appDef, cm, -1))
                                         && isOutdated(cm, currentGeneration))
                                 .recreateResource(cm -> {
                                     Integer id = TheiaCloudConfigMapUtil.getEmailId(correlationId, appDef, cm);
@@ -483,7 +515,7 @@ public class PrewarmedResourcePool {
 
             // Reconcile sidecar resources BEFORE Theia deployments so DNS resolves at pod startup
             success &= sidecarManager.reconcilePrewarmedSidecars(appDef, targetInstances, labels,
-                    computeClaimedInstances(appDef, client.sessions().list()).keySet(), correlationId);
+                    claimedIds, correlationId);
 
             // Reconcile deployments
             ISpan deploySpan = span.startChild("pool.reconcile_deployments", "Reconcile deployments");
@@ -509,6 +541,7 @@ public class PrewarmedResourcePool {
                             })
                             .shouldRecreate(
                                     d -> OwnershipManager.isOwnedSolelyBy(d, owner)
+                                            && !claimedIds.contains(parseDeploymentInstanceIdOrDefault(appDef, d, -1))
                                             && (isOutdated(d, currentGeneration) || lacksDataBridgeToken(appDef, d)))
                             .recreateResource(d -> {
                                 Integer id = TheiaCloudDeploymentUtil.getId(correlationId, appDef, d);
@@ -548,15 +581,19 @@ public class PrewarmedResourcePool {
      * labels or the data bridge token reference are missing → recreate the deployment and keep the PVC - Otherwise → do nothing
      */
     public void reconcileInstance(AppDefinition appDef, int instanceId, String correlationId) {
-        reconcileInstance(appDef, instanceId, false, correlationId);
+        boolean create;
+        // Looking at the instance and deleting its resources happens under the pool lock, so that no session can claim
+        // it in between. Building the new one can wait for a volume and happens outside.
+        synchronized (this) {
+            create = reconcileInstanceLocked(appDef, instanceId, correlationId);
+        }
+        if (create) {
+            createInstanceResources(appDef, instanceId, correlationId);
+        }
     }
 
-    /**
-     * @param forceRecreate recreate the instance including its PVC even when it is up to date, so that nothing a
-     *                      previous session wrote to the shared workspace volume reaches the next one
-     */
-    public void reconcileInstance(AppDefinition appDef, int instanceId, boolean forceRecreate,
-            String correlationId) {
+    /** @return true when the instance was cleared and has to be created again */
+    private boolean reconcileInstanceLocked(AppDefinition appDef, int instanceId, String correlationId) {
         String appDefName = appDef.getSpec().getName();
         int minInstances = appDef.getSpec().getMinInstances();
         long currentGeneration = appDef.getMetadata().getGeneration();
@@ -597,6 +634,13 @@ public class PrewarmedResourcePool {
             span.setData("found_deployments", instanceDeployments.size());
             span.setData("found_configmaps", instanceConfigMaps.size());
 
+            if (instanceServices.stream().anyMatch(s -> isClaimed(s) || !TheiaCloudServiceUtil.isUnusedService(s))) {
+                // A session holds this instance, or just claimed it. It is reset when that session ends.
+                span.setTag("action", "claimed");
+                Tracing.finishSuccess(span);
+                return false;
+            }
+
             if (instanceId > minInstances) {
                 span.setTag("action", "delete_excess");
                 LOGGER.info(formatLogMessage(correlationId,
@@ -609,12 +653,13 @@ public class PrewarmedResourcePool {
                 deleteDataBridgeToken(appDef, instanceId, correlationId);
                 Tracing.finishSuccess(deleteSpan);
                 Tracing.finishSuccess(span);
-                return;
+                return false;
             }
 
             boolean missingVolume = SidecarConfig.requiresSharedWorkspace(appDef) && !instanceDeployments.isEmpty()
                     && client.persistentVolumeClaimsClient().get(getInstancePvcName(appDef, instanceId)).isEmpty();
-            boolean outdated = forceRecreate || missingVolume || isOutdated(instanceServices, currentGeneration)
+            boolean incomplete = instanceDeployments.isEmpty() || instanceServices.size() < 2;
+            boolean outdated = incomplete || missingVolume || isOutdated(instanceServices, currentGeneration)
                     || isOutdated(instanceDeployments, currentGeneration)
                     || isOutdated(instanceConfigMaps, currentGeneration);
 
@@ -627,10 +672,9 @@ public class PrewarmedResourcePool {
                 deleteInstanceResources(instanceServices, instanceDeployments, instanceConfigMaps, correlationId);
                 sidecarManager.deletePrewarmedSidecars(appDef, instanceId, correlationId);
                 deleteInstancePvc(appDef, instanceId, correlationId);
-                createInstanceResources(appDef, instanceId, correlationId);
                 Tracing.finishSuccess(recreateSpan);
                 Tracing.finishSuccess(span);
-                return;
+                return true;
             }
 
             if (instanceDeployments.stream().anyMatch(PrewarmedResourcePool::lacksNetworkPolicyLabels)
@@ -655,12 +699,13 @@ public class PrewarmedResourcePool {
                     span.setTag("outcome", "failure");
                     Tracing.finish(span, SpanStatus.INTERNAL_ERROR);
                 }
-                return;
+                return false;
             }
 
             span.setTag("action", "no_action");
             LOGGER.info(formatLogMessage(correlationId, "Instance " + instanceId + " is up-to-date, no action needed"));
             Tracing.finishSuccess(span);
+            return false;
 
         } catch (Exception e) {
             Tracing.finishError(span, e);
@@ -760,7 +805,7 @@ public class PrewarmedResourcePool {
         }
     }
 
-    private void createInstanceResources(AppDefinition appDef, int instanceId, String correlationId) {
+    void createInstanceResources(AppDefinition appDef, int instanceId, String correlationId) {
         Map<String, String> labels = new HashMap<>();
 
         Optional<String> pvcName = createInstancePvc(appDef, instanceId, correlationId);
@@ -772,9 +817,6 @@ public class PrewarmedResourcePool {
             return;
         }
 
-        resourceFactory.createServiceForEagerInstance(appDef, instanceId, labels, correlationId);
-        resourceFactory.createInternalServiceForEagerInstance(appDef, instanceId, labels, correlationId);
-
         if (arguments.isUseKeycloak()) {
             resourceFactory.createProxyConfigMapForEagerInstance(appDef, instanceId, labels, correlationId);
             resourceFactory.createEmailConfigMapForEagerInstance(appDef, instanceId, labels, correlationId);
@@ -784,6 +826,10 @@ public class PrewarmedResourcePool {
         sidecarManager.createPrewarmedSidecars(appDef, instanceId, pvcName, labels, correlationId);
 
         resourceFactory.createDeploymentForEagerInstance(appDef, instanceId, pvcName, labels, correlationId);
+
+        // The services make an instance claimable, so they come last: nothing can claim a half-built instance
+        resourceFactory.createServiceForEagerInstance(appDef, instanceId, labels, correlationId);
+        resourceFactory.createInternalServiceForEagerInstance(appDef, instanceId, labels, correlationId);
     }
 
     /**
@@ -1076,13 +1122,16 @@ public class PrewarmedResourcePool {
 
             // Find available instance
             List<Integer> availableIds = externalByInstance.entrySet().stream()
-                    .filter(e -> TheiaCloudServiceUtil.isUnusedService(e.getValue())).filter(e -> {
+                    .filter(e -> TheiaCloudServiceUtil.isUnusedService(e.getValue()) && !isClaimed(e.getValue()))
+                    .filter(e -> {
                         Service internal = internalByInstance.get(e.getKey());
-                        return internal != null && TheiaCloudServiceUtil.isUnusedService(internal);
+                        return internal != null && TheiaCloudServiceUtil.isUnusedService(internal)
+                                && !isClaimed(internal) && hasDeployment(appDef, e.getKey());
                     }).map(Map.Entry::getKey).sorted(Comparator.naturalOrder()).collect(Collectors.toList());
 
             if (availableIds.isEmpty()) {
                 LOGGER.info(formatLogMessage(correlationId, "No prewarmed instances available"));
+                scheduleReconcile(appDef);
                 span.setTag("reservation.type", "no_capacity");
                 span.setTag("pool.outcome", "no_capacity");;
                 span.setTag("outcome", "no_capacity"); Tracing.finish(span, SpanStatus.RESOURCE_EXHAUSTED);
@@ -1229,9 +1278,10 @@ public class PrewarmedResourcePool {
         try {
             String sessionUID = session.getMetadata().getUid();
 
-            // Find services owned by this session
-            Map<String, String> sessionLabels = LabelsUtil.createSessionLabels(session, appDef);
-            List<Service> services = findServicesByLabels(sessionLabels, correlationId);
+            // The instance id the session recorded is authoritative: the labels of the services are only a fallback
+            Integer instanceId = parseClaimedInstanceId(session);
+            List<Service> services = instanceId != null ? servicesOfInstance(appDef, instanceId)
+                    : findServicesByLabels(LabelsUtil.createSessionLabels(session, appDef), correlationId);
 
             if (services.isEmpty()) {
                 LOGGER.error(formatLogMessage(correlationId,
@@ -1259,7 +1309,9 @@ public class PrewarmedResourcePool {
             Service externalService = externalServices.get(0);
             Service internalService = internalServices.get(0);
 
-            Integer instanceId = parseInstanceId(externalService);
+            if (instanceId == null) {
+                instanceId = parseInstanceId(externalService);
+            }
             if (instanceId == null) {
                 LOGGER.error(formatLogMessage(correlationId, "Cannot determine instance ID from service"));
                 span.setTag("error.reason", "cannot_parse_instance_id");
@@ -1268,59 +1320,18 @@ public class PrewarmedResourcePool {
             }
             span.setData("instance_id", instanceId);
 
-            boolean success = true;
-            String deploymentName = TheiaCloudDeploymentUtil.getDeploymentName(appDef, instanceId);
-
-            // Everything that is reset below has to be finished before the services are released: a released
-            // instance can be claimed at once, and a claim must never reach the previous user's pod or token.
-
-            // Clear email config
-            if (arguments.isUseKeycloak()) {
-                ISpan emailSpan = span.startChild("pool.clear_email_config", "Clear email config");
-                String emailConfigName = TheiaCloudConfigMapUtil.getEmailConfigName(appDef, instanceId);
-                try {
-                    client.kubernetes().configMaps().withName(emailConfigName).edit(cm -> {
-                        cm.setData(Collections.singletonMap(AddedHandlerUtil.FILENAME_AUTHENTICATED_EMAILS_LIST, null));
-                        return cm;
-                    });
-                    Tracing.finishSuccess(emailSpan);
-                } catch (KubernetesClientException e) {
-                    LOGGER.error(formatLogMessage(correlationId, "Failed to clear email config"), e);
-                    Tracing.finishError(emailSpan, e);
-                    success = false;
-                }
+            String claimant = externalService.getMetadata().getLabels() == null ? null
+                    : externalService.getMetadata().getLabels().get(CLAIM_LABEL);
+            if (claimant != null && !claimant.equals(sessionUID)) {
+                // Reset already (e.g. as an orphaned claim) and claimed again since. Not this session's any more.
+                LOGGER.warn(formatLogMessage(correlationId, "Instance " + instanceId
+                        + " is claimed by another session, nothing to release for " + sessionName));
+                Tracing.finishSuccess(span);
+                return true;
             }
 
-            // Replace the pod and rotate the data bridge token
-            ISpan podSpan = span.startChild("pool.delete_pod", "Delete pod to reset state");
-            resetPod(appDef, instanceId, deploymentName, correlationId);
-            Tracing.finishSuccess(podSpan);
-
-            if (SidecarConfig.requiresSharedWorkspace(appDef)) {
-                // The workspace volume outlives the pod. The pool lock is held and the pod and the token are reset, so
-                // take the instance away before it can be claimed: no services, no deployment to start a pod on the old
-                // volume, volume deleted. The caller recreates the instance afterwards.
-                discardInstanceWithSharedWorkspace(appDef, instanceId, externalService, internalService, deploymentName,
-                        correlationId);
-            } else {
-                // Clean up services: from here on the instance can be claimed
-                ISpan svcSpan = span.startChild("pool.cleanup_services", "Clean up services");
-                success &= cleanupService(externalService, sessionName, sessionUID, correlationId);
-                success &= cleanupService(internalService, sessionName, sessionUID, correlationId);
-                svcSpan.setTag("outcome", success ? "success" : "failure"); Tracing.finish(svcSpan, success ? SpanStatus.OK : SpanStatus.INTERNAL_ERROR);
-
-                // Clean up deployment
-                ISpan deploySpan = span.startChild("pool.cleanup_deployment", "Clean up deployment");
-                try {
-                    client.kubernetes().apps().deployments().withName(deploymentName).edit(d -> TheiaCloudHandlerUtil
-                            .removeOwnerReferenceFromItem(correlationId, sessionName, sessionUID, d));
-                    Tracing.finishSuccess(deploySpan);
-                } catch (KubernetesClientException e) {
-                    LOGGER.error(formatLogMessage(correlationId, "Failed to clean up deployment"), e);
-                    Tracing.finishError(deploySpan, e);
-                    success = false;
-                }
-            }
+            boolean success = resetClaimedInstance(appDef, instanceId, externalService, internalService,
+                    correlationId);
 
             span.setTag("outcome", success ? "success" : "failure"); Tracing.finish(span, success ? SpanStatus.OK : SpanStatus.INTERNAL_ERROR);
             return success;
@@ -1331,8 +1342,95 @@ public class PrewarmedResourcePool {
         }
     }
 
-    private void discardInstanceWithSharedWorkspace(AppDefinition appDef, int instanceId, Service externalService,
+    /**
+     * Resets an instance whose session is gone, with the pool lock held. Everything that reaches the next user is reset
+     * before the claim label is removed: a free instance can be claimed at once. An instance that is shared with
+     * sidecars through a volume, or that is outdated, is not reset but discarded and recreated, so its pod, volume and
+     * resources are replaced by new ones.
+     */
+    private boolean resetClaimedInstance(AppDefinition appDef, int instanceId, Service externalService,
+            Service internalService, String correlationId) {
+        boolean success = true;
+        String deploymentName = TheiaCloudDeploymentUtil.getDeploymentName(appDef, instanceId);
+
+        // Clear email config
+        if (arguments.isUseKeycloak()) {
+            String emailConfigName = TheiaCloudConfigMapUtil.getEmailConfigName(appDef, instanceId);
+            try {
+                client.kubernetes().configMaps().withName(emailConfigName).edit(cm -> {
+                    cm.setData(Collections.singletonMap(AddedHandlerUtil.FILENAME_AUTHENTICATED_EMAILS_LIST, null));
+                    return cm;
+                });
+            } catch (KubernetesClientException e) {
+                LOGGER.error(formatLogMessage(correlationId, "Failed to clear email config"), e);
+                success = false;
+            }
+        }
+
+        if (SidecarConfig.requiresSharedWorkspace(appDef) || needsRecreation(appDef, instanceId)) {
+            discardInstance(appDef, instanceId, externalService, internalService, deploymentName, correlationId);
+            return success;
+        }
+
+        // Replace the pod and rotate the data bridge token
+        resetPod(appDef, instanceId, deploymentName, correlationId);
+
+        // Clean up deployment
+        try {
+            client.kubernetes().apps().deployments().withName(deploymentName).edit(d -> {
+                removeSessionOwners(d);
+                return d;
+            });
+        } catch (KubernetesClientException e) {
+            LOGGER.error(formatLogMessage(correlationId, "Failed to clean up deployment"), e);
+            success = false;
+        }
+
+        // Clean up services: the claim label goes last, from here on the instance can be claimed
+        success &= cleanupService(externalService, correlationId);
+        success &= cleanupService(internalService, correlationId);
+        return success;
+    }
+
+    /** Outdated or incomplete instances are not worth resetting, a new one is built in their place. */
+    boolean needsRecreation(AppDefinition appDef, int instanceId) {
+        String ownerName = appDef.getMetadata().getName();
+        String ownerUID = appDef.getMetadata().getUid();
+        long generation = appDef.getMetadata().getGeneration();
+        List<Deployment> deployments = K8sUtil.getExistingDeployments(client.kubernetes(), client.namespace(),
+                ownerName, ownerUID).stream()
+                .filter(d -> instanceId == parseDeploymentInstanceIdOrDefault(appDef, d, -1))
+                .collect(Collectors.toList());
+        List<ConfigMap> configMaps = K8sUtil
+                .getExistingConfigMaps(client.kubernetes(), client.namespace(), ownerName, ownerUID).stream()
+                .filter(cm -> instanceId == parseConfigMapInstanceIdOrDefault(appDef, cm, -1))
+                .collect(Collectors.toList());
+        List<Service> services = servicesOfInstance(appDef, instanceId);
+        return deployments.isEmpty() || isOutdated(services, generation) || isOutdated(deployments, generation)
+                || isOutdated(configMaps, generation)
+                || deployments.stream().anyMatch(d -> lacksDataBridgeToken(appDef, d));
+    }
+
+    /**
+     * Takes an instance away completely: no services to claim, no deployment that could start a pod on an old volume,
+     * and a rotated data bridge token. The reconcile that follows builds a new instance.
+     */
+    private void discardInstance(AppDefinition appDef, int instanceId, Service externalService,
             Service internalService, String deploymentName, String correlationId) {
+        if (DataBridgeUtil.isDataBridgeEnabled(appDef.getSpec())
+                && !dataBridgeTokens.rotate(appDef, instanceId, correlationId)) {
+            deleteDataBridgeToken(appDef, instanceId, correlationId);
+        }
+        // The pod goes with the deployment. The services are deleted last: while they exist the instance is claimed.
+        try {
+            client.kubernetes().apps().deployments().inNamespace(client.namespace()).withName(deploymentName).delete();
+        } catch (KubernetesClientException e) {
+            LOGGER.warn(formatLogMessage(correlationId, "Failed to delete deployment " + deploymentName), e);
+        }
+        sidecarManager.deletePrewarmedSidecars(appDef, instanceId, correlationId);
+        if (SidecarConfig.requiresSharedWorkspace(appDef)) {
+            deleteInstancePvc(appDef, instanceId, correlationId);
+        }
         for (Service service : List.of(externalService, internalService)) {
             try {
                 client.kubernetes().services().inNamespace(client.namespace()).withName(service.getMetadata().getName())
@@ -1342,13 +1440,120 @@ public class PrewarmedResourcePool {
                         "Failed to delete service " + service.getMetadata().getName()), e);
             }
         }
-        try {
-            client.kubernetes().apps().deployments().inNamespace(client.namespace()).withName(deploymentName).delete();
-        } catch (KubernetesClientException e) {
-            LOGGER.warn(formatLogMessage(correlationId, "Failed to delete deployment " + deploymentName), e);
+    }
+
+    /**
+     * Resets instances that are marked as claimed but whose session no longer exists, which happens when the operator
+     * missed the deletion event (it was down). Also marks instances of live claims that predate the claim label.
+     */
+    synchronized void resetOrphanedClaims(AppDefinition appDef, String correlationId) {
+        String appDefName = appDef.getMetadata().getName();
+        List<Session> sessions = client.sessions().list();
+        Set<String> liveSessions = sessions.stream()
+                .filter(s -> s.getSpec() != null && appDefName.equals(s.getSpec().getAppDefinition()))
+                .map(s -> s.getMetadata().getUid()).collect(Collectors.toSet());
+
+        List<Service> services = K8sUtil.getExistingServices(client.kubernetes(), client.namespace(), appDefName,
+                appDef.getMetadata().getUid());
+        for (Service external : services) {
+            if (external.getMetadata().getName().endsWith("-int") || !isClaimed(external)) {
+                continue;
+            }
+            Integer instanceId = parseInstanceId(external);
+            if (instanceId == null || liveSessions.contains(external.getMetadata().getLabels().get(CLAIM_LABEL))) {
+                continue;
+            }
+            List<Service> instanceServices = servicesOfInstance(appDef, instanceId);
+            Optional<Service> internal = instanceServices.stream()
+                    .filter(s -> s.getMetadata().getName().endsWith("-int")).findAny();
+            if (internal.isEmpty()) {
+                continue;
+            }
+            LOGGER.warn(formatLogMessage(correlationId,
+                    "Instance " + instanceId + " is claimed by a session that no longer exists, resetting it"));
+            resetClaimedInstance(appDef, instanceId, external, internal.get(), correlationId);
         }
-        sidecarManager.deletePrewarmedSidecars(appDef, instanceId, correlationId);
-        deleteInstancePvc(appDef, instanceId, correlationId);
+
+        for (Map.Entry<Integer, Session> claim : computeClaimedInstances(appDef, sessions).entrySet()) {
+            for (Service service : servicesOfInstance(appDef, claim.getKey())) {
+                if (!isClaimed(service)) {
+                    String uid = claim.getValue().getMetadata().getUid();
+                    client.services().inNamespace(client.namespace()).withName(service.getMetadata().getName())
+                            .edit(s -> {
+                                if (s.getMetadata().getLabels() == null) {
+                                    s.getMetadata().setLabels(new HashMap<>());
+                                }
+                                s.getMetadata().getLabels().put(CLAIM_LABEL, uid);
+                                return s;
+                            });
+                }
+            }
+        }
+    }
+
+    /** Ids of the instances that carry a claim, from the live services. */
+    private Set<Integer> claimedInstanceIds(AppDefinition appDef) {
+        return K8sUtil.getExistingServices(client.kubernetes(), client.namespace(), appDef.getMetadata().getName(),
+                appDef.getMetadata().getUid()).stream().filter(PrewarmedResourcePool::isClaimed)
+                .map(this::parseInstanceId).filter(Objects::nonNull).collect(Collectors.toSet());
+    }
+
+    // ========== Background work ==========
+
+    /**
+     * Recreates a discarded instance in the background and retries with a growing delay until it exists. A recreation
+     * can wait for the old volume to go, which must not block the thread of the session that was deleted. There is no
+     * periodic reconcile, so this is also what repairs an instance when a first attempt fails.
+     */
+    public void scheduleInstanceRecreation(AppDefinition appDef, int instanceId, String correlationId) {
+        BACKGROUND.execute(() -> recreateInstance(appDef.getMetadata().getName(), instanceId, correlationId, 0));
+    }
+
+    private void recreateInstance(String appDefName, int instanceId, String correlationId, int attempt) {
+        try {
+            Optional<AppDefinition> current = client.appDefinitions().get(appDefName);
+            if (current.isEmpty()) {
+                return;
+            }
+            AppDefinition appDef = current.get();
+            reconcileInstance(appDef, instanceId, correlationId);
+            boolean done = instanceId > appDef.getSpec().getMinInstances() || isInstanceComplete(appDef, instanceId);
+            if (!done && attempt < MAX_RECREATION_ATTEMPTS) {
+                long delay = Math.min(5L << attempt, 120L);
+                BACKGROUND.schedule(() -> recreateInstance(appDefName, instanceId, correlationId, attempt + 1), delay,
+                        TimeUnit.SECONDS);
+            } else if (!done) {
+                LOGGER.error(formatLogMessage(correlationId,
+                        "Giving up recreating instance " + instanceId + " of " + appDefName));
+            }
+        } catch (Exception e) {
+            LOGGER.error(formatLogMessage(correlationId, "Recreating instance " + instanceId + " failed"), e);
+            if (attempt < MAX_RECREATION_ATTEMPTS) {
+                BACKGROUND.schedule(() -> recreateInstance(appDefName, instanceId, correlationId, attempt + 1),
+                        Math.min(5L << attempt, 120L), TimeUnit.SECONDS);
+            }
+        }
+    }
+
+    private boolean isInstanceComplete(AppDefinition appDef, int instanceId) {
+        return hasDeployment(appDef, instanceId) && servicesOfInstance(appDef, instanceId).size() == 2;
+    }
+
+    /** A pool without a free instance reconciles itself once, so a lost instance does not block launches for good. */
+    private void scheduleReconcile(AppDefinition appDef) {
+        String name = appDef.getMetadata().getName();
+        if (!pendingReconciles.add(name)) {
+            return;
+        }
+        BACKGROUND.schedule(() -> {
+            pendingReconciles.remove(name);
+            try {
+                client.appDefinitions().get(name).ifPresent(current -> reconcile(current,
+                        current.getSpec().getMinInstances(), "pool-no-capacity"));
+            } catch (Exception e) {
+                LOGGER.error(formatLogMessage("pool-no-capacity", "Reconciling the pool of " + name + " failed"), e);
+            }
+        }, 5, TimeUnit.SECONDS);
     }
 
     // ========== Helper Methods ==========
@@ -1392,7 +1597,7 @@ public class PrewarmedResourcePool {
         }
 
         Service counterpart = reservedExternal.isPresent() ? internalMap.get(instance) : externalMap.get(instance);
-        if (counterpart == null || !TheiaCloudServiceUtil.isUnusedService(counterpart)) {
+        if (counterpart == null || !TheiaCloudServiceUtil.isUnusedService(counterpart) || isClaimed(counterpart)) {
             LOGGER.warn(formatLogMessage(correlationId, "Partial reservation cannot be completed, rolling back"));
             rollbackReservation(reserved, sessionName, sessionUID, correlationId);
             return ReservationResult.noCapacity();
@@ -1413,14 +1618,23 @@ public class PrewarmedResourcePool {
     }
 
     private void reserveService(Service service, String sessionName, String sessionUID, String correlationId) {
-        client.services().inNamespace(client.namespace()).withName(service.getMetadata().getName())
-                .edit(s -> TheiaCloudHandlerUtil.addOwnerReferenceToItem(correlationId, sessionName, sessionUID, s));
+        client.services().inNamespace(client.namespace()).withName(service.getMetadata().getName()).edit(s -> {
+            TheiaCloudHandlerUtil.addOwnerReferenceToItem(correlationId, sessionName, sessionUID, s);
+            if (s.getMetadata().getLabels() == null) {
+                s.getMetadata().setLabels(new HashMap<>());
+            }
+            s.getMetadata().getLabels().put(CLAIM_LABEL, sessionUID);
+            return s;
+        });
     }
 
     private void rollbackReservation(Service service, String sessionName, String sessionUID, String correlationId) {
         try {
             client.services().inNamespace(client.namespace()).withName(service.getMetadata().getName()).edit(s -> {
                 TheiaCloudHandlerUtil.removeOwnerReferenceFromItem(correlationId, sessionName, sessionUID, s);
+                if (s.getMetadata().getLabels() != null) {
+                    s.getMetadata().getLabels().remove(CLAIM_LABEL);
+                }
                 return s;
             });
         } catch (KubernetesClientException e) {
@@ -1440,14 +1654,15 @@ public class PrewarmedResourcePool {
         });
     }
 
-    private boolean cleanupService(Service service, String sessionName, String sessionUID, String correlationId) {
+    private boolean cleanupService(Service service, String correlationId) {
         int attempts = 0;
         while (attempts < 3) {
             try {
                 client.services().inNamespace(service.getMetadata().getNamespace()).withName(service.getMetadata().getName()).edit(s -> {
-                    TheiaCloudHandlerUtil.removeOwnerReferenceFromItem(correlationId, sessionName, sessionUID, s);
+                    removeSessionOwners(s);
                     if (s.getMetadata().getLabels() != null) {
                         s.getMetadata().getLabels().keySet().removeAll(LabelsUtil.getSessionSpecificLabelKeys());
+                        s.getMetadata().getLabels().remove(CLAIM_LABEL);
                     }
                     return s;
                 });
@@ -1461,6 +1676,26 @@ public class PrewarmedResourcePool {
             }
         }
         return false;
+    }
+
+    private static void removeSessionOwners(HasMetadata item) {
+        if (item.getMetadata().getOwnerReferences() != null) {
+            item.getMetadata().getOwnerReferences().removeIf(owner -> Session.KIND.equals(owner.getKind()));
+        }
+    }
+
+    private boolean hasDeployment(AppDefinition appDef, int instanceId) {
+        return client.kubernetes().apps().deployments().inNamespace(client.namespace())
+                .withName(TheiaCloudDeploymentUtil.getDeploymentName(appDef, instanceId)).get() != null;
+    }
+
+    private List<Service> servicesOfInstance(AppDefinition appDef, int instanceId) {
+        String external = TheiaCloudServiceUtil.getServiceName(appDef, instanceId);
+        String internal = TheiaCloudServiceUtil.getInternalServiceName(appDef, instanceId);
+        return K8sUtil.getExistingServices(client.kubernetes(), client.namespace(), appDef.getMetadata().getName(),
+                appDef.getMetadata().getUid()).stream()
+                .filter(s -> external.equals(s.getMetadata().getName()) || internal.equals(s.getMetadata().getName()))
+                .collect(Collectors.toList());
     }
 
     private List<Service> findServicesByLabels(Map<String, String> labels, String correlationId) {
@@ -1536,13 +1771,23 @@ public class PrewarmedResourcePool {
         }
     }
 
-    private void deletePod(String deploymentName, String correlationId) {
+    void deletePod(String deploymentName, String correlationId) {
         try {
-            Optional<Pod> pod = client.kubernetes().pods().list().getItems().stream()
-                    .filter(p -> p.getMetadata().getName().startsWith(deploymentName)).findAny();
-            if (pod.isPresent()) {
-                LOGGER.info(formatLogMessage(correlationId, "Deleting pod " + pod.get().getMetadata().getName()));
-                client.pods().withName(pod.get().getMetadata().getName()).delete();
+            Deployment deployment = client.kubernetes().apps().deployments().inNamespace(client.namespace())
+                    .withName(deploymentName).get();
+            Map<String, String> selector = deployment == null || deployment.getSpec() == null
+                    || deployment.getSpec().getSelector() == null ? null
+                            : deployment.getSpec().getSelector().getMatchLabels();
+            // Every pod of the deployment, also the ones a rollout left behind
+            List<Pod> pods = selector != null && !selector.isEmpty()
+                    ? client.kubernetes().pods().inNamespace(client.namespace()).withLabels(selector).list()
+                            .getItems()
+                    : client.kubernetes().pods().list().getItems().stream()
+                            .filter(p -> p.getMetadata().getName().startsWith(deploymentName))
+                            .collect(Collectors.toList());
+            for (Pod pod : pods) {
+                LOGGER.info(formatLogMessage(correlationId, "Deleting pod " + pod.getMetadata().getName()));
+                client.pods().withName(pod.getMetadata().getName()).delete();
             }
         } catch (KubernetesClientException e) {
             LOGGER.error(formatLogMessage(correlationId, "Failed to delete pod"), e);

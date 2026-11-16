@@ -7,7 +7,7 @@
 Fixes from the internal security audit 2026-11-16 (CL-04 to CL-10, CL-14).
 
 - [java/service] Remove the unauthenticated `PATCH /service/session` activity endpoint. The operator already polls the monitor in the session pod; nothing called it. (CL-04)
-- [java/service] Stop writing configuration values to the log at startup. Only the names of the config keys are logged. Rotate the admin API token and the OIDC client secret in every environment that ran an earlier version. (CL-05)
+- [java/service] Stop writing configuration values to the log at startup. Only the names of the configuration sources are logged. Rotate the admin API token and the OIDC client secret in every environment that ran an earlier version. (CL-05)
 - [java/service] `POST /service/session` runs the same AppDefinition checks as `POST /service`: the AppDefinition must exist and have a free instance, and it must match the one of the workspace. A request can no longer rewrite the AppDefinition of a workspace. (CL-06)
 - [java/service] CORS is off unless `CORS_ORIGINS` is set (the chart passes the landing page origin). `GET /service/appdefinition/{appId}` returns only the names of the AppDefinitions; the full spec stays with the admin API. Health, metrics and OpenAPI move to a management port (9000), which is not routed through the gateway. The Prometheus scrape of `/q/metrics` must use that port. (CL-07)
 - [java/service] The OIDC token audience is checked when `KEYCLOAK_AUDIENCE` is set (the Keycloak client needs an audience mapper). TLS verification of the identity provider is always on; a private CA goes into a trust store (`KEYCLOAK_TRUSTSTORE_FILE`, `KEYCLOAK_TRUSTSTORE_PASSWORD`). (CL-08)

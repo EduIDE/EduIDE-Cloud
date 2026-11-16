@@ -15,8 +15,6 @@
  ********************************************************************************/
 package org.eclipse.theia.cloud.service;
 
-import java.util.TreeSet;
-
 import org.eclipse.microprofile.config.ConfigProvider;
 import org.eclipse.microprofile.config.spi.ConfigSource;
 import org.jboss.logging.Logger;
@@ -45,11 +43,10 @@ public class ApplicationLifecycleListener {
         logConfiguration();
     }
 
-    /** Logs where configuration comes from and which keys it sets, never the values: they hold credentials. */
+    /** Logs where configuration comes from, never the values: they hold credentials. */
     private void logConfiguration() {
         for (ConfigSource configSource : ConfigProvider.getConfig().getConfigSources()) {
-            logger.info(configSource.getName() + " (" + configSource.getOrdinal() + "): "
-                    + new TreeSet<>(configSource.getPropertyNames()));
+            logger.info(configSource.getName() + " (" + configSource.getOrdinal() + ")");
         }
     }
 

@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Security
+
+- [java/operator] CL-14 follow-up: the operator no longer logs environment values of session pods. The rendered resource YAML is no longer written at TRACE level, only the kind and name. The default `log4j2.xml` enables TRACE for the operator, so affected deployments logged tokens by default.
+
+### Fixes
+
 - [java/service,java/common] Give each repository its own ephemeral session. The session name now includes a hash of the launch's normalized `GIT_URI` (credentials dropped, scheme and host lowercased, default port and trailing `.git` or `/` ignored), so opening a second repository in the same app definition no longer reopens the first repository's session. Launches without `GIT_URI` and workspace-backed launches keep their names. A session started under an earlier name keeps it until it ends and is reused for a launch of the same repository only. A user can now hold one ephemeral session per repository, still capped by `--sessionsPerUser`.
 
 ## [3.0.0] - 2026-11-16

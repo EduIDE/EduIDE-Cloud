@@ -32,6 +32,8 @@ import org.eclipse.theia.cloud.operator.pv.PersistentVolumeCreator;
 
 import com.google.inject.Inject;
 
+import io.fabric8.kubernetes.client.KubernetesClientException;
+
 public class LazyWorkspaceHandler implements WorkspaceHandler {
     private static final Logger LOGGER = LogManager.getLogger(LazyWorkspaceHandler.class);
 
@@ -133,7 +135,17 @@ public class LazyWorkspaceHandler implements WorkspaceHandler {
 
         String storageName = WorkspaceUtil.getStorageName(workspace);
         client.persistentVolumeClaimsClient().delete(correlationId, storageName);
-        client.persistentVolumesClient().delete(correlationId, storageName);
+
+        // With dynamic provisioning no PV carries the storage name, and the operator may lack the right to delete PVs.
+        // Either way a PV cleanup problem must not stop the operator.
+        try {
+            if (client.persistentVolumesClient().has(storageName)) {
+                client.persistentVolumesClient().delete(correlationId, storageName);
+            }
+        } catch (KubernetesClientException ex) {
+            LOGGER.warn(formatLogMessage(correlationId,
+                    "Could not delete persistent volume " + storageName + ". It is left in place."), ex);
+        }
         return true;
     }
 }

@@ -140,6 +140,26 @@ class DataBridgeTokenManagerTests {
     }
 
     @Test
+    void readForSession_withMissingAppDefinition_isEmpty() {
+        when(appDefinitions.get(APP_DEFINITION)).thenReturn(Optional.empty());
+
+        assertEquals(Optional.empty(), tokens.readForSession(session("3"), "cid"));
+        verify(secrets, never()).withName(any());
+    }
+
+    @Test
+    void lacksTokenReference_dependsOnTheReferenceAndTheBridge() {
+        AppDefinition appDef = appDefinition(true);
+        Deployment withReference = deployment();
+        tokens.prepareDeployment(withReference, appDef, 1, "cid");
+
+        assertEquals(false, DataBridgeTokenManager.lacksTokenReference(withReference, appDef, 1));
+        assertEquals(true, DataBridgeTokenManager.lacksTokenReference(deployment(), appDef, 1));
+        assertEquals(true, DataBridgeTokenManager.lacksTokenReference(withReference, appDef, 2));
+        assertEquals(false, DataBridgeTokenManager.lacksTokenReference(deployment(), appDefinition(false), 1));
+    }
+
+    @Test
     void prepareDeployment_writesTheSecretAndReferencesIt() {
         AppDefinition appDef = appDefinition(true);
         Deployment deployment = deployment();

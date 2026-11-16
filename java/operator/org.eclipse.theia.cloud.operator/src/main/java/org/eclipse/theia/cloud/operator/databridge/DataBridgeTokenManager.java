@@ -150,6 +150,26 @@ public class DataBridgeTokenManager {
                 .build());
     }
 
+    /**
+     * True for a pool deployment of a data bridge app that does not read its token from the instance's Secret, for
+     * example one created before the operator knew about tokens. Its bridge would reject every injection.
+     */
+    public static boolean lacksTokenReference(Deployment deployment, AppDefinition appDef, int instance) {
+        if (!DataBridgeUtil.isDataBridgeEnabled(appDef.getSpec())) {
+            return false;
+        }
+        String secretName = getSecretName(appDef, instance);
+        if (deployment.getSpec().getTemplate().getSpec() == null) {
+            return true;
+        }
+        return deployment.getSpec().getTemplate().getSpec().getContainers().stream()
+                .flatMap(c -> c.getEnv() == null ? java.util.stream.Stream.<io.fabric8.kubernetes.api.model.EnvVar> empty()
+                        : c.getEnv().stream())
+                .noneMatch(env -> TOKEN_ENV.equals(env.getName()) && env.getValueFrom() != null
+                        && env.getValueFrom().getSecretKeyRef() != null
+                        && secretName.equals(env.getValueFrom().getSecretKeyRef().getName()));
+    }
+
     private static String newToken() {
         byte[] bytes = new byte[32];
         RANDOM.nextBytes(bytes);

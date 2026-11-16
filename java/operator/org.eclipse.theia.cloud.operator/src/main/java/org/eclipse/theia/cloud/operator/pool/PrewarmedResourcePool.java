@@ -508,7 +508,7 @@ public class PrewarmedResourcePool {
                             })
                             .shouldRecreate(
                                     d -> OwnershipManager.isOwnedSolelyBy(d, owner)
-                                            && isOutdated(d, currentGeneration))
+                                            && (isOutdated(d, currentGeneration) || lacksDataBridgeToken(appDef, d)))
                             .recreateResource(d -> {
                                 Integer id = TheiaCloudDeploymentUtil.getId(correlationId, appDef, d);
                                 if (id != null) {
@@ -544,7 +544,7 @@ public class PrewarmedResourcePool {
     /**
      * Reconciles a single instance after session release. - If instanceId > minInstances → delete all resources for
      * this instance - If resource generation != current AppDefinition generation → recreate - If only the NetworkPolicy
-     * labels are missing → recreate the deployment and keep the PVC - Otherwise → do nothing
+     * labels or the data bridge token reference are missing → recreate the deployment and keep the PVC - Otherwise → do nothing
      */
     public void reconcileInstance(AppDefinition appDef, int instanceId, String correlationId) {
         String appDefName = appDef.getSpec().getName();
@@ -621,11 +621,12 @@ public class PrewarmedResourcePool {
                 return;
             }
 
-            if (instanceDeployments.stream().anyMatch(PrewarmedResourcePool::lacksNetworkPolicyLabels)) {
-                // Only the pod labels are wrong, so the PVC and the workspace stored on it stay.
+            if (instanceDeployments.stream().anyMatch(PrewarmedResourcePool::lacksNetworkPolicyLabels)
+                    || instanceDeployments.stream().anyMatch(d -> lacksDataBridgeToken(appDef, d))) {
+                // Only the pod labels or the data bridge token are missing, so the PVC and the workspace stored on it stay.
                 span.setTag("action", "repair_labels");
-                LOGGER.info(formatLogMessage(correlationId,
-                        "Instance " + instanceId + " lacks the NetworkPolicy labels, recreating its deployment"));
+                LOGGER.info(formatLogMessage(correlationId, "Instance " + instanceId
+                        + " lacks the NetworkPolicy labels or the data bridge token, recreating its deployment"));
 
                 deleteInstanceResources(List.of(), instanceDeployments, List.of(), correlationId);
                 Optional<String> pvcName = createInstancePvc(appDef, instanceId, correlationId);
@@ -675,6 +676,11 @@ public class PrewarmedResourcePool {
         Map<String, String> labels = deployment.getSpec().getTemplate().getMetadata().getLabels();
         return labels == null || !LabelsUtil.LABEL_VALUE_SESSION.equals(labels.get(LabelsUtil.LABEL_KEY_SESSION))
                 || !LabelsUtil.LABEL_VALUE_THEIACLOUD.equals(labels.get(LabelsUtil.LABEL_KEY_THEIACLOUD));
+    }
+
+    private boolean lacksDataBridgeToken(AppDefinition appDef, Deployment deployment) {
+        Integer id = TheiaCloudDeploymentUtil.getId("", appDef, deployment);
+        return id != null && DataBridgeTokenManager.lacksTokenReference(deployment, appDef, id);
     }
 
     private boolean isOutdated(HasMetadata resource, long currentGeneration) {
@@ -1173,7 +1179,7 @@ public class PrewarmedResourcePool {
      * Releases an instance back to the pool (used when session ends). Removes session ownership and clears
      * session-specific data.
      */
-    public boolean releaseInstance(Session session, AppDefinition appDef, String correlationId) {
+    public synchronized boolean releaseInstance(Session session, AppDefinition appDef, String correlationId) {
         String sessionName = session.getSpec().getName();
         String appDefName = appDef.getSpec().getName();
 
@@ -1227,25 +1233,10 @@ public class PrewarmedResourcePool {
             span.setData("instance_id", instanceId);
 
             boolean success = true;
-
-            // Clean up services
-            ISpan svcSpan = span.startChild("pool.cleanup_services", "Clean up services");
-            success &= cleanupService(externalService, sessionName, sessionUID, correlationId);
-            success &= cleanupService(internalService, sessionName, sessionUID, correlationId);
-            svcSpan.setTag("outcome", success ? "success" : "failure"); Tracing.finish(svcSpan, success ? SpanStatus.OK : SpanStatus.INTERNAL_ERROR);
-
-            // Clean up deployment
-            ISpan deploySpan = span.startChild("pool.cleanup_deployment", "Clean up deployment");
             String deploymentName = TheiaCloudDeploymentUtil.getDeploymentName(appDef, instanceId);
-            try {
-                client.kubernetes().apps().deployments().withName(deploymentName).edit(d -> TheiaCloudHandlerUtil
-                        .removeOwnerReferenceFromItem(correlationId, sessionName, sessionUID, d));
-                Tracing.finishSuccess(deploySpan);
-            } catch (KubernetesClientException e) {
-                LOGGER.error(formatLogMessage(correlationId, "Failed to clean up deployment"), e);
-                Tracing.finishError(deploySpan, e);
-                success = false;
-            }
+
+            // Everything that is reset below has to be finished before the services are released: a released
+            // instance can be claimed at once, and a claim must never reach the previous user's pod or token.
 
             // Clear email config
             if (arguments.isUseKeycloak()) {
@@ -1264,10 +1255,28 @@ public class PrewarmedResourcePool {
                 }
             }
 
-            // Delete pod to reset state
+            // Replace the pod and rotate the data bridge token
             ISpan podSpan = span.startChild("pool.delete_pod", "Delete pod to reset state");
             resetPod(appDef, instanceId, deploymentName, correlationId);
             Tracing.finishSuccess(podSpan);
+
+            // Clean up services: from here on the instance can be claimed
+            ISpan svcSpan = span.startChild("pool.cleanup_services", "Clean up services");
+            success &= cleanupService(externalService, sessionName, sessionUID, correlationId);
+            success &= cleanupService(internalService, sessionName, sessionUID, correlationId);
+            svcSpan.setTag("outcome", success ? "success" : "failure"); Tracing.finish(svcSpan, success ? SpanStatus.OK : SpanStatus.INTERNAL_ERROR);
+
+            // Clean up deployment
+            ISpan deploySpan = span.startChild("pool.cleanup_deployment", "Clean up deployment");
+            try {
+                client.kubernetes().apps().deployments().withName(deploymentName).edit(d -> TheiaCloudHandlerUtil
+                        .removeOwnerReferenceFromItem(correlationId, sessionName, sessionUID, d));
+                Tracing.finishSuccess(deploySpan);
+            } catch (KubernetesClientException e) {
+                LOGGER.error(formatLogMessage(correlationId, "Failed to clean up deployment"), e);
+                Tracing.finishError(deploySpan, e);
+                success = false;
+            }
 
             span.setTag("outcome", success ? "success" : "failure"); Tracing.finish(span, success ? SpanStatus.OK : SpanStatus.INTERNAL_ERROR);
             return success;
@@ -1440,10 +1449,19 @@ public class PrewarmedResourcePool {
 
     /**
      * The previous user could read the data bridge token in their pod, so the next pod has to start with a new one.
+     * If the new token cannot be written, the deployment is replaced instead: the replacement either gets a fresh
+     * token or none at all, and a bridge without a token rejects every injection.
      */
     void resetPod(AppDefinition appDef, int instanceId, String deploymentName, String correlationId) {
-        if (DataBridgeUtil.isDataBridgeEnabled(appDef.getSpec())) {
-            dataBridgeTokens.rotate(appDef, instanceId, correlationId);
+        if (DataBridgeUtil.isDataBridgeEnabled(appDef.getSpec())
+                && !dataBridgeTokens.rotate(appDef, instanceId, correlationId)) {
+            LOGGER.error(formatLogMessage(correlationId,
+                    "Replacing the deployment of instance " + instanceId + ", its data bridge token was not rotated"));
+            client.kubernetes().apps().deployments().inNamespace(client.namespace()).withName(deploymentName).delete();
+            Optional<String> pvcName = createInstancePvc(appDef, instanceId, correlationId);
+            resourceFactory.createDeploymentForEagerInstance(appDef, instanceId, pvcName, new HashMap<>(),
+                    correlationId);
+            return;
         }
         deletePod(deploymentName, correlationId);
     }

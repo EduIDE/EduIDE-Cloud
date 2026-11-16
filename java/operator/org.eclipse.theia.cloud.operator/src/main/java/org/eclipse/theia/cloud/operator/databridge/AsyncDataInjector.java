@@ -3,6 +3,7 @@ package org.eclipse.theia.cloud.operator.databridge;
 import static org.eclipse.theia.cloud.common.util.LogMessageUtil.formatLogMessage;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Executors;
@@ -172,6 +173,13 @@ public class AsyncDataInjector {
                         correlationId);
 
                 if (response.isPresent() && response.get().isSuccess()) {
+                    // Names only, and only names this payload carried. The values are credentials.
+                    List<String> ignored = response.get().getIgnoredKeys().stream().filter(envVars::containsKey)
+                            .toList();
+                    if (!ignored.isEmpty()) {
+                        LOGGER.warn(formatLogMessage(correlationId, "The data bridge did not store the key(s) " + ignored
+                                + " for session " + sessionName + ". Add them to DATA_BRIDGE_EXTRA_KEYS if they are needed."));
+                    }
                     LOGGER.info(
                             formatLogMessage(correlationId, "Data injected successfully for session: " + sessionName));
                     injectSpan.setTag("outcome", "success");

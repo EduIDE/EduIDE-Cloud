@@ -3,6 +3,8 @@ package org.eclipse.theia.cloud.common.k8s.client;
 import static org.eclipse.theia.cloud.common.util.LogMessageUtil.formatLogMessage;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -13,6 +15,8 @@ import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinition;
 import org.eclipse.theia.cloud.common.k8s.resource.session.DataInjectionResponse;
 import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
 import org.eclipse.theia.cloud.common.util.DataBridgeUtil;
+import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import okhttp3.MediaType;
@@ -144,8 +148,8 @@ public class DefaultDataBridgeClient implements DataBridgeClient {
                 if (response.isSuccessful()) {
                     LOGGER.info(formatLogMessage(correlationId,
                             "Successfully injected data to: " + sessionName));
-                    return Optional
-                            .of(DataInjectionResponse.success("Data injected successfully"));
+                    return Optional.of(DataInjectionResponse.success("Data injected successfully",
+                            readIgnoredKeys(response.body() != null ? response.body().string() : "")));
                 } else {
                     String errorBody = response.body() != null ? response.body().string() : "Unknown error";
                     LOGGER.warn(formatLogMessage(correlationId, "Failed to inject data. Status: "
@@ -158,6 +162,20 @@ public class DefaultDataBridgeClient implements DataBridgeClient {
             LOGGER.error(
                     formatLogMessage(correlationId, "IOException while injecting data to: " + sessionName), e);
             return Optional.of(DataInjectionResponse.failure("Network error: " + e.getMessage()));
+        }
+    }
+
+    /** The data bridge lists the keys it did not store as {"ignored": [...]}. Older bridges send no such list. */
+    static List<String> readIgnoredKeys(String body) {
+        try {
+            JSONArray ignored = new JSONObject(body).optJSONArray("ignored");
+            List<String> names = new ArrayList<>();
+            for (int i = 0; ignored != null && i < ignored.length(); i++) {
+                names.add(ignored.optString(i));
+            }
+            return names;
+        } catch (JSONException e) {
+            return List.of();
         }
     }
 

@@ -68,6 +68,15 @@ class DefaultDataBridgeClientTests {
         assertNull(sent.get().header("Authorization"));
     }
 
+    @Test
+    void readIgnoredKeys_readsNamesFromTheBridgeAnswer() {
+        assertEquals(java.util.List.of("EVIL", "OTHER"),
+                DefaultDataBridgeClient.readIgnoredKeys("{\"ignored\":[\"EVIL\",\"OTHER\"]}"));
+        assertTrue(DefaultDataBridgeClient.readIgnoredKeys("{}").isEmpty());
+        assertTrue(DefaultDataBridgeClient.readIgnoredKeys("null").isEmpty());
+        assertTrue(DefaultDataBridgeClient.readIgnoredKeys("").isEmpty());
+    }
+
     private static Session session() {
         SessionSpec spec = new SessionSpec(SESSION, APP_DEF, "user");
         Session session = new Session();

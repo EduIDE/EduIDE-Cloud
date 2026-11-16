@@ -132,3 +132,4 @@ In anonymous mode (Keycloak disabled), `user` is mandatory. A blank `user` retur
 - `POST /service` blocks until the session URL is ready (up to `timeout`, default 3 minutes). Set the client HTTP timeout above 3 minutes.
 - Omitting `workspaceName` (with `ephemeral: false`) creates a new persistent volume and a fresh clone on every call. Pass a stable `workspaceName` to reuse a persistent workspace.
 - `ephemeral: true` is rejected with HTTP 400 for app definitions that have workspace-mounting sidecars. Use a workspace-backed launch there.
+- A `workspaceName` that starts with `eph-` is rejected with an error: that prefix is reserved for the names of ephemeral sessions. Launching a session whose name belongs to a different user answers 403.

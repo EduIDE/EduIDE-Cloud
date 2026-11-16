@@ -28,7 +28,9 @@ import java.io.InputStreamReader;
 import java.net.URISyntaxException;
 import java.nio.file.Paths;
 import java.util.Map;
-import java.util.Map.Entry;
+import java.util.Comparator;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import org.apache.logging.log4j.LogManager;
@@ -47,15 +49,29 @@ public final class JavaResourceUtil {
         try (InputStream inputStream = getInputStream(resourceName, correlationId)) {
             String template = new BufferedReader(new InputStreamReader(inputStream)).lines().parallel()
                     .collect(Collectors.joining("\n"));
-            LOGGER.trace(formatLogMessage(correlationId, "Replacing placeholders. Starting template:\n" + template));
-            for (Entry<String, String> replacement : replacements.entrySet()) {
-                String value = replacement.getValue() != null ? replacement.getValue() : "";
-                template = template.replace(replacement.getKey(), value);
-                LOGGER.trace(formatLogMessage(correlationId, "Replaced " + replacement.getKey() + " with " + value));
-            }
-            LOGGER.trace(formatLogMessage(correlationId, "Replacement finished. Result:\n" + template));
+            // Never log template contents or replacement values: they include the session secret.
+            LOGGER.trace(formatLogMessage(correlationId, "Replacing placeholders in " + resourceName));
+            template = replacePlaceholders(template, replacements);
+            LOGGER.trace(formatLogMessage(correlationId, "Replacement finished for " + resourceName));
             return template;
         }
+    }
+
+    /**
+     * Replaces all placeholders in one pass, so a value that contains the name of another placeholder is never
+     * rewritten. The longest key wins when one key is a prefix of another.
+     */
+    static String replacePlaceholders(String template, Map<String, String> replacements) {
+        if (replacements.isEmpty()) {
+            return template;
+        }
+        String alternation = replacements.keySet().stream().sorted(Comparator.comparingInt(String::length).reversed())
+                .map(Pattern::quote).collect(Collectors.joining("|"));
+        Matcher matcher = Pattern.compile(alternation).matcher(template);
+        return matcher.replaceAll(match -> {
+            String value = replacements.get(match.group());
+            return Matcher.quoteReplacement(value != null ? value : "");
+        });
     }
 
     protected static InputStream getInputStream(String resourceName, String correlationId)

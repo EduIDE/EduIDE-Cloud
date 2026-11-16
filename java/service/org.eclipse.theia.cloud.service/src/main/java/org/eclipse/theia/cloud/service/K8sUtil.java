@@ -26,6 +26,7 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import org.eclipse.theia.cloud.common.k8s.client.DefaultTheiaCloudClient;
+import org.eclipse.theia.cloud.common.k8s.client.SessionOwnerMismatchException;
 import org.eclipse.theia.cloud.common.k8s.client.TheiaCloudClient;
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinition;
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinitionSpec;
@@ -36,6 +37,8 @@ import org.eclipse.theia.cloud.common.k8s.resource.workspace.Workspace;
 import org.eclipse.theia.cloud.common.k8s.resource.workspace.WorkspaceSpec;
 import org.eclipse.theia.cloud.common.util.CustomResourceUtil;
 import org.eclipse.theia.cloud.common.util.LogMessageUtil;
+import org.eclipse.theia.cloud.common.util.TheiaCloudError;
+import org.eclipse.theia.cloud.common.util.WorkspaceUtil;
 import org.eclipse.theia.cloud.service.session.SessionPerformance;
 import org.eclipse.theia.cloud.service.workspace.UserWorkspace;
 import org.jboss.logging.Logger;
@@ -64,6 +67,9 @@ public final class K8sUtil {
     }
 
     public Workspace createWorkspace(String correlationId, UserWorkspace data) {
+        if (WorkspaceUtil.isReservedWorkspaceName(data.name)) {
+            throw new TheiaCloudWebException(TheiaCloudError.INVALID_WORKSPACE_NAME);
+        }
         WorkspaceSpec spec = new WorkspaceSpec(data.name, data.label, data.appDefinition, data.user);
         return CLIENT.workspaces().launch(correlationId, spec);
     }
@@ -110,7 +116,14 @@ public final class K8sUtil {
                     "Ephemeral sessions are not supported for app definitions whose sidecars mount the workspace. Use a workspace-backed session.");
         }
 
-        SessionSpec sessionSpec = new SessionSpec(getSessionName(user, appDefinition, false), appDefinition, user);
+        // A session started before the naming change keeps its name until it ends
+        String legacyName = WorkspaceUtil.getLegacyEphemeralSessionName(user, appDefinition);
+        boolean legacyRunning = CLIENT.sessions().get(legacyName)
+                .filter(session -> Objects.equals(session.getSpec().getUser(), user)
+                        && (session.getSpec().getWorkspace() == null || session.getSpec().getWorkspace().isEmpty()))
+                .isPresent();
+        SessionSpec sessionSpec = new SessionSpec(
+                legacyRunning ? legacyName : getSessionName(user, appDefinition, false), appDefinition, user);
         sessionSpec = sessionSpecWithEnv(sessionSpec, env);
 
         return launchSession(correlationId, sessionSpec, timeout);
@@ -134,7 +147,12 @@ public final class K8sUtil {
     }
 
     private String launchSession(String correlationId, SessionSpec sessionSpec, int timeout) {
-        SessionStatus status = CLIENT.sessions().launch(correlationId, sessionSpec, timeout).getNonNullStatus();
+        SessionStatus status;
+        try {
+            status = CLIENT.sessions().launch(correlationId, sessionSpec, timeout).getNonNullStatus();
+        } catch (SessionOwnerMismatchException e) {
+            throw new TheiaCloudWebException(Status.FORBIDDEN);
+        }
         TheiaCloudWebException.throwIfErroneous(status);
         if (!status.hasUrl()) {
             // An empty 200 would redirect the browser to "https://". Let the client retry instead.

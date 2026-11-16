@@ -18,6 +18,7 @@ package org.eclipse.theia.cloud.common.k8s.client;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -68,6 +69,9 @@ public class DefaultSessionResourceClient extends BaseResourceClient<Session, Se
     public Session launch(String correlationId, SessionSpec spec, long timeout, TimeUnit unit) {
         // get or create session
         Session session = get(spec.getName()).orElseGet(() -> create(correlationId, spec));
+        if (!Objects.equals(session.getSpec().getUser(), spec.getUser())) {
+            throw new SessionOwnerMismatchException(spec.getName());
+        }
         SessionStatus sessionStatus = session.getNonNullStatus();
 
         // if session is available and has already an url or error, return that session

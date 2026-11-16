@@ -43,7 +43,6 @@ import io.fabric8.kubernetes.api.model.networking.v1.Ingress;
 import io.fabric8.kubernetes.client.NamespacedKubernetesClient;
 import io.fabric8.kubernetes.client.dsl.NonNamespaceOperation;
 import io.fabric8.kubernetes.client.dsl.Resource;
-import io.fabric8.kubernetes.client.utils.Serialization;
 
 public final class K8sUtil {
 
@@ -180,7 +179,8 @@ public final class K8sUtil {
 
         try (ByteArrayInputStream inputStream = new ByteArrayInputStream(yaml.getBytes())) {
 
-            LOGGER.trace(formatLogMessage(correlationId, "Loading new " + typeName + ":\n" + yaml));
+            // Never log the rendered resource: env values of session pods carry tokens.
+            LOGGER.trace(formatLogMessage(correlationId, "Loading new " + typeName));
             T newItem = items.load(inputStream).item();
             if (newItem == null) {
                 LOGGER.error(formatLogMessage(correlationId, "Loading new " + typeName + " resulted in null object"));
@@ -204,14 +204,8 @@ public final class K8sUtil {
             ResourceEdit.<T> updateOwnerReference(ownerReferenceIndex, ownerAPIVersion, ownerKind, ownerName, ownerUid,
                     correlationId).andThen(additionalModification).accept(newItem);
 
-            String resultingYaml;
-            try {
-                resultingYaml = Serialization.asYaml(newItem);
-            } catch (Exception e) {
-                resultingYaml = "Serializing " + typeName + " to Yaml failed.";
-            }
-
-            LOGGER.trace(formatLogMessage(correlationId, "Creating new " + typeName + ":\n" + resultingYaml));
+            LOGGER.trace(formatLogMessage(correlationId,
+                    "Creating new " + typeName + " " + newItem.getMetadata().getName()));
             items.resource(newItem).create();
             LOGGER.info(formatLogMessage(correlationId, "Created a new " + typeName));
 

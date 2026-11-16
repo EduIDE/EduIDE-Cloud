@@ -181,7 +181,7 @@
                     <plugin>
                         <groupId>io.sentry</groupId>
                         <artifactId>sentry-maven-plugin</artifactId>
-                        <version>0.10.0</version>
+                        <version>0.12.0</version>
                         <extensions>true</extensions>
                         <configuration>
                             <org>aet</org>

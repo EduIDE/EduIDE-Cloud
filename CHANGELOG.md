@@ -2,15 +2,21 @@
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-11-16
+
+### Upgrade notes
+
+- The admin API (`/service/admin/appdefinition`, used for scaling) is off by default. Callers must enable it with `THEIA_CLOUD_ADMIN_API_ENABLED=true` (chart: `service.adminApiEnabled`). Off, the service answers these endpoints with 404 even when a token is configured. ([#182](https://github.com/EduIDE/EduIDE-Cloud/pull/182))
+
 ### Security
 
-- [java/operator] CL-14 follow-up: the operator no longer logs environment values of session pods. The rendered resource YAML is no longer written at TRACE level, only the kind and name. The default `log4j2.xml` enables TRACE for the operator, so affected deployments logged tokens by default.
-- [java/service] The admin API token protected endpoints (`/service/admin/appdefinition`) are behind a feature toggle and off by default. Set `THEIA_CLOUD_ADMIN_API_ENABLED=true` (chart: `service.adminApiEnabled`) to use them; off, the service answers them with 404 even when a token is configured.
+- [java/service] Put the admin API behind the feature toggle `THEIA_CLOUD_ADMIN_API_ENABLED`, off by default (see the upgrade notes). ([#182](https://github.com/EduIDE/EduIDE-Cloud/pull/182))
+- [java/operator] The operator no longer logs environment values of session pods. The rendered resource YAML is no longer written at TRACE level, only the kind and name. The default `log4j2.xml` enables TRACE for the operator, so affected deployments logged tokens by default. ([#183](https://github.com/EduIDE/EduIDE-Cloud/pull/183))
 
 ### Fixes
 
-- [java/operator] Deliver the environment of a lazy session through the data bridge too. Extensions that read it only through the bridge (the Artemis extension reads `ARTEMIS_URL` and `ARTEMIS_TOKEN` that way and treats `DATA_BRIDGE_ENABLED` other than `1` as "not managed") could not log in in a session without a warm pool. For an app with the data bridge enabled, a lazy session now gets `DATA_BRIDGE_ENABLED=1`, the bridge port and strategy like an eager one, a token Secret of its own (owned by the session, so it is deleted with it) read by the IDE container as `DATA_BRIDGE_TOKEN`, and the operator injects the session environment once the bridge answers. The variables stay in the pod environment as well, which Scorpio falls back to when the bridge delivers nothing in time. Apps without the data bridge are unchanged. On Artemis images, a lazy session without `ARTEMIS_TOKEN` now shows the Artemis extension's "bridge unavailable" message, as eager sessions already did. The injection also carries `THEIA=1`, so Scorpio does not wait for its timeout in a session without a repository, and the operator schedules the injection again for every handled session of a bridge app when it starts, so a restart does not lose a pending one
-- [java/common] Resolve the cluster IP of a session from its IDE Service only, owned by that very session (UID). The Services of its sidecars are owned by the session too and could be picked instead, sending a data bridge injection to a language server. The Service is looked up by the session label with a reused client, no longer by listing all Services with a new client on every health poll
+- [java/operator] Deliver the environment of a lazy session through the data bridge too. For an app with the data bridge enabled, a lazy session now gets `DATA_BRIDGE_ENABLED=1`, the bridge port and strategy like an eager one, and a token Secret of its own (owned by the session, deleted with it) that the IDE container reads as `DATA_BRIDGE_TOKEN`. The operator injects the session environment once the bridge answers. The variables stay in the pod environment as well. Apps without the data bridge are unchanged. The injection carries `THEIA=1`, and the operator schedules the injection again for every handled session of a bridge app when it starts, so a restart does not lose a pending one. ([#184](https://github.com/EduIDE/EduIDE-Cloud/pull/184))
+- [java/common] Resolve the cluster IP of a session from its IDE Service only, owned by that session (UID), skipping the Services of its sidecars. A data bridge injection no longer goes to a sidecar such as a language server. ([#184](https://github.com/EduIDE/EduIDE-Cloud/pull/184))
 
 ## [3.0.0] - 2026-11-16
 

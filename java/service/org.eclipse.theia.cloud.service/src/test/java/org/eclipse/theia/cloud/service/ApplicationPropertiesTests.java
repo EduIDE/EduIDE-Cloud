@@ -17,6 +17,7 @@ package org.eclipse.theia.cloud.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
@@ -82,7 +83,7 @@ class ApplicationPropertiesTests {
     void getServiceAuthToken_onlyOldPropertySet_returnValue() {
         System.clearProperty("theia.cloud.service.auth.token");
         System.setProperty("theia.cloud.app.id", "old-app-id");
-        ApplicationProperties fixture = new ApplicationProperties();
+        ApplicationProperties fixture = new ApplicationProperties(env -> null);
         assertEquals("old-app-id", fixture.getServiceAuthToken());
     }
 
@@ -90,16 +91,57 @@ class ApplicationPropertiesTests {
     void getServiceAuthToken_bothPropertiesSet_newPropertyTakesPrecedence() {
         System.setProperty("theia.cloud.service.auth.token", "new-auth-token");
         System.setProperty("theia.cloud.app.id", "old-app-id");
-        ApplicationProperties fixture = new ApplicationProperties();
+        ApplicationProperties fixture = new ApplicationProperties(env -> null);
         assertEquals("new-auth-token", fixture.getServiceAuthToken());
     }
 
     @Test
-    void getServiceAuthToken_noPropertiesSet_returnDefault() {
+    void getServiceAuthToken_noPropertiesSet_failsInsteadOfUsingDefault() {
         System.clearProperty("theia.cloud.service.auth.token");
         System.clearProperty("theia.cloud.app.id");
-        ApplicationProperties fixture = new ApplicationProperties();
-        assertEquals("asdfghjkl", fixture.getServiceAuthToken());
+        assertThrows(IllegalStateException.class, () -> new ApplicationProperties(name -> null));
+    }
+
+    @Test
+    void getServiceAuthToken_blankProperty_failsInsteadOfUsingEmptyToken() {
+        System.setProperty("theia.cloud.service.auth.token", " ");
+        System.clearProperty("theia.cloud.app.id");
+        assertThrows(IllegalStateException.class, () -> new ApplicationProperties(name -> null));
+    }
+
+    @Test
+    void getServiceAuthToken_onlyEnvironmentSet_returnValue() {
+        System.clearProperty("theia.cloud.service.auth.token");
+        ApplicationProperties fixture = new ApplicationProperties(
+                name -> "THEIA_CLOUD_SERVICE_AUTH_TOKEN".equals(name) ? "env-token" : null);
+        assertEquals("env-token", fixture.getServiceAuthToken());
+    }
+
+    @Test
+    void getAdminApiToken_onlyEnvironmentSet_returnValue() {
+        System.setProperty("theia.cloud.service.auth.token", "t");
+        System.clearProperty("theia.cloud.admin.api.token");
+        ApplicationProperties fixture = new ApplicationProperties(
+                name -> "THEIA_CLOUD_ADMIN_API_TOKEN".equals(name) ? "admin-env" : null);
+        assertEquals("admin-env", fixture.getAdminApiToken());
+    }
+
+    @Test
+    void getSessionsPerUser_notSetOrInvalid_noLimit() {
+        System.setProperty("theia.cloud.service.auth.token", "t");
+        System.clearProperty("theia.cloud.sessions.per.user");
+        assertEquals(0, new ApplicationProperties().getSessionsPerUser());
+        System.setProperty("theia.cloud.sessions.per.user", "many");
+        assertEquals(0, new ApplicationProperties().getSessionsPerUser());
+        System.clearProperty("theia.cloud.sessions.per.user");
+    }
+
+    @Test
+    void getSessionsPerUser_set_returnValue() {
+        System.setProperty("theia.cloud.service.auth.token", "t");
+        System.setProperty("theia.cloud.sessions.per.user", "2");
+        assertEquals(2, new ApplicationProperties().getSessionsPerUser());
+        System.clearProperty("theia.cloud.sessions.per.user");
     }
 
     @Test

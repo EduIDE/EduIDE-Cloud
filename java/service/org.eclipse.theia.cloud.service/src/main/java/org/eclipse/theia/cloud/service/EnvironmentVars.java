@@ -40,7 +40,9 @@ public class EnvironmentVars {
 
     @Override
     public String toString() {
-        return "LaunchRequest.Env[fromMap=" + fromMap.toString() + ", fromConfigMaps=" + fromConfigMaps.toString()
+        // Values may carry credentials, so only the names of the map entries are logged.
+        return "LaunchRequest.Env[fromMap=" + (fromMap == null ? null : fromMap.keySet()) + ", fromConfigMaps="
+                + fromConfigMaps.toString()
                 + ", fromSecrets=" + fromSecrets.toString() + "]";
     }
 }

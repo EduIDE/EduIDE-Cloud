@@ -14,7 +14,6 @@ All URIs are relative to *http://localhost*
 *RootResourceApi* | [**servicePost**](Apis/RootResourceApi.md#servicepost) | **POST** /service | Launch Session |
 | *SessionResourceApi* | [**serviceSessionAppIdUserGet**](Apis/SessionResourceApi.md#servicesessionappiduserget) | **GET** /service/session/{appId}/{user} | List sessions |
 *SessionResourceApi* | [**serviceSessionDelete**](Apis/SessionResourceApi.md#servicesessiondelete) | **DELETE** /service/session | Stop session |
-*SessionResourceApi* | [**serviceSessionPatch**](Apis/SessionResourceApi.md#servicesessionpatch) | **PATCH** /service/session | Report session activity |
 *SessionResourceApi* | [**serviceSessionPerformanceAppIdSessionNameGet**](Apis/SessionResourceApi.md#servicesessionperformanceappidsessionnameget) | **GET** /service/session/performance/{appId}/{sessionName} | Get performance metrics |
 *SessionResourceApi* | [**serviceSessionPost**](Apis/SessionResourceApi.md#servicesessionpost) | **POST** /service/session | Start a new session |
 | *WorkspaceResourceApi* | [**serviceWorkspaceAppIdUserGet**](Apis/WorkspaceResourceApi.md#serviceworkspaceappiduserget) | **GET** /service/workspace/{appId}/{user} | List workspaces |
@@ -29,6 +28,7 @@ All URIs are relative to *http://localhost*
  - [AppDefinition](./Models/AppDefinition.md)
  - [AppDefinitionListRequest](./Models/AppDefinitionListRequest.md)
  - [AppDefinitionSpec](./Models/AppDefinitionSpec.md)
+ - [AppDefinitionSummary](./Models/AppDefinitionSummary.md)
  - [AppDefinitionStatus](./Models/AppDefinitionStatus.md)
  - [AppDefinitionUpdateRequest](./Models/AppDefinitionUpdateRequest.md)
  - [EnvironmentVars](./Models/EnvironmentVars.md)
@@ -38,7 +38,6 @@ All URIs are relative to *http://localhost*
  - [ObjectMeta](./Models/ObjectMeta.md)
  - [OwnerReference](./Models/OwnerReference.md)
  - [PingRequest](./Models/PingRequest.md)
- - [SessionActivityRequest](./Models/SessionActivityRequest.md)
  - [SessionListRequest](./Models/SessionListRequest.md)
  - [SessionPerformance](./Models/SessionPerformance.md)
  - [SessionPerformanceRequest](./Models/SessionPerformanceRequest.md)

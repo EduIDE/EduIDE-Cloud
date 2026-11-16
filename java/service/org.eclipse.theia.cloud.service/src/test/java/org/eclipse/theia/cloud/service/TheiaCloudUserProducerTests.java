@@ -233,4 +233,21 @@ class TheiaCloudUserProducerTests {
         assertFalse(result.isAdmin());
         assertEquals("user@example.com", result.getIdentifier());
     }
+
+    @Test
+    void getTheiaCloudUser_emailWithUnsupportedCharacters_anonymousTheiaCloudUser() {
+        for (String email : new String[] { "\"a b\"@example.org", "a\nb@example.org", "a'b@example.org",
+                "a".repeat(129) + "@example.org" }) {
+            Mockito.when(identity.isAnonymous()).thenReturn(false);
+            JsonWebToken token = Mockito.mock(JsonWebToken.class);
+            Mockito.when(token.getClaim(Claims.email)).thenReturn(email);
+            Mockito.when(identity.getPrincipal()).thenReturn(token);
+
+            TheiaCloudUser result = fixture.getTheiaCloudUser();
+
+            assertTrue(result.isAnonymous(), email);
+            assertTrue(result.isEmailRejected(), email);
+            assertNull(result.getIdentifier());
+        }
+    }
 }

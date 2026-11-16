@@ -93,6 +93,10 @@ public class BaseResource {
         // Keycloak is used. User must not be considered anonymous (i.e. have a
         // non-empty identifier) and the request user must match the authenticated user
         // (this might change if the concept of admin users is introduced later)
+        if (theiaCloudUser.isEmailRejected()) {
+            info(correlationId, "The email claim of the authenticated user contains unsupported characters.");
+            throw TheiaCloudWebException.emailRejected();
+        }
         if (theiaCloudUser.isAnonymous()) {
             info(correlationId,
                     "User is unexpectedly considered anonymous and, thus, must not access user scoped resources.");
@@ -117,6 +121,44 @@ public class BaseResource {
             info(correlationId, "User " + user + " does not own workspace " + workspace.getSpec().getName());
             throw new TheiaCloudWebException(Status.FORBIDDEN);
         }
+    }
+
+    /**
+     * Refuses a launch of an AppDefinition that does not exist or has no free instance left. Shared by every path that
+     * starts a session, so none of them can reach the operator with an AppDefinition the others would refuse.
+     *
+     * @throws TheiaCloudWebException with {@link TheiaCloudError#INVALID_APP_DEFINITION_NAME} or
+     *         {@link TheiaCloudError#SESSION_SERVER_LIMIT_REACHED}
+     */
+    protected void throwIfAppDefinitionNotLaunchable(String correlationId, K8sUtil k8sUtil, String appDefinition) {
+        if (appDefinition == null || !k8sUtil.hasAppDefinition(appDefinition)) {
+            error(correlationId, "Failed to launch session. App Definition '" + appDefinition + "' does not exist.");
+            throw new TheiaCloudWebException(TheiaCloudError.INVALID_APP_DEFINITION_NAME);
+        }
+        if (k8sUtil.isMaxInstancesReached(appDefinition)) {
+            error(correlationId,
+                    "Failed to launch session. App Definition '" + appDefinition + "' has max instances reached.");
+            throw new TheiaCloudWebException(TheiaCloudError.SESSION_SERVER_LIMIT_REACHED);
+        }
+    }
+
+    /**
+     * Refuses a launch when the user already has the configured number of active sessions. Relaunching the session
+     * that already exists under {@code sessionName} stays possible.
+     *
+     * @param sessionName name of the session the launch would use, or null if it is a new workspace
+     * @throws TheiaCloudWebException with {@link TheiaCloudError#SESSION_USER_LIMIT_REACHED}
+     */
+    protected void throwIfUserLimitReached(String correlationId, K8sUtil k8sUtil, String user, String sessionName) {
+        int limit = applicationProperties.getSessionsPerUser();
+        if (limit <= 0 || k8sUtil.countActiveSessions(user) < limit) {
+            return;
+        }
+        if (sessionName != null && k8sUtil.findSession(sessionName).isPresent()) {
+            return;
+        }
+        info(correlationId, "User " + user + " reached the limit of " + limit + " sessions.");
+        throw new TheiaCloudWebException(TheiaCloudError.SESSION_USER_LIMIT_REACHED);
     }
 
     public void info(String correlationId, String message) {

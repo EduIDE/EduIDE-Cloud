@@ -157,6 +157,16 @@
           }
         }
       },
+      "AppDefinitionSummary": {
+        "type": "object",
+        "description": "Public information about an app definition.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The name of the app definition."
+          }
+        }
+      },
       "AppDefinitionStatus": {
         "type": "object",
         "properties": {
@@ -395,21 +405,6 @@
           "appId": {
             "type": "string",
             "description": "The App Id of this Theia Cloud instance. Request without a matching Id will be denied."
-          }
-        }
-      },
-      "SessionActivityRequest": {
-        "type": "object",
-        "required": ["appId", "sessionName"],
-        "description": "A request to report activity for a running session.",
-        "properties": {
-          "appId": {
-            "type": "string",
-            "description": "The App Id of this Theia Cloud instance. Request without a matching Id will be denied."
-          },
-          "sessionName": {
-            "type": "string",
-            "description": "The name of the session for which activity is reported."
           }
         }
       },
@@ -800,7 +795,7 @@
     "/service/appdefinition/{appId}": {
       "get": {
         "summary": "List app definitions",
-        "description": "List available app definitions.",
+        "description": "List the names of the available app definitions. Admins read the full configuration through the admin API.",
         "parameters": [
           {
             "name": "appId",
@@ -819,7 +814,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/AppDefinitionSpec"
+                    "$ref": "#/components/schemas/AppDefinitionSummary"
                   }
                 }
               }
@@ -899,44 +894,6 @@
               "text/plain": {
                 "schema": {
                   "type": "string"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Not Authorized"
-          },
-          "403": {
-            "description": "Not Allowed"
-          }
-        },
-        "tags": ["Session Resource"],
-        "security": [
-          {
-            "SecurityScheme": []
-          }
-        ]
-      },
-      "patch": {
-        "summary": "Report session activity",
-        "description": "Updates the last activity timestamp for a session to monitor activity.",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SessionActivityRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "boolean"
                 }
               }
             }

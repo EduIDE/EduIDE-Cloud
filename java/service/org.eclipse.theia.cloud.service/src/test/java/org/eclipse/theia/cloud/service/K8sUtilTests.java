@@ -36,6 +36,20 @@ import jakarta.ws.rs.core.Response.Status;
 class K8sUtilTests {
 
     @Test
+    void countActiveSessions_countsSessionsOfTheUserWithoutErrors() throws Exception {
+        K8sUtil util = createK8sUtil();
+        Session running = new Session();
+        Session failed = new Session();
+        SessionStatus errorStatus = new SessionStatus();
+        errorStatus.setError(org.eclipse.theia.cloud.common.util.TheiaCloudError.SESSION_LAUNCH_TIMEOUT);
+        failed.setStatus(errorStatus);
+        Mockito.when(util.CLIENT.sessions().list("alice")).thenReturn(java.util.List.of(running, failed));
+
+        assertEquals(1, util.countActiveSessions("alice"));
+        Mockito.verify(util.CLIENT.sessions(), Mockito.never()).list();
+    }
+
+    @Test
     void launchEphemeralSession_allowsSidecarsWithoutWorkspaceMount() throws Exception {
         K8sUtil util = createK8sUtil();
         AppDefinition appDefinition = createAppDefinition(false);

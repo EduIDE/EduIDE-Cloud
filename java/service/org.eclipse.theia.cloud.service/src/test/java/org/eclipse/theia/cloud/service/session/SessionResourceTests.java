@@ -30,6 +30,8 @@ import java.util.Optional;
 
 import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
 import org.eclipse.theia.cloud.common.k8s.resource.session.SessionSpec;
+import org.eclipse.theia.cloud.common.k8s.resource.workspace.Workspace;
+import org.eclipse.theia.cloud.common.k8s.resource.workspace.WorkspaceSpec;
 import org.eclipse.theia.cloud.common.util.TheiaCloudError;
 import org.eclipse.theia.cloud.service.ApplicationProperties;
 import org.eclipse.theia.cloud.service.K8sUtil;
@@ -60,6 +62,7 @@ class SessionResourceTests {
     private static final String TEST_USER = "TestUser";
     private static final String OTHER_TEST_USER = "OtherTestUser";
     private static final String TEST_SESSION = "TestSession";
+    private static final String TEST_WORKSPACE = "test-workspace";
 
     @InjectMock
     ApplicationProperties applicationProperties;
@@ -435,6 +438,7 @@ class SessionResourceTests {
 
     @Test
     void start_ephemeralLaunchFailure_propagatesBadRequest() throws Exception {
+        mockLaunchableAppDefinition();
         mockUser(false, TEST_USER);
 
         SessionStartRequest request = new SessionStartRequest(APP_ID, TEST_USER, TEST_APP_DEFINITION, 3);
@@ -450,6 +454,7 @@ class SessionResourceTests {
     @Test
     void start_ephemeralWithSidecarsWithoutWorkspaceMount_launchesEphemeralSession() {
         mockUser(false, TEST_USER);
+        mockLaunchableAppDefinition();
 
         SessionStartRequest request = new SessionStartRequest(APP_ID, TEST_USER, TEST_APP_DEFINITION, 3);
         Mockito.when(k8sUtil.launchEphemeralSession(anyString(), eq(TEST_APP_DEFINITION), eq(TEST_USER), anyInt(), any()))
@@ -464,6 +469,129 @@ class SessionResourceTests {
     // ---
     // Utility methods
     // ---
+
+    @Test
+    void start_rejectedEmail_throwForbiddenWithReason() {
+        Mockito.when(user.isEmailRejected()).thenReturn(true);
+        Mockito.when(user.isAnonymous()).thenReturn(true);
+
+        TheiaCloudWebException exception = assertThrows(TheiaCloudWebException.class,
+                () -> fixture.start(new SessionStartRequest(APP_ID, TEST_USER, TEST_APP_DEFINITION, 3)));
+
+        assertEquals(Status.FORBIDDEN.getStatusCode(), exception.getResponse().getStatus());
+        assertEquals(true, String.valueOf(exception.getResponse().getEntity()).contains("not supported"));
+    }
+
+    @Test
+    void activity_isNotExposed() {
+        assertEquals(0, java.util.Arrays.stream(SessionResource.class.getDeclaredMethods())
+                .filter(method -> method.isAnnotationPresent(jakarta.ws.rs.PATCH.class)).count());
+    }
+
+    @Test
+    void start_ephemeralUnknownAppDefinition_throwInvalidAppDefinition() {
+        mockUser(false, TEST_USER);
+        Mockito.when(k8sUtil.hasAppDefinition(TEST_APP_DEFINITION)).thenReturn(false);
+
+        TheiaCloudWebException exception = assertThrows(TheiaCloudWebException.class,
+                () -> fixture.start(new SessionStartRequest(APP_ID, TEST_USER, TEST_APP_DEFINITION, 3)));
+
+        assertEquals(TheiaCloudError.INVALID_APP_DEFINITION_NAME.getCode(), exception.getResponse().getStatus());
+        Mockito.verify(k8sUtil, never()).launchEphemeralSession(anyString(), anyString(), anyString(), anyInt(), any());
+    }
+
+    @Test
+    void start_ephemeralMaxInstancesReached_throwServerLimit() {
+        mockUser(false, TEST_USER);
+        mockLaunchableAppDefinition();
+        Mockito.when(k8sUtil.isMaxInstancesReached(TEST_APP_DEFINITION)).thenReturn(true);
+
+        TheiaCloudWebException exception = assertThrows(TheiaCloudWebException.class,
+                () -> fixture.start(new SessionStartRequest(APP_ID, TEST_USER, TEST_APP_DEFINITION, 3)));
+
+        assertEquals(TheiaCloudError.SESSION_SERVER_LIMIT_REACHED.getCode(), exception.getResponse().getStatus());
+        Mockito.verify(k8sUtil, never()).launchEphemeralSession(anyString(), anyString(), anyString(), anyInt(), any());
+    }
+
+    @Test
+    void start_workspaceWithOtherAppDefinition_throwMismatchAndKeepWorkspace() {
+        mockUser(false, TEST_USER);
+        mockWorkspace("workspace-app");
+        mockLaunchableAppDefinition();
+
+        TheiaCloudWebException exception = assertThrows(TheiaCloudWebException.class, () -> fixture
+                .start(new SessionStartRequest(APP_ID, TEST_USER, TEST_APP_DEFINITION, TEST_WORKSPACE, 3)));
+
+        assertEquals(TheiaCloudError.APP_DEFINITION_NAME_MISMATCH.getCode(), exception.getResponse().getStatus());
+        Mockito.verify(k8sUtil, never()).launchWorkspaceSession(anyString(), any(), anyInt(), any());
+    }
+
+    @Test
+    void start_workspaceWithoutRequestedAppDefinition_usesAppDefinitionOfWorkspace() {
+        mockUser(false, TEST_USER);
+        mockWorkspace(TEST_APP_DEFINITION);
+        mockLaunchableAppDefinition();
+        Mockito.when(k8sUtil.launchWorkspaceSession(anyString(), any(), anyInt(), any())).thenReturn("https://s.test");
+
+        String url = fixture
+                .start(new SessionStartRequest(APP_ID, TEST_USER, null, TEST_WORKSPACE, 3));
+
+        assertEquals("https://s.test", url);
+    }
+
+    @Test
+    void start_workspaceWithUnknownAppDefinition_throwInvalidAppDefinition() {
+        mockUser(false, TEST_USER);
+        mockWorkspace(TEST_APP_DEFINITION);
+        Mockito.when(k8sUtil.hasAppDefinition(TEST_APP_DEFINITION)).thenReturn(false);
+
+        TheiaCloudWebException exception = assertThrows(TheiaCloudWebException.class, () -> fixture
+                .start(new SessionStartRequest(APP_ID, TEST_USER, TEST_APP_DEFINITION, TEST_WORKSPACE, 3)));
+
+        assertEquals(TheiaCloudError.INVALID_APP_DEFINITION_NAME.getCode(), exception.getResponse().getStatus());
+        Mockito.verify(k8sUtil, never()).launchWorkspaceSession(anyString(), any(), anyInt(), any());
+    }
+
+    @Test
+    void start_userLimitReached_throwUserLimit() {
+        mockUser(false, TEST_USER);
+        mockLaunchableAppDefinition();
+        Mockito.when(applicationProperties.getSessionsPerUser()).thenReturn(1);
+        Mockito.when(k8sUtil.countActiveSessions(TEST_USER)).thenReturn(1L);
+        Mockito.when(k8sUtil.findSession(anyString())).thenReturn(Optional.empty());
+
+        TheiaCloudWebException exception = assertThrows(TheiaCloudWebException.class,
+                () -> fixture.start(new SessionStartRequest(APP_ID, TEST_USER, TEST_APP_DEFINITION, 3)));
+
+        assertEquals(TheiaCloudError.SESSION_USER_LIMIT_REACHED.getCode(), exception.getResponse().getStatus());
+        Mockito.verify(k8sUtil, never()).launchEphemeralSession(anyString(), anyString(), anyString(), anyInt(), any());
+    }
+
+    @Test
+    void start_userLimitReachedButSessionAlreadyExists_launchesIt() {
+        mockUser(false, TEST_USER);
+        mockLaunchableAppDefinition();
+        Mockito.when(applicationProperties.getSessionsPerUser()).thenReturn(1);
+        Mockito.when(k8sUtil.countActiveSessions(TEST_USER)).thenReturn(1L);
+        Session existing = mockDefaultSession();
+        Mockito.when(k8sUtil.findSession(anyString())).thenReturn(Optional.of(existing));
+        Mockito.when(k8sUtil.launchEphemeralSession(anyString(), anyString(), anyString(), anyInt(), any()))
+                .thenReturn("https://s.test");
+
+        assertEquals("https://s.test",
+                fixture.start(new SessionStartRequest(APP_ID, TEST_USER, TEST_APP_DEFINITION, 3)));
+    }
+
+    private void mockLaunchableAppDefinition() {
+        Mockito.when(k8sUtil.hasAppDefinition(TEST_APP_DEFINITION)).thenReturn(true);
+        Mockito.when(k8sUtil.isMaxInstancesReached(TEST_APP_DEFINITION)).thenReturn(false);
+    }
+
+    private void mockWorkspace(String workspaceAppDefinition) {
+        Workspace workspace = new Workspace();
+        workspace.setSpec(new WorkspaceSpec(TEST_WORKSPACE, "label", workspaceAppDefinition, TEST_USER));
+        Mockito.when(k8sUtil.getWorkspace(eq(TEST_USER), anyString())).thenReturn(Optional.of(workspace));
+    }
 
     private void mockUser(boolean anonymous, String name) {
         Mockito.when(user.isAnonymous()).thenReturn(anonymous);

@@ -9,7 +9,6 @@ import {
   LaunchRequest as ClientLaunchRequest,
   PingRequest as ClientPingRequest,
   RootResourceApi,
-  SessionActivityRequest as ClientSessionActivityRequest,
   SessionListRequest as ClientSessionListRequest,
   SessionPerformance,
   SessionPerformanceRequest as ClientSessionPerformanceRequest,
@@ -164,11 +163,6 @@ export namespace SessionSetConfigValueRequest {
   export const KIND = 'sessionSetConfigValueRequest';
 }
 
-export type SessionActivityRequest = ClientSessionActivityRequest & ServiceRequest;
-export namespace SessionActivityRequest {
-  export const KIND = 'sessionActivityRequest';
-}
-
 export type SessionPerformanceRequest = ClientSessionPerformanceRequest & ServiceRequest;
 export namespace SessionPerformanceRequest {
   export const KIND = 'sessionPerformanceRequest';
@@ -296,21 +290,6 @@ export namespace TheiaCloud {
           sessionApi(request.serviceUrl, accessToken).serviceSessionSessionConfigPost(
             sessionName,
             sessionSetConfigValueRequest,
-            createConfig(timeout)
-          ),
-        retries
-      );
-    }
-    export async function reportSessionActivity(
-      request: SessionActivityRequest,
-      options: RequestOptions = {}
-    ): Promise<boolean> {
-      const { accessToken, retries, timeout } = options;
-      const sessionActivityRequest = { kind: SessionActivityRequest.KIND, ...request };
-      return call(
-        () =>
-          sessionApi(request.serviceUrl, accessToken).serviceSessionPatch(
-            sessionActivityRequest,
             createConfig(timeout)
           ),
         retries

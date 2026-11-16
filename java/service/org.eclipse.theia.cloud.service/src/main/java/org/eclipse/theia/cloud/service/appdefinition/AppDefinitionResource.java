@@ -16,9 +16,9 @@
 package org.eclipse.theia.cloud.service.appdefinition;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 import org.eclipse.microprofile.openapi.annotations.Operation;
-import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinitionSpec;
 import org.eclipse.theia.cloud.service.ApplicationProperties;
 import org.eclipse.theia.cloud.service.BaseResource;
 import org.eclipse.theia.cloud.service.K8sUtil;
@@ -39,12 +39,12 @@ public class AppDefinitionResource extends BaseResource {
         super(applicationProperties);
     }
 
-    @Operation(summary = "List app definitions", description = "List available app definitions.")
+    @Operation(summary = "List app definitions", description = "List the names of the available app definitions. Admins read the full configuration through the admin API.")
     @GET
     @Path("/{appId}")
-    public List<AppDefinitionSpec> list(@PathParam("appId") String appId) {
+    public List<AppDefinitionSummary> list(@PathParam("appId") String appId) {
         evaluateRequest(new AppDefinitionListRequest(appId));
-        List<AppDefinitionSpec> appDefinitions = k8sUtil.listAppDefinitions();
-        return appDefinitions;
+        return k8sUtil.listAppDefinitions().stream().map(spec -> new AppDefinitionSummary(spec.getName()))
+                .collect(Collectors.toList());
     }
 }

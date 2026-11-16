@@ -162,6 +162,18 @@ class RootResourceTests {
     }
 
     @Test
+    void launch_newWorkspaceWhenSessionStillStarting_keepsWorkspace() {
+        mockUser(false, TEST_USER);
+        mockAppDefinition();
+        mockWorkspaceNameTakenBy(TEST_USER, new WorkspaceStatus());
+        Mockito.when(k8sUtil.launchWorkspaceSession(anyString(), any(), anyInt(), any()))
+                .thenThrow(new TheiaCloudWebException(Status.SERVICE_UNAVAILABLE, "Session is still starting."));
+
+        assertThrows(TheiaCloudWebException.class, () -> fixture.launch(launchRequest(TEST_USER)));
+        Mockito.verify(k8sUtil, never()).deleteWorkspace(anyString(), anyString());
+    }
+
+    @Test
     void launch_anonymousMode_ownerLaunchesAndOtherIsRefused() {
         Mockito.when(applicationProperties.isUseKeycloak()).thenReturn(false);
         mockAppDefinition();

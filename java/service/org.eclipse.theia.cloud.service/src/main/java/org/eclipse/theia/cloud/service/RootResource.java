@@ -35,6 +35,7 @@ import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.core.Response.Status;
 
 @Path("/service")
 @Authenticated
@@ -130,8 +131,12 @@ public class RootResource extends BaseResource {
                 return k8sUtil.launchWorkspaceSession(correlationId, new UserWorkspace(workspace.getSpec()),
                         request.timeout, request.env);
             } catch (Exception exception) {
-                info(correlationId, "Delete workspace due to launch error " + request);
-                k8sUtil.deleteWorkspace(correlationId, workspace.getSpec().getName());
+                // A 503 means the session may still be starting and the client retries, so it needs the workspace
+                if (!(exception instanceof TheiaCloudWebException webException
+                        && webException.getResponse().getStatus() == Status.SERVICE_UNAVAILABLE.getStatusCode())) {
+                    info(correlationId, "Delete workspace due to launch error " + request);
+                    k8sUtil.deleteWorkspace(correlationId, workspace.getSpec().getName());
+                }
                 throw exception;
             }
         } catch (Exception exception) {

@@ -31,5 +31,8 @@ COPY --from=builder /conversion/conversion/org.eclipse.theia.cloud.conversion/ta
 
 ENV CERT_RELOAD_PERIOD=604800
 
+RUN addgroup -S -g 10001 webhook && adduser -S -u 10001 -G webhook webhook
+USER 10001
+
 ENTRYPOINT ["java", "-Dquarkus.http.ssl.certificate.reload-period=${CERT_RELOAD_PERIOD}", "-jar", "./conversion-webhook.jar"]
 CMD [ "" ]

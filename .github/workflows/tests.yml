@@ -1,0 +1,49 @@
+# Runs the Java unit tests, which no other workflow does. The monitor has its own test in monitor-vsix.yml.
+name: Tests
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'java/**'
+      - '.github/workflows/tests.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'java/**'
+      - '.github/workflows/tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  java:
+    name: Java tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+
+      # The modules have no aggregator POM, so they are built in dependency order (see AGENTS.md).
+      - name: Install parent POM and common
+        working-directory: java/common
+        run: |
+          (cd maven-conf && mvn -B -ntp install -DskipTests)
+          (cd org.eclipse.theia.cloud.common && mvn -B -ntp install)
+
+      - name: Operator tests
+        working-directory: java/operator/org.eclipse.theia.cloud.operator
+        run: mvn -B -ntp test
+
+      # The service tests start a Keycloak dev service, so they need the Docker daemon of the runner.
+      - name: Service tests
+        working-directory: java/service/org.eclipse.theia.cloud.service
+        run: mvn -B -ntp verify

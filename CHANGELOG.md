@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Security
+
+Fixes from the internal security audit 2026-11-16 (CL-14, CI-01).
+
+- [dockerfiles] The operator and conversion webhook images run as a non-root user (uid 10001). (CL-14)
+- [node/monitor] Compare the session secret in constant time. (CL-14)
+- [ci] New `tests.yml` runs the operator and service unit tests on every pull request that touches `java/`. (CI-01)
+
 ## [2.0.1] - 2026-11-16
 
 ### Fixes

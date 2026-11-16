@@ -209,10 +209,9 @@ public class DefaultDeploymentTemplateReplacements implements DeploymentTemplate
             environmentVariables.put(TheiaCloudHandlerUtil.PLACEHOLDER_MONITOR_PORT, "");
         }
 
-        // Handle data bridge port and strategy
-        // Data bridge is only enabled for eager sessions (session.isEmpty()).
-        // For lazy sessions, environment variables are set directly on the session resource.
-        boolean dataBridgeEnabled = DataBridgeUtil.isDataBridgeEnabled(appDefinition.getSpec()) && session.isEmpty();
+        // Handle data bridge port and strategy. Eager and lazy sessions both receive their environment through the
+        // data bridge; the variables stay in the pod environment as well, which the IDE falls back to.
+        boolean dataBridgeEnabled = DataBridgeUtil.isDataBridgeEnabled(appDefinition.getSpec());
         if (!dataBridgeEnabled) {
             environmentVariables.put(TheiaCloudHandlerUtil.PLACEHOLDER_DATA_BRIDGE_CONTAINER_PORT, "");
             environmentVariables.put(TheiaCloudHandlerUtil.PLACEHOLDER_DATA_BRIDGE_ENV_PORT, "");

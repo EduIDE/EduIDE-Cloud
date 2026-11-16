@@ -49,6 +49,7 @@ public class AsyncDataInjector {
 
     /** A prewarmed pod starts before its session exists, so its monitor can only learn the secret from here. */
     static final String SESSION_SECRET_ENV = "THEIACLOUD_SESSION_SECRET";
+    static final String THEIA_ENV = "THEIA";
 
     private final ScheduledExecutorService scheduler;
 
@@ -83,6 +84,9 @@ public class AsyncDataInjector {
         if (session.getSpec().getSessionSecret() != null) {
             payload.put(SESSION_SECRET_ENV, session.getSpec().getSessionSecret());
         }
+        // Scorpio treats an injection as complete when it carries THEIA, which a session without a repository or
+        // template would otherwise lack, and then waits for its timeout
+        payload.putIfAbsent(THEIA_ENV, "1");
         int envVarCount = payload.size();
 
         LOGGER.info(formatLogMessage(correlationId, "Scheduling async data injection for session: " + sessionName));

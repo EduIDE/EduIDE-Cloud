@@ -25,6 +25,9 @@ import io.fabric8.kubernetes.api.model.OwnerReference;
 import io.fabric8.kubernetes.api.model.PersistentVolume;
 import io.fabric8.kubernetes.api.model.PersistentVolumeClaim;
 import io.fabric8.kubernetes.api.model.PersistentVolumeClaimList;
+import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
+import org.eclipse.theia.cloud.common.util.LabelsUtil;
+
 import io.fabric8.kubernetes.api.model.PersistentVolumeList;
 import io.fabric8.kubernetes.api.model.Service;
 import io.fabric8.kubernetes.api.model.ServiceList;
@@ -84,34 +87,58 @@ public interface TheiaCloudClient extends NamespacedKubernetesClient {
         return new BaseResourceClient<T, L>(kubernetes(), operation, typeClass);
     }
 
+    /** Label of the Services of sidecars. They are owned by the session too, but are not the IDE. */
+    String SIDECAR_LABEL = "theia-cloud.io/sidecar";
+
     default Optional<String> getClusterIPFromSessionName(String sessionName) {
-        try (final KubernetesClient client = CustomResourceUtil.createClient()) {
-            ServiceList svcList = client.services().inNamespace(namespace()).list();
-            for (Service svc : svcList.getItems()) {
-                if (svc.getMetadata().getName().endsWith("-int")) {
-                    continue;
-                }
-                for (OwnerReference ownerReference : svc.getMetadata().getOwnerReferences()) {
-                    if (sessionName.equals(ownerReference.getName()) && "Session".equals(ownerReference.getKind())) {
-                        return Optional.of(svc.getSpec().getClusterIP());
-                    }
-                }
-            }
-        }
-        return Optional.empty();
+        return selectSessionServiceIP(sessionServices(sessionName), sessionName, null, false);
     }
 
     default Optional<String> getInternalClusterIPFromSessionName(String sessionName) {
-        try (final KubernetesClient client = CustomResourceUtil.createClient()) {
-            ServiceList svcList = client.services().inNamespace(namespace()).list();
-            for (Service svc : svcList.getItems()) {
-                if (!svc.getMetadata().getName().endsWith("-int")) {
-                    continue;
-                }
-                for (OwnerReference ownerReference : svc.getMetadata().getOwnerReferences()) {
-                    if (sessionName.equals(ownerReference.getName()) && "Session".equals(ownerReference.getKind())) {
-                        return Optional.of(svc.getSpec().getClusterIP());
-                    }
+        return selectSessionServiceIP(sessionServices(sessionName), sessionName, null, true);
+    }
+
+    /** Like {@link #getClusterIPFromSessionName(String)}, and the Service must be owned by this very session. */
+    default Optional<String> getClusterIPFromSession(Session session) {
+        String name = session.getSpec().getName();
+        return selectSessionServiceIP(sessionServices(name), name, session.getMetadata().getUid(), false);
+    }
+
+    default Optional<String> getInternalClusterIPFromSession(Session session) {
+        String name = session.getSpec().getName();
+        return selectSessionServiceIP(sessionServices(name), name, session.getMetadata().getUid(), true);
+    }
+
+    /**
+     * The Services labelled with the session. Services that carry no such label, or a label cut to the length limit,
+     * are found by listing all of them.
+     */
+    private java.util.List<Service> sessionServices(String sessionName) {
+        var services = kubernetes().services().inNamespace(namespace());
+        java.util.List<Service> labelled = services.withLabel(LabelsUtil.LABEL_KEY_SESSION_NAME, sessionName).list()
+                .getItems();
+        return labelled.isEmpty() ? services.list().getItems() : labelled;
+    }
+
+    /**
+     * The cluster IP of the IDE Service (or its internal one) that belongs to the session. Services of the session's
+     * sidecars are owned by the session as well and must not be mistaken for it.
+     *
+     * @param sessionUid the UID the owner reference has to carry, or null to match the session by name only
+     */
+    static Optional<String> selectSessionServiceIP(java.util.List<Service> services, String sessionName,
+            String sessionUid, boolean internal) {
+        for (Service svc : services) {
+            if (svc.getMetadata().getName().endsWith("-int") != internal) {
+                continue;
+            }
+            if (svc.getMetadata().getLabels() != null && svc.getMetadata().getLabels().containsKey(SIDECAR_LABEL)) {
+                continue;
+            }
+            for (OwnerReference ownerReference : svc.getMetadata().getOwnerReferences()) {
+                if (sessionName.equals(ownerReference.getName()) && "Session".equals(ownerReference.getKind())
+                        && (sessionUid == null || sessionUid.equals(ownerReference.getUid()))) {
+                    return Optional.of(svc.getSpec().getClusterIP());
                 }
             }
         }

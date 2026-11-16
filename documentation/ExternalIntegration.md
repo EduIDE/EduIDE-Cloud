@@ -110,10 +110,10 @@ The EduIDE env-var keys the landing page sends via `fromMap` are `THEIA`, `GIT_U
 
 The service (`RootResource.launch`) validates the request, then `K8sUtil` writes a `Session` custom resource that carries the env map (`spec.envVars`, `spec.envVarsFromConfigMaps`, and `spec.envVarsFromSecrets`). The operator then delivers the variables to the running IDE in one of two ways:
 
-- Lazy path: the operator injects the variables directly into the IDE container's environment in the pod spec (`AddedHandlerUtil.addCustomEnvVarsToDeploymentFromSession`).
+- Lazy path: the operator injects the variables directly into the IDE container's environment in the pod spec (`AddedHandlerUtil.addCustomEnvVarsToDeploymentFromSession`). For an app with the data bridge enabled it also pushes them over the data bridge once the container answers (`AsyncDataInjector`), like the eager path, with a token Secret of its own for that session.
 - Eager / prewarmed path: the deployment already exists, so the operator collects the variables (`SessionEnvCollector`) and pushes them asynchronously over HTTP `POST /data` (`AsyncDataInjector`) to the data-bridge extension inside the container.
 
-The data bridge keeps only the keys listed in the EduIDE data bridge README (the ones above plus `GRADLE_PREWARM`, `GRADLE_PREWARM_AUTO_CONFIRM` and the session secret) and ignores everything else on the eager path. Other keys must be added to `DATA_BRIDGE_EXTRA_KEYS` (comma separated) in the IDE container's environment. The lazy path is not affected.
+The data bridge keeps only the keys listed in the EduIDE data bridge README (the ones above plus `GRADLE_PREWARM`, `GRADLE_PREWARM_AUTO_CONFIRM` and the session secret) and ignores everything else, on the eager and on the lazy path. Other keys must be added to `DATA_BRIDGE_EXTRA_KEYS` (comma separated) in the IDE container's environment. The pod environment of a lazy session still carries every variable, which extensions that read the process environment keep using.
 
 The environment variables are opaque to EduIDE-Cloud itself. The session container image (Scorpio) consumes them to configure git, authenticate with Artemis, and clone `GIT_URI`.
 

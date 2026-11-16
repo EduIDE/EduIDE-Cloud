@@ -63,6 +63,19 @@ class K8sUtilTests {
         Mockito.verify(util.CLIENT.sessions(), never()).launch(anyString(), any(), anyInt());
     }
 
+    @Test
+    void launchEphemeralSession_sessionWithoutUrl_throwsServiceUnavailable() throws Exception {
+        K8sUtil util = createK8sUtil();
+
+        Mockito.when(util.CLIENT.appDefinitions().get("test-app")).thenReturn(Optional.of(createAppDefinition(false)));
+        Mockito.when(util.CLIENT.sessions().launch(anyString(), any(), anyInt())).thenReturn(launchedSession(null));
+
+        TheiaCloudWebException exception = assertThrows(TheiaCloudWebException.class,
+                () -> util.launchEphemeralSession("corr", "test-app", "alice", 3, null));
+
+        assertEquals(Status.SERVICE_UNAVAILABLE.getStatusCode(), exception.getResponse().getStatus());
+    }
+
     private K8sUtil createK8sUtil() {
         K8sUtil util = new K8sUtil();
         TheiaCloudClient client = Mockito.mock(TheiaCloudClient.class);

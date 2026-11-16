@@ -20,6 +20,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
 import org.eclipse.theia.cloud.common.k8s.resource.session.SessionSpec;
@@ -80,10 +81,17 @@ public class DefaultSessionResourceClient extends BaseResourceClient<Session, Se
         // wait for session url or error to be available
         try {
             String sessionName = session.getSpec().getName();
-            watchUntil((action, changedSession) -> isSessionComplete(correlationId, sessionName, changedSession),
-                    timeout, unit);
-            // Workaround to get the last changedSession from the watchUntil call above
-            session = get(spec.getName()).orElseGet(() -> create(correlationId, spec));
+            AtomicReference<Session> completedSession = new AtomicReference<>();
+            watchUntil((action, changedSession) -> {
+                if (!isSessionComplete(correlationId, sessionName, changedSession)) {
+                    return false;
+                }
+                completedSession.set(changedSession);
+                return true;
+            }, timeout, unit);
+            // Use the state the watch saw, not a new lookup: a concurrent launch may have deleted the session
+            // after an error and created a fresh one without URL.
+            session = completedSession.get();
         } catch (InterruptedException exception) {
             error(correlationId, "Timeout while waiting for URL for " + session.getSpec().getName(), exception);
             session = updateStatus(correlationId, session,

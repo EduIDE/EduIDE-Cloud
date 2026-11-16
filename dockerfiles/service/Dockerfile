@@ -38,7 +38,7 @@ FROM eclipse-temurin:21-jre-alpine
 ARG APP_VERSION=1.2.0-SNAPSHOT
 RUN apk add --no-cache curl unzip
 WORKDIR /service
-RUN curl -fsSL -o sentry-agent.zip https://github.com/getsentry/sentry-java/releases/download/8.29.0/sentry-opentelemetry-agent-8.29.0.zip && \
+RUN curl -fsSL -o sentry-agent.zip https://github.com/getsentry/sentry-java/releases/download/8.63.0/sentry-opentelemetry-agent-8.63.0.zip && \
     unzip -j sentry-agent.zip -d . && \
     rm sentry-agent.zip
 COPY --from=builder /service/service/org.eclipse.theia.cloud.service/target/service-${APP_VERSION}-runner.jar ./service.jar
@@ -69,7 +69,7 @@ set -eu
 
 JAVA_OPTS=""
 if [ "${SENTRY_ENABLE:-false}" = "true" ]; then
-  JAVA_OPTS="$JAVA_OPTS -javaagent:/service/sentry-opentelemetry-agent-8.29.0.jar"
+  JAVA_OPTS="$JAVA_OPTS -javaagent:/service/sentry-opentelemetry-agent-8.63.0.jar"
   if [ -n "${SENTRY_PROPERTIES_FILE:-}" ] && [ -f "${SENTRY_PROPERTIES_FILE}" ]; then
     JAVA_OPTS="$JAVA_OPTS -Dsentry.properties.file=${SENTRY_PROPERTIES_FILE}"
   fi

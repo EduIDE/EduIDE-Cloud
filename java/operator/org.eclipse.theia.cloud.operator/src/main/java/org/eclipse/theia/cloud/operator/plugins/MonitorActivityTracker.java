@@ -134,7 +134,7 @@ public class MonitorActivityTracker implements OperatorPlugin {
             int missingIPCount = 0;
 
             for (Session session : sessions) {
-                Optional<String> sessionIP = resourceClient.getClusterIPFromSessionName(session.getSpec().getName());
+                Optional<String> sessionIP = resourceClient.getClusterIPFromSession(session);
                 if (sessionIP.isPresent()) {
                     String appDefinitionName = session.getSpec().getAppDefinition();
                     Optional<AppDefinition> appDefinitionOptional = resourceClient.appDefinitions()

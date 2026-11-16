@@ -43,19 +43,29 @@ class SessionServiceIPTests {
         List<Service> services = List.of(service("session-lsp", "10.0.0.9", true),
                 service("session-ide", "10.0.0.1", false), service("session-ide-int", "10.0.0.2", false));
 
-        assertEquals("10.0.0.1", TheiaCloudClient.selectSessionServiceIP(services, "session", false).orElseThrow());
-        assertEquals("10.0.0.2", TheiaCloudClient.selectSessionServiceIP(services, "session", true).orElseThrow());
+        assertEquals("10.0.0.1", TheiaCloudClient.selectSessionServiceIP(services, "session", null, false).orElseThrow());
+        assertEquals("10.0.0.2", TheiaCloudClient.selectSessionServiceIP(services, "session", null, true).orElseThrow());
     }
 
     @Test
     void aSessionWithOnlySidecarServicesHasNoIdeService() {
         assertTrue(TheiaCloudClient
-                .selectSessionServiceIP(List.of(service("session-lsp", "10.0.0.9", true)), "session", false).isEmpty());
+                .selectSessionServiceIP(List.of(service("session-lsp", "10.0.0.9", true)), "session", null, false).isEmpty());
+    }
+
+    @Test
+    void aServiceOfAnEarlierSessionOfTheSameNameIsIgnored() {
+        Service old = service("session-ide", "10.0.0.1", false);
+        old.getMetadata().getOwnerReferences().get(0).setUid("old-uid");
+
+        assertTrue(TheiaCloudClient.selectSessionServiceIP(List.of(old), "session", "new-uid", false).isEmpty());
+        assertEquals("10.0.0.1",
+                TheiaCloudClient.selectSessionServiceIP(List.of(old), "session", "old-uid", false).orElseThrow());
     }
 
     @Test
     void servicesOfOtherSessionsAreIgnored() {
         assertTrue(TheiaCloudClient
-                .selectSessionServiceIP(List.of(service("x", "10.0.0.1", false)), "other", false).isEmpty());
+                .selectSessionServiceIP(List.of(service("x", "10.0.0.1", false)), "other", null, false).isEmpty());
     }
 }

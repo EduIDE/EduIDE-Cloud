@@ -133,6 +133,17 @@ class LazySessionDataBridgeTests {
     }
 
     @Test
+    void prepareDeployment_failedSecretWriteLeavesTheDeploymentWithoutATokenReference() {
+        when(secretResource.createOr(any())).thenThrow(new RuntimeException("forbidden"));
+        Deployment deployment = deployment();
+
+        tokens.prepareDeployment(deployment, bridgeApp, session, "cid");
+
+        assertTrue(deployment.getSpec().getTemplate().getSpec().getContainers().get(0).getEnv() == null
+                || deployment.getSpec().getTemplate().getSpec().getContainers().get(0).getEnv().isEmpty());
+    }
+
+    @Test
     void prepareDeployment_appWithoutBridgeIsUnchanged() {
         Deployment deployment = deployment();
 

@@ -329,6 +329,79 @@ class PoolClaimTests {
         assertTrue(serviceResources.isEmpty());
     }
 
+    @Test
+    void reconcile_doesNotReplaceTheServicesOfAClaimedInstance() {
+        // outdated (no generation label) and without session owner, as after the garbage collector ran
+        Service claimedExternal = service(external.getMetadata().getName(), SESSION_UID);
+        Service claimedInternal = service(internal.getMetadata().getName(), SESSION_UID);
+        listServices(claimedExternal, claimedInternal);
+        when(client.sessions().list()).thenReturn(List.of(session(SESSION_UID, "1")));
+        ServiceResource<Service> resource = mock(ServiceResource.class);
+        when(namespacedServices.resource(any(Service.class))).thenReturn(resource);
+
+        pool.reconcile(appDefinition, 2, "cid");
+
+        ArgumentCaptor<Service> touched = ArgumentCaptor.forClass(Service.class);
+        verify(namespacedServices, Mockito.atLeast(0)).resource(touched.capture());
+        assertTrue(touched.getAllValues().stream().noneMatch(
+                service -> PrewarmedResourcePool.isClaimed(service)), "a claimed service was touched");
+        verify(resource, never()).delete();
+    }
+
+    // ========== sessions of an older operator ==========
+
+    @Test
+    void isClaimed_treatsTheSessionLabelsOfAnOlderOperatorAsAClaim() {
+        Service legacy = service("a", null);
+        legacy.getMetadata().setLabels(Map.of("theia-cloud.io/session-uuid", SESSION_UID));
+
+        assertTrue(PrewarmedResourcePool.isClaimed(legacy));
+        assertEquals(SESSION_UID, PrewarmedResourcePool.claimUid(legacy));
+    }
+
+    private Service legacyClaim(String name, String sessionUid) {
+        Service legacy = service(name, null);
+        legacy.getMetadata().setLabels(new java.util.HashMap<>(Map.of("theia-cloud.io/session-uuid", sessionUid)));
+        legacy.getMetadata().setOwnerReferences(List.of(new OwnerReferenceBuilder().withName(APP_DEFINITION)
+                .withUid(appDefinition.getMetadata().getUid()).build()));
+        return legacy;
+    }
+
+    @Test
+    void resetOrphanedClaims_labelsLiveLegacyClaimsBeforeResettingOrphans() {
+        Service liveExternal = legacyClaim(external.getMetadata().getName(), SESSION_UID);
+        Service liveInternal = legacyClaim(internal.getMetadata().getName(), SESSION_UID);
+        Service goneExternal = legacyClaim(TheiaCloudServiceUtil.getServiceName(appDefinition, 2), "deleted-session");
+        Service goneInternal = legacyClaim(TheiaCloudServiceUtil.getInternalServiceName(appDefinition, 2),
+                "deleted-session");
+        listServices(liveExternal, liveInternal, goneExternal, goneInternal);
+        when(client.sessions().list()).thenReturn(List.of(session(SESSION_UID, "1")));
+        Mockito.doNothing().when(pool).resetPod(any(), anyInt(), anyString(), anyString());
+        Mockito.doReturn(false).when(pool).needsRecreation(any(), anyInt());
+
+        pool.resetOrphanedClaims(appDefinition, "cid");
+
+        verify(pool, never()).resetPod(any(), Mockito.eq(1), anyString(), anyString());
+        verify(pool).resetPod(any(), Mockito.eq(2), anyString(), anyString());
+        InOrder order = Mockito.inOrder(serviceResources.get(liveExternal.getMetadata().getName()), pool);
+        order.verify(serviceResources.get(liveExternal.getMetadata().getName())).edit(any(UnaryOperator.class));
+        order.verify(pool).resetPod(any(), Mockito.eq(2), anyString(), anyString());
+        Service labelled = applyLastEdit(liveExternal.getMetadata().getName(), liveExternal);
+        assertEquals(SESSION_UID, labelled.getMetadata().getLabels().get(PrewarmedResourcePool.CLAIM_LABEL));
+    }
+
+    @Test
+    void releaseInstance_isANoOpOnAnInstanceThatIsFree() {
+        // a second delivery of the deletion: no claim label, no session owner
+        Mockito.doNothing().when(pool).resetPod(any(), anyInt(), anyString(), anyString());
+
+        assertTrue(pool.releaseInstance(session(SESSION_UID, "1"), appDefinition, "cid"));
+
+        verify(pool, never()).resetPod(any(), anyInt(), anyString(), anyString());
+        verify(pool, never()).needsRecreation(any(), anyInt());
+        assertTrue(serviceResources.isEmpty());
+    }
+
     // ========== creation order ==========
 
     @Test

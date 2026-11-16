@@ -281,9 +281,13 @@ class PrewarmedResourcePoolTests {
                 .mock(FilterWatchListDeletable.class);
         ServiceResource<Service> serviceResource = Mockito.mock(ServiceResource.class);
         Service external = new ServiceBuilder().withNewMetadata().withName("instance-1-" + APP_DEFINITION)
-                .withNamespace(NAMESPACE).endMetadata().build();
+                .withNamespace(NAMESPACE).addToLabels(PrewarmedResourcePool.CLAIM_LABEL,
+                        session.getMetadata().getUid())
+                .endMetadata().build();
         Service internal = new ServiceBuilder().withNewMetadata().withName("instance-1-" + APP_DEFINITION + "-int")
-                .withNamespace(NAMESPACE).endMetadata().build();
+                .withNamespace(NAMESPACE).addToLabels(PrewarmedResourcePool.CLAIM_LABEL,
+                        session.getMetadata().getUid())
+                .endMetadata().build();
         when(client.services()).thenReturn(services);
         when(services.inNamespace(any())).thenReturn(namespacedServices);
         when(namespacedServices.withLabelSelector(Mockito.anyString())).thenReturn(selected);
@@ -447,6 +451,12 @@ class PrewarmedResourcePoolTests {
         fixture.dataBridgeTokens = Mockito.mock(DataBridgeTokenManager.class);
         setField(fixture.pool, "dataBridgeTokens", fixture.dataBridgeTokens);
         return fixture;
+    }
+
+    private Service claimedService(AppDefinition appDefinition, String name, String claimant) {
+        Service service = instanceService(appDefinition, name);
+        service.getMetadata().getLabels().put(PrewarmedResourcePool.CLAIM_LABEL, claimant);
+        return service;
     }
 
     private Service instanceService(AppDefinition appDefinition, String name) {
@@ -695,6 +705,19 @@ class PrewarmedResourcePoolTests {
             when(sessionClient.get(session.getMetadata().getName())).thenReturn(Optional.of(session));
         }
         when(client.kubernetes()).thenReturn(kubernetes);
+        // The services of instance 1 carry the claim of the first session, which is what the restore checks.
+        MixedOperation<Service, ServiceList, ServiceResource<Service>> services = Mockito.mock(MixedOperation.class);
+        NonNamespaceOperation<Service, ServiceList, ServiceResource<Service>> namespacedServices = Mockito
+                .mock(NonNamespaceOperation.class);
+        String claimant = sessions.isEmpty() ? "none" : sessions.get(0).getMetadata().getUid();
+        ServiceList claimedServices = new ServiceList();
+        claimedServices.setItems(List.of(
+                claimedService(appDefinition, TheiaCloudServiceUtil.getServiceName(appDefinition, 1), claimant),
+                claimedService(appDefinition, TheiaCloudServiceUtil.getInternalServiceName(appDefinition, 1),
+                        claimant)));
+        when(kubernetes.services()).thenReturn(services);
+        when(services.inNamespace(NAMESPACE)).thenReturn(namespacedServices);
+        when(namespacedServices.list()).thenReturn(claimedServices);
         when(kubernetes.configMaps()).thenReturn(configMaps);
         when(configMaps.inNamespace(NAMESPACE)).thenReturn(namespacedConfigMaps);
         when(namespacedConfigMaps.withName(TheiaCloudConfigMapUtil.getEmailConfigName(appDefinition, 1)))

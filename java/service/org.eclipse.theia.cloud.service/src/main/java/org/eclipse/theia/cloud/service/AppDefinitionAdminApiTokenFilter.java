@@ -46,6 +46,12 @@ public class AppDefinitionAdminApiTokenFilter implements ContainerRequestFilter 
 
     @Override
     public void filter(ContainerRequestContext requestContext) {
+        if (!applicationProperties.isAdminApiEnabled()) {
+            // Answer as if the endpoint did not exist.
+            abort(requestContext, Response.Status.NOT_FOUND, null);
+            return;
+        }
+
         String configuredToken = applicationProperties.getAdminApiToken();
         if (configuredToken.isEmpty()) {
             logger.warnv("Blocked access to {0} {1}: no admin API token is configured.",

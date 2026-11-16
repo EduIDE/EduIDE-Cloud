@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- The admin API token protected endpoints (`/service/admin/appdefinition`) are behind a feature toggle and off by default. Set `THEIA_CLOUD_ADMIN_API_ENABLED=true` (chart: `service.adminApiEnabled`) to use them; off, the service answers them with 404 even when a token is configured.
+
 ## [3.0.0] - 2026-11-16
 
 Security release. It contains the fixes of an internal security audit (CL-01 to CL-14, DB-01, DEP-01, CI-01) and several breaking changes. Read the upgrade notes before you upgrade.

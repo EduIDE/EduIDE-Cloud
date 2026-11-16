@@ -172,7 +172,7 @@ public final class K8sUtil {
      * Returns the repository a session clones, normalized so that every launch of the same repository maps to the same
      * session: credentials are dropped (Artemis embeds a token in {@value #GIT_URI_ENV} that may change between
      * launches), scheme and host are lowercased, a default port is dropped, and a trailing ".git" or "/" is ignored.
-     * A {@value #GIT_REF_ENV} is appended after a "#": Scorpio checks it out only after a fresh clone, so another ref
+     * A {@value #GIT_REF_ENV} is appended after a line break, which no URI contains: Scorpio checks it out only after a fresh clone, so another ref
      * of the same repository needs a session of its own.
      *
      * @param env the launch environment, may be <code>null</code>
@@ -192,7 +192,7 @@ public final class K8sUtil {
         }
         String ref = env.get(GIT_REF_ENV);
         String repository = normalizedRepository(gitUri.strip());
-        return ref == null || ref.isBlank() ? repository : repository + "#" + ref.strip();
+        return ref == null || ref.isBlank() ? repository : repository + "\n" + ref.strip();
     }
 
     private static String normalizedRepository(String gitUri) {

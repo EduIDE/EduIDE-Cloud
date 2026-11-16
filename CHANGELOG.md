@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Breaking changes
+
+- [java/operator,java/common] **Security:** the operator authenticates data bridge injection with a per-instance token. It keeps a random token per prewarmed instance in a Secret `instance-<n>-<appdef>-bridge-token`, hands it to the pod as `DATA_BRIDGE_TOKEN` through a `secretKeyRef`, sends it as `Authorization: Bearer <token>` on `POST /data`, writes a new one whenever it creates the instance's deployment and before the pod restarts after a session, and deletes it with an excess instance. Install the EduIDE-Helm chart that lets the operator manage Secrets first, otherwise the pool is built without tokens. On release the pod and token are reset before the instance can be claimed again, a failed rotation replaces the deployment, and pool deployments without the token reference are recreated. `DataBridgeClient.injectData` takes the token as a new parameter, and the operator logs the names of keys the data bridge ignored. A data bridge without the check ignores the header. ([#156](https://github.com/EduIDE/EduIDE-Cloud/pull/156))
+
 ### Security
 
 Fixes from an internal security audit (2026-11-16): CL-01, CL-02, CL-03, CL-12, CL-13 and the operator parts of CL-14.
@@ -12,6 +16,7 @@ Fixes from an internal security audit (2026-11-16): CL-01, CL-02, CL-03, CL-12, 
 - [java/operator] CL-12: sidecar pods carry the session labels (including the per-session UUID), run with the restrictions of the IDE container (user, no privilege escalation, no capabilities, seccomp), and mount no service account token. The operator creates one NetworkPolicy per session, or per pool instance for eager sessions, that connects the IDE pod and its own sidecars on the sidecar ports only. It needs `create`, `get` and `delete` on `networkpolicies` (EduIDE-Helm `eduide-cluster` chart).
 - [java/operator] CL-13: a released eager pool instance whose workspace volume is shared with sidecars is discarded while the pool lock is held, so nothing can claim it, and recreated with a new volume, so the next user does not see the previous user's files. The recreated instance is available again once the old volume is gone, which can take a while
 - [java/operator] CL-14: the operator no longer logs rendered templates or replacement values at TRACE level, which included the session secret
+- [java/operator] CL-09: template placeholders are replaced in a single pass, so a value that contains the name of another placeholder is no longer rewritten
 - [java/operator] CL-14: `--oAuth2ProxyVersion` defaults to `v7.12.0`, the version of the chart, instead of `latest`
 
 Upgrade notes:
@@ -19,6 +24,11 @@ Upgrade notes:
 - Upgrade the `eduide-cluster` chart first: the operator needs the `networkpolicies` permission. Without it a session with sidecars fails to start and the operator logs the missing permission.
 - Warm pool instances that serve a session are not touched. Their pods keep the old arguments and, for sidecars, the old pod spec until the session ends and the instance is released and recreated.
 - Restart the operator after upgrading the `eduide` chart so the pool is reconciled and outdated unclaimed instances are replaced.
+
+### Dependencies
+
+- Update the Quarkus platform from 3.25.1 to 3.27.6.1 (LTS). The service now ships jackson 2.21.7 (was 2.19.2) and netty 4.1.139.Final (was 4.1.121.Final), which fixes several denial-of-service advisories, for example the HTTP/2 reset flood GHSA-prj3-ccx8-p6x4. The fabric8 Kubernetes client stays at 7.3.1, the version this Quarkus release manages, so `kubernetes-client.version` and the BOM agree. The operator modules have no Quarkus BOM, so they now import the jackson BOM (`jackson.version` 2.21.7 in maven-conf) ahead of fabric8 and exclude the unused Vert.x HTTP client of fabric8 (they build clients with OkHttp), which removes netty from the operator. Quarkus 3.31 and later drop `quarkus-smallrye-metrics`, so the service stays on the 3.27 LTS line until its metrics move to Micrometer. Found by an internal security audit 2026-11-16, DEP-01.
+- Update the Java dependencies: Maven wrapper 3.3.4 (Maven 3.10.0), Sentry 8.63.0, sentry-maven-plugin 0.12.0, flatten-maven-plugin 1.9.0, slf4j 2.0.20 (non-Quarkus modules only; Quarkus manages it for the service and conversion), kubernetes-webhooks-framework-core 3.0.5, log4j 2.25.5, JUnit 5.14.4, Mockito 5.24.0 and the compiler, surefire and assembly plugins. The fabric8 Kubernetes client stays at 7.3.1 and Renovate no longer proposes it on its own, because the service takes fabric8 from Quarkus and a separate bump mixes jar versions. ([#176](https://github.com/EduIDE/EduIDE-Cloud/pull/176))
 
 ## [2.0.1] - 2026-11-16
 

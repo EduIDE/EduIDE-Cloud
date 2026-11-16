@@ -106,4 +106,18 @@ class SessionTemplateSecurityTests {
         assertTrue(messages.stream().noneMatch(m -> m.contains("value-that-must-not-be-logged")), messages.toString());
         assertTrue(messages.stream().noneMatch(m -> m.contains("THEIACLOUD_SESSION_SECRET")), messages.toString());
     }
+
+    @Test
+    void replacementValuesAreNotScannedForOtherPlaceholders() {
+        String result = JavaResourceUtil.replacePlaceholders("user: placeholder-a, other: placeholder-b",
+                new java.util.LinkedHashMap<>(Map.of("placeholder-a", "x-placeholder-b-$1\\y", "placeholder-b", "B")));
+
+        assertEquals("user: x-placeholder-b-$1\\y, other: B", result);
+    }
+
+    @Test
+    void longestPlaceholderWins() {
+        assertEquals("1 2", JavaResourceUtil.replacePlaceholders("placeholder placeholder-x",
+                Map.of("placeholder", "1", "placeholder-x", "2")));
+    }
 }

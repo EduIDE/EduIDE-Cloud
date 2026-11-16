@@ -169,10 +169,6 @@ public final class K8sUtil {
                 env.fromMap, env.fromConfigMaps, env.fromSecrets);
     }
 
-    public boolean reportSessionActivity(String correlationId, String sessionName) {
-        return CLIENT.sessions().reportActivity(correlationId, sessionName);
-    }
-
     public boolean stopSession(String correlationId, String sessionName, String user) {
         try {
             CLIENT.sessions().delete(correlationId, sessionName);
@@ -285,6 +281,13 @@ public final class K8sUtil {
     public AppDefinition editAppDefinition(String correlationId, String appDefinition,
             Consumer<AppDefinition> consumer) {
         return CLIENT.appDefinitions().edit(correlationId, appDefinition, consumer);
+    }
+
+    /** @return the number of sessions of the user that are not in error state */
+    public long countActiveSessions(String user) {
+        return CLIENT.sessions().list(user).stream() //
+                .filter(s -> s.getStatus() == null || !s.getStatus().hasError()) //
+                .count();
     }
 
     public boolean isMaxInstancesReached(String appDefString) {

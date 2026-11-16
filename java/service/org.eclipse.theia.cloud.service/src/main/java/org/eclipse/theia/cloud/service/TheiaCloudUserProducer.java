@@ -68,6 +68,12 @@ public class TheiaCloudUserProducer {
                 logger.error("Cannot create user identity: The email claim is not available. Treat user as anonymous.");
                 return TheiaCloudUser.ANONYMOUS;
             }
+            // The email ends up in resource names, labels and pod templates, so it gets the same
+            // conservative check as the user of an anonymous request.
+            if (!UserInputValidator.isValid(email)) {
+                logger.error("Cannot create user identity: The email claim contains unsupported characters or is too long. Rejecting the user.");
+                return TheiaCloudUser.EMAIL_REJECTED;
+            }
 
             // Check if the user is an admin by looking for the configured admin group name in the groups claim.
             boolean isAdmin = false;

@@ -32,8 +32,16 @@ Upgrade notes:
 
 ### Security
 
-Fixes from the internal security audit 2026-11-16 (CL-14, CI-01).
+Fixes from the internal security audit 2026-11-16 (CL-04 to CL-10, CL-14, CI-01).
 
+- [java/service] Remove the unauthenticated `PATCH /service/session` activity endpoint. The operator already polls the monitor in the session pod; nothing called it. The generated TypeScript client and the API documentation no longer contain it (`TheiaCloud.Session.reportSessionActivity` is removed from `@eclipse-theiacloud/common`). (CL-04)
+- [java/service] Stop writing configuration values to the log at startup. Only the names of the configuration sources are logged. Rotate the admin API token and the OIDC client secret in every environment that ran an earlier version. (CL-05)
+- [java/service] `POST /service/session` runs the same AppDefinition checks as `POST /service`: the AppDefinition must exist and have a free instance, and it must match the one of the workspace. A request can no longer rewrite the AppDefinition of a workspace. (CL-06)
+- [java/service] CORS is off unless `CORS_ORIGINS` is set (the chart passes the landing page origin). `GET /service/appdefinition/{appId}` returns only the names of the AppDefinitions (`AppDefinitionSummary`); the full spec stays with the admin API. Health, metrics and OpenAPI move to a management port (9000), which is not routed through the gateway. The Prometheus scrape of `/q/metrics` must use that port. (CL-07)
+- [java/service] The OIDC token audience is checked when `KEYCLOAK_AUDIENCE` is set (the Keycloak client needs an audience mapper). TLS verification of the identity provider is always on; a private CA goes into a trust store (`KEYCLOAK_TRUSTSTORE_FILE`, `KEYCLOAK_TRUSTSTORE_PASSWORD`). (CL-08)
+- [java/service] In Keycloak mode the email claim must pass the same character check as an anonymous `user`, which now also rejects identifiers containing `placeholder-` (the operator fills its templates by text replacement). A caller with another email gets 403 with an explanation. The operator side (replacing all placeholders in one pass) is a separate change. (CL-09)
+- [java/service] The AppDefinition is checked before the startup-time metric tag is created, so callers cannot add metric series. New `SESSIONS_PER_USER` limits the active sessions per user on all launch paths (0, the default, means no limit). (CL-10)
+- [java/service] Launch request logging, and so Sentry events, no longer contain the values of `env.fromMap`. The service refuses to start without a service auth token instead of falling back to a built-in default. The image reads the secrets from environment variables instead of `-D` arguments, drops the default `APPID` and runs as a non-root user. (CL-14)
 - [dockerfiles] The operator and conversion webhook images run as a non-root user (uid 10001). (CL-14)
 - [node/monitor] Compare the session secret in constant time. (CL-14)
 - [ci] New `tests.yml` runs the operator and service unit tests on every pull request that touches `java/`. (CI-01)

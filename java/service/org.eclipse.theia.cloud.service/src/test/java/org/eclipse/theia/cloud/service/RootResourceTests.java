@@ -34,6 +34,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 import org.mockito.Mockito;
 
+import org.eclipse.microprofile.metrics.MetricRegistry;
 import io.quarkus.test.InjectMock;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
@@ -61,6 +62,9 @@ class RootResourceTests {
 
     @InjectMock
     K8sUtil k8sUtil;
+
+    @Inject
+    MetricRegistry metricRegistry;
 
     @InjectMock
     TheiaCloudUser user;
@@ -191,6 +195,36 @@ class RootResourceTests {
     // ---
     // Utility methods
     // ---
+
+    @Test
+    void launch_unknownAppDefinition_throwInvalidAppDefinitionWithoutMetricTag() {
+        mockUser(false, TEST_USER);
+        LaunchRequest request = launchRequest(TEST_USER);
+        request.appDefinition = "caller_chosen_series";
+        Mockito.when(k8sUtil.hasAppDefinition(request.appDefinition)).thenReturn(false);
+
+        TheiaCloudWebException exception = assertThrows(TheiaCloudWebException.class,
+                () -> fixture.launch(request));
+
+        assertEquals(TheiaCloudError.INVALID_APP_DEFINITION_NAME.getCode(), exception.getResponse().getStatus());
+        assertEquals(0, metricRegistry.getTimers().keySet().stream()
+                .filter(id -> id.getTags().containsValue("caller_chosen_series")).count());
+    }
+
+    @Test
+    void launch_userLimitReached_throwUserLimit() {
+        mockUser(false, TEST_USER);
+        mockAppDefinition();
+        Mockito.when(applicationProperties.getSessionsPerUser()).thenReturn(1);
+        Mockito.when(k8sUtil.countActiveSessions(TEST_USER)).thenReturn(1L);
+        Mockito.when(k8sUtil.findSession(anyString())).thenReturn(Optional.empty());
+
+        TheiaCloudWebException exception = assertThrows(TheiaCloudWebException.class,
+                () -> fixture.launch(launchRequest(TEST_USER)));
+
+        assertEquals(TheiaCloudError.SESSION_USER_LIMIT_REACHED.getCode(), exception.getResponse().getStatus());
+        Mockito.verify(k8sUtil, never()).launchWorkspaceSession(anyString(), any(), anyInt(), any());
+    }
 
     private void mockAppDefinition() {
         Mockito.when(k8sUtil.hasAppDefinition(APP_DEFINITION)).thenReturn(true);

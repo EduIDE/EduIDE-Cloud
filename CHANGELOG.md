@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-11-16
+
+### Fixes
+
+- [java/operator] Do not crash the operator when a Workspace is deleted. Deleting a Workspace (garbage collector, cleanup after a launch timeout, admin) called DELETE on a PersistentVolume that does not exist with dynamic provisioning, and the operator service account may not delete PersistentVolumes, so the 403 stopped the operator. It now deletes the volume only when one with that name exists and logs a warning instead of failing when the delete is refused. The RBAC is unchanged. ([#175](https://github.com/EduIDE/EduIDE-Cloud/pull/175))
+
 ## [2.0.0] - 2026-11-16
 
 Aligns EduIDE-Cloud with the EduIDE 3.0 platform release. There is no breaking change: the REST API, the CRDs and the existing operator arguments are unchanged, and the only addition is the optional `--metricsPort` argument.

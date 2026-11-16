@@ -536,6 +536,15 @@ public class PrewarmedResourcePool {
      * labels are missing → recreate the deployment and keep the PVC - Otherwise → do nothing
      */
     public void reconcileInstance(AppDefinition appDef, int instanceId, String correlationId) {
+        reconcileInstance(appDef, instanceId, false, correlationId);
+    }
+
+    /**
+     * @param forceRecreate recreate the instance including its PVC even when it is up to date, so that nothing a
+     *                      previous session wrote to the shared workspace volume reaches the next one
+     */
+    public void reconcileInstance(AppDefinition appDef, int instanceId, boolean forceRecreate,
+            String correlationId) {
         String appDefName = appDef.getSpec().getName();
         int minInstances = appDef.getSpec().getMinInstances();
         long currentGeneration = appDef.getMetadata().getGeneration();
@@ -590,7 +599,7 @@ public class PrewarmedResourcePool {
                 return;
             }
 
-            boolean outdated = isOutdated(instanceServices, currentGeneration)
+            boolean outdated = forceRecreate || isOutdated(instanceServices, currentGeneration)
                     || isOutdated(instanceDeployments, currentGeneration)
                     || isOutdated(instanceConfigMaps, currentGeneration);
 

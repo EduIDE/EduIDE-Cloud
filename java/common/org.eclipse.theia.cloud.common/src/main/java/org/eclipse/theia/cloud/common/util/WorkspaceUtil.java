@@ -17,13 +17,20 @@ package org.eclipse.theia.cloud.common.util;
 
 import static org.eclipse.theia.cloud.common.util.NamingUtil.asValidName;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.util.HexFormat;
 
 import org.eclipse.theia.cloud.common.k8s.resource.workspace.Workspace;
 
 public final class WorkspaceUtil {
     private static final String SESSION_SUFFIX = "-session";
     private static final String WORKSPACE_PREFIX = "ws-";
+    /** Prefix of ephemeral session names. Users cannot create workspaces with this prefix. */
+    private static final String EPHEMERAL_PREFIX = "eph-";
+    private static final int EPHEMERAL_HASH_LENGTH = 8;
     private static final int WORKSPACE_NAME_LIMIT = NamingUtil.VALID_NAME_LIMIT - SESSION_SUFFIX.length();
 
     private WorkspaceUtil() {
@@ -35,9 +42,29 @@ public final class WorkspaceUtil {
                 + "-" + user).toLowerCase(), WORKSPACE_NAME_LIMIT);
     }
 
+    /**
+     * Name of the ephemeral session of a user. Emails that differ only in characters that are replaced by '-' or in
+     * case would collide in the readable part, so a hash of the exact user is appended.
+     */
     public static String generateNonUniqueWorkspaceName(String user, String appDefinitionName) {
-        return asValidName((WORKSPACE_PREFIX + getWorkspaceDescription(appDefinitionName) + "-" + user).toLowerCase(),
-                WORKSPACE_NAME_LIMIT);
+        String readable = asValidName(
+                (EPHEMERAL_PREFIX + getWorkspaceDescription(appDefinitionName) + "-" + user).toLowerCase(),
+                WORKSPACE_NAME_LIMIT - EPHEMERAL_HASH_LENGTH - 1);
+        return readable + "-" + hash(user);
+    }
+
+    public static boolean isReservedWorkspaceName(String workspaceName) {
+        return workspaceName != null && workspaceName.toLowerCase().startsWith(EPHEMERAL_PREFIX);
+    }
+
+    private static String hash(String user) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(String.valueOf(user).getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest).substring(0, EPHEMERAL_HASH_LENGTH);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     public static String getSessionName(String workspaceName) {

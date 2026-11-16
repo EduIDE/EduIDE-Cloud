@@ -23,6 +23,7 @@ import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinition;
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinitionSpec;
 import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
 import org.eclipse.theia.cloud.common.tracing.Tracing;
+import org.eclipse.theia.cloud.common.util.LabelsUtil;
 import org.eclipse.theia.cloud.common.util.NamingUtil;
 import org.eclipse.theia.cloud.operator.TheiaCloudOperatorArguments;
 import org.eclipse.theia.cloud.operator.util.K8sResourceFactory;
@@ -35,6 +36,11 @@ import io.fabric8.kubernetes.api.model.Container;
 import io.fabric8.kubernetes.api.model.EnvVar;
 import io.fabric8.kubernetes.api.model.EnvVarBuilder;
 import io.fabric8.kubernetes.api.model.IntOrString;
+import io.fabric8.kubernetes.api.model.LabelSelector;
+import io.fabric8.kubernetes.api.model.networking.v1.NetworkPolicy;
+import io.fabric8.kubernetes.api.model.networking.v1.NetworkPolicyBuilder;
+import io.fabric8.kubernetes.api.model.networking.v1.NetworkPolicyPort;
+import io.fabric8.kubernetes.api.model.networking.v1.NetworkPolicyPortBuilder;
 import io.fabric8.kubernetes.api.model.OwnerReference;
 import io.fabric8.kubernetes.api.model.OwnerReferenceBuilder;
 import io.fabric8.kubernetes.api.model.PersistentVolumeClaimVolumeSource;
@@ -57,6 +63,8 @@ import io.sentry.SpanStatus;
 public class SidecarResourceFactory {
 
     private static final Logger LOGGER = LogManager.getLogger(SidecarResourceFactory.class);
+
+    private static final long DEFAULT_UID = 1000;
 
     @Inject
     private TheiaCloudClient client;
@@ -157,7 +165,9 @@ public class SidecarResourceFactory {
 
         try {
             Deployment deployment = buildDeployment(name, config,
-                createOwnerReference(Session.API, Session.KIND, sessionName, sessionUID));
+                createOwnerReference(Session.API, Session.KIND, sessionName, sessionUID), appDefSpec);
+            deployment.getSpec().getTemplate().getMetadata().getLabels()
+                .putAll(LabelsUtil.createSessionLabels(session, appDefSpec.getName()));
 
             addImagePullSecret(deployment, appDefSpec);
 
@@ -239,7 +249,7 @@ public class SidecarResourceFactory {
 
         try {
             Deployment deployment = buildDeployment(name, config,
-                createOwnerReference(AppDefinition.API, AppDefinition.KIND, appDefName, appDefUID));
+                createOwnerReference(AppDefinition.API, AppDefinition.KIND, appDefName, appDefUID), appDef.getSpec());
 
             addImagePullSecret(deployment, appDef.getSpec());
 
@@ -262,6 +272,58 @@ public class SidecarResourceFactory {
             LOGGER.error(formatLogMessage(correlationId, "[Sidecar] Error creating prewarmed deployment " + name), e);
             return Optional.empty();
         }
+    }
+
+    // ========== Network policy ==========
+
+    /**
+     * Allows traffic on the sidecar ports only between the pods selected by {@code podSelector}, i.e. the IDE pod of one
+     * session (or pool instance) and its own sidecars. The chart's default deny covers all other traffic.
+     */
+    public boolean createSidecarNetworkPolicy(String name, OwnerReference ownerRef, LabelSelector podSelector,
+            List<SidecarConfig> configs, String correlationId) {
+        List<NetworkPolicyPort> ports = configs.stream().map(SidecarConfig::containerPort).distinct()
+            .map(port -> new NetworkPolicyPortBuilder().withProtocol("TCP").withPort(new IntOrString(port)).build())
+            .toList();
+        NetworkPolicy policy = new NetworkPolicyBuilder()
+            .withNewMetadata()
+                .withName(name)
+                .withNamespace(client.namespace())
+                .withOwnerReferences(ownerRef)
+            .endMetadata()
+            .withNewSpec()
+                .withPodSelector(podSelector)
+                .withPolicyTypes("Ingress", "Egress")
+                .addNewIngress().addNewFrom().withPodSelector(podSelector).endFrom().withPorts(ports).endIngress()
+                .addNewEgress().addNewTo().withPodSelector(podSelector).endTo().withPorts(ports).endEgress()
+            .endSpec()
+            .build();
+        try {
+            client.kubernetes().network().v1().networkPolicies().inNamespace(client.namespace()).resource(policy)
+                .create();
+            LOGGER.info(formatLogMessage(correlationId, "[Sidecar] Created network policy " + name));
+            return true;
+        } catch (Exception e) {
+            LOGGER.error(formatLogMessage(correlationId, "[Sidecar] Error creating network policy " + name), e);
+            return false;
+        }
+    }
+
+    public void deleteNetworkPolicy(String name, String correlationId) {
+        try {
+            client.kubernetes().network().v1().networkPolicies().inNamespace(client.namespace()).withName(name)
+                .delete();
+        } catch (Exception e) {
+            LOGGER.warn(formatLogMessage(correlationId, "[Sidecar] Failed to delete network policy " + name), e);
+        }
+    }
+
+    public static String getLazyNetworkPolicyName(Session session) {
+        return NamingUtil.createNameWithSuffix(session, "sidecar-netpol");
+    }
+
+    public static String getPrewarmedNetworkPolicyName(AppDefinition appDef, int instance) {
+        return NamingUtil.createNameWithSuffix(appDef, instance, "sidecar-netpol");
     }
 
     // ========== Deletion ==========
@@ -359,7 +421,9 @@ public class SidecarResourceFactory {
 
     // ========== Private Helpers ==========
 
-    private Deployment buildDeployment(String name, SidecarConfig config, OwnerReference ownerRef) {
+    private Deployment buildDeployment(String name, SidecarConfig config, OwnerReference ownerRef,
+            AppDefinitionSpec appDefSpec) {
+        long uid = appDefSpec.getUid() < 0 ? DEFAULT_UID : appDefSpec.getUid();
         Deployment deployment = new DeploymentBuilder()
             .withNewMetadata()
                 .withName(name)
@@ -377,11 +441,27 @@ public class SidecarResourceFactory {
                     .withNewMetadata()
                         .addToLabels("app", name)
                         .addToLabels("theia-cloud.io/sidecar", config.name())
+                        // Same labels as the IDE pod, so the session network policies select this pod too
+                        .addToLabels(LabelsUtil.LABEL_KEY_SESSION, LabelsUtil.LABEL_VALUE_SESSION)
+                        .addToLabels(LabelsUtil.LABEL_KEY_THEIACLOUD, LabelsUtil.LABEL_VALUE_THEIACLOUD)
                     .endMetadata()
                     .withNewSpec()
+                        // Sidecars have no use for the Kubernetes API
+                        .withAutomountServiceAccountToken(false)
+                        .withNewSecurityContext()
+                            .withFsGroup(uid)
+                        .endSecurityContext()
                         .addNewContainer()
                             .withName(config.name())
                             .withImage(config.image())
+                            // Same restrictions as the IDE container
+                            .withNewSecurityContext()
+                                .withRunAsUser(uid)
+                                .withRunAsGroup(uid)
+                                .withAllowPrivilegeEscalation(false)
+                                .withNewCapabilities().addToDrop("ALL").endCapabilities()
+                                .withNewSeccompProfile().withType("RuntimeDefault").endSeccompProfile()
+                            .endSecurityContext()
                             .addNewPort()
                                 .withContainerPort(config.containerPort())
                             .endPort()
@@ -400,7 +480,7 @@ public class SidecarResourceFactory {
         return deployment;
     }
 
-    private OwnerReference createOwnerReference(String apiVersion, String kind, String name, String uid) {
+    OwnerReference createOwnerReference(String apiVersion, String kind, String name, String uid) {
         return new OwnerReferenceBuilder()
             .withApiVersion(apiVersion)
             .withKind(kind)

@@ -32,6 +32,7 @@ import org.eclipse.theia.cloud.common.util.DataBridgeUtil;
 import org.eclipse.theia.cloud.operator.databridge.AsyncDataInjector;
 import org.eclipse.theia.cloud.operator.handler.AddedHandlerUtil;
 import org.eclipse.theia.cloud.operator.ingress.IngressManager;
+import org.eclipse.theia.cloud.operator.sidecar.SidecarConfig;
 import org.eclipse.theia.cloud.operator.sidecar.SidecarManager;
 import org.eclipse.theia.cloud.operator.pool.PrewarmedResourcePool;
 import org.eclipse.theia.cloud.common.tracing.Tracing;
@@ -322,7 +323,8 @@ public class EagerSessionHandler implements SessionHandler {
             // Reconcile the specific instance
             ISpan reconcileSpan = Tracing.childSpan(span, "eager.reconcile_instance", "Reconcile released instance");
             reconcileSpan.setData("instance_id", instanceId);
-            pool.reconcileInstance(appDef, instanceId, correlationId);
+            // A workspace volume shared with sidecars outlives the pod, so the next user would see these files
+            pool.reconcileInstance(appDef, instanceId, SidecarConfig.requiresSharedWorkspace(appDef), correlationId);
             Tracing.finishSuccess(reconcileSpan);
 
             span.setTag("outcome", success ? "success" : "failure");

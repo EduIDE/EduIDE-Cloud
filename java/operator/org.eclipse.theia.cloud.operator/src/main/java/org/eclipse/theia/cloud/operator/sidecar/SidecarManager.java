@@ -27,6 +27,8 @@ import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinition;
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinitionSpec;
 import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
 import org.eclipse.theia.cloud.common.tracing.Tracing;
+import org.eclipse.theia.cloud.common.util.LabelsUtil;
+import org.eclipse.theia.cloud.operator.util.TheiaCloudHandlerUtil;
 import org.eclipse.theia.cloud.operator.util.TheiaCloudPersistentVolumeUtil;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -37,6 +39,8 @@ import com.google.inject.Singleton;
 import io.fabric8.kubernetes.api.model.Container;
 import io.fabric8.kubernetes.api.model.EnvVar;
 import io.fabric8.kubernetes.api.model.EnvVarBuilder;
+import io.fabric8.kubernetes.api.model.LabelSelector;
+import io.fabric8.kubernetes.api.model.LabelSelectorBuilder;
 import io.fabric8.kubernetes.api.model.PodSpec;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
 import io.sentry.ISpan;
@@ -146,6 +150,17 @@ public class SidecarManager {
 
                 Tracing.finishSuccess(sidecarSpan);
                 created.add(config);
+            }
+
+            String sessionUuid = LabelsUtil.createSessionLabels(session, appDef.getSpec().getName())
+                    .get(LabelsUtil.LABEL_KEY_SESSION_UUID);
+            LabelSelector ownPods = new LabelSelectorBuilder().addToMatchLabels(LabelsUtil.LABEL_KEY_SESSION_UUID, sessionUuid)
+                    .build();
+            if (!factory.createSidecarNetworkPolicy(SidecarResourceFactory.getLazyNetworkPolicyName(session),
+                    factory.createOwnerReference(Session.API, Session.KIND, session.getMetadata().getName(),
+                            session.getMetadata().getUid()),
+                    ownPods, configs, correlationId)) {
+                throw new RuntimeException("Failed to create sidecar network policy");
             }
 
             Tracing.finishSuccess(span);
@@ -313,6 +328,7 @@ public class SidecarManager {
      * Deletes all sidecar resources for a lazy session.
      */
     public void deleteSidecars(Session session, String correlationId) {
+        factory.deleteNetworkPolicy(SidecarResourceFactory.getLazyNetworkPolicyName(session), correlationId);
         factory.deleteResources(session, correlationId);
     }
 
@@ -328,6 +344,8 @@ public class SidecarManager {
         for (SidecarConfig config : configs) {
             factory.deletePrewarmedResources(appDef, instanceId, config, correlationId);
         }
+        factory.deleteNetworkPolicy(SidecarResourceFactory.getPrewarmedNetworkPolicyName(appDef, instanceId),
+                correlationId);
     }
 
     /**
@@ -386,6 +404,7 @@ public class SidecarManager {
             success &= factory.createPrewarmedService(appDef, instanceId, config, additionalLabels, correlationId).isPresent();
             success &= factory.createPrewarmedDeployment(appDef, instanceId, config, pvcName, additionalLabels, correlationId).isPresent();
         }
+        success &= ensurePrewarmedNetworkPolicy(appDef, instanceId, configs, correlationId);
 
         span.setTag("outcome", success ? "success" : "failure");
         Tracing.finish(span, success ? SpanStatus.OK : SpanStatus.INTERNAL_ERROR);
@@ -433,8 +452,31 @@ public class SidecarManager {
                             correlationId).isPresent();
                 }
             }
+            success &= ensurePrewarmedNetworkPolicy(appDef, instance, configs, correlationId);
         }
         return success;
+    }
+
+    /**
+     * The IDE pod of a pool instance has no session labels until it is claimed, so the policy that connects it to its
+     * own sidecars selects the pods by their app labels.
+     */
+    private boolean ensurePrewarmedNetworkPolicy(AppDefinition appDef, int instance, List<SidecarConfig> configs,
+            String correlationId) {
+        String name = SidecarResourceFactory.getPrewarmedNetworkPolicyName(appDef, instance);
+        var client = factory.getClient();
+        if (client.kubernetes().network().v1().networkPolicies().inNamespace(client.namespace()).withName(name)
+                .get() != null) {
+            return true;
+        }
+        List<String> apps = new ArrayList<>();
+        apps.add(TheiaCloudHandlerUtil.getAppSelector(appDef, instance));
+        configs.forEach(config -> apps.add(SidecarResourceFactory.getPrewarmedResourceName(appDef, instance, config)));
+        LabelSelector ownPods = new LabelSelectorBuilder().addNewMatchExpression().withKey("app").withOperator("In")
+                .withValues(apps).endMatchExpression().build();
+        return factory.createSidecarNetworkPolicy(name, factory.createOwnerReference(AppDefinition.API,
+                AppDefinition.KIND, appDef.getMetadata().getName(), appDef.getMetadata().getUid()), ownPods, configs,
+                correlationId);
     }
 
     /**

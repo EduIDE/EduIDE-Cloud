@@ -233,7 +233,13 @@ class SessionNodeSelectorTests {
 
     private static AppDefinition appDefinition() {
         AppDefinition appDefinition = new AppDefinition();
-        appDefinition.setSpec(new AppDefinitionSpec());
+        AppDefinitionSpec spec = new AppDefinitionSpec();
+        try {
+            setField(spec, "name", "java-17");
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+        appDefinition.setSpec(spec);
         appDefinition.setMetadata(new ObjectMetaBuilder().withName("java-17").withUid("d3d0bb51-1c8f-4ba8-9c6b-0d5f0c8b7ad1").withGeneration(3L)
                 .build());
         return appDefinition;

@@ -73,6 +73,10 @@ public class LabelsUtil {
     }
 
     public static Map<String, String> createSessionLabels(Session session, AppDefinition appDefinition) {
+        return createSessionLabels(session, appDefinition.getSpec().getName());
+    }
+
+    public static Map<String, String> createSessionLabels(Session session, String appDefinitionName) {
         SessionSpec sessionSpec = session.getSpec();
         Map<String, String> labels = new HashMap<>();
         String sanitizedUser = sessionSpec.getUser().replaceAll("@", "_at_").replaceAll("[^a-zA-Z0-9]", "_");
@@ -80,7 +84,7 @@ public class LabelsUtil {
         labels.put(LABEL_KEY_SESSION, LABEL_VALUE_SESSION);
         labels.put(LABEL_KEY_THEIACLOUD, LABEL_VALUE_THEIACLOUD);
         labels.put(LABEL_KEY_USER, truncateLabelValue(sanitizedUser));
-        labels.put(LABEL_KEY_APPDEF, truncateLabelValue(appDefinition.getSpec().getName()));
+        labels.put(LABEL_KEY_APPDEF, truncateLabelValue(appDefinitionName));
         labels.put(LABEL_KEY_SESSION_NAME, truncateLabelValue(sessionSpec.getName()));
         labels.put(LABEL_KEY_SESSION_UUID, truncateLabelValue(session.getMetadata().getUid()));
 

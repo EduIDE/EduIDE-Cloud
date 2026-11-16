@@ -84,7 +84,7 @@ External callers outside the cluster pass values via `fromMap`. Prefer `fromSecr
 >
 > This is a defence-in-depth control; it does not replace authenticating the service (Keycloak).
 
-The EduIDE env-var keys the landing page sends via `fromMap` are `THEIA`, `GIT_URI`, `GIT_USER`, `GIT_MAIL`, `ARTEMIS_TOKEN`, `ARTEMIS_URL`, and `TEMPLATE`. Example body:
+The EduIDE env-var keys the landing page sends via `fromMap` are `THEIA`, `GIT_URI`, `GIT_REF`, `GIT_SOURCE`, `GIT_USER`, `GIT_MAIL`, `ARTEMIS_TOKEN`, `ARTEMIS_URL`, and `TEMPLATE`. Example body:
 
 ```json
 {
@@ -115,7 +115,7 @@ The service (`RootResource.launch`) validates the request, then `K8sUtil` writes
 
 The data bridge keeps only the keys listed in the EduIDE data bridge README (the ones above plus `GRADLE_PREWARM`, `GRADLE_PREWARM_AUTO_CONFIRM` and the session secret) and ignores everything else on the eager path. Other keys must be added to `DATA_BRIDGE_EXTRA_KEYS` (comma separated) in the IDE container's environment. The lazy path is not affected.
 
-The environment variables are opaque to EduIDE-Cloud itself, with one exception: `GIT_URI` names ephemeral sessions (see below). The session container image (Scorpio) consumes them to configure git, authenticate with Artemis, and clone `GIT_URI`.
+The environment variables are opaque to EduIDE-Cloud itself, with one exception: `GIT_URI` and `GIT_REF` name ephemeral sessions (see below). The session container image (Scorpio) consumes them to configure git, authenticate with Artemis, and clone `GIT_URI`.
 
 For the broader system context, see [`./Architecture.md`](./Architecture.md).
 
@@ -132,5 +132,5 @@ In anonymous mode (Keycloak disabled), `user` is mandatory. A blank `user` retur
 - `POST /service` blocks until the session URL is ready (up to `timeout`, default 3 minutes). Set the client HTTP timeout above 3 minutes.
 - Omitting `workspaceName` (with `ephemeral: false`) creates a new persistent volume and a fresh clone on every call. Pass a stable `workspaceName` to reuse a persistent workspace.
 - `ephemeral: true` is rejected with HTTP 400 for app definitions that have workspace-mounting sidecars. Use a workspace-backed launch there.
-- An ephemeral session is named after the user, the app definition and a hash of `env.fromMap.GIT_URI`. If a session of that name is running, it is returned as it is, and the new `env` is not applied. So each repository gets its own session, and launching the same repository again returns to it. Credentials, scheme and host case, a default port and a trailing `.git` or `/` do not change the name, so a rotated token still reaches the same session. Without `GIT_URI` the name is user + app definition, and one such session per user and app definition is reused. A session started under an earlier naming scheme keeps its name until it ends and is returned for a launch of the same repository.
+- An ephemeral session is named after the user, the app definition and a hash of `env.fromMap.GIT_URI` and, when set, `env.fromMap.GIT_REF`. If a session of that name is running, it is returned as it is, and the new `env` is not applied. So each repository, and each ref of it, gets its own session, and launching the same repository again returns to it. Credentials, scheme and host case, a default port and a trailing `.git` or `/` do not change the name, so a rotated token still reaches the same session. Without `GIT_URI` the name is user + app definition, and one such session per user and app definition is reused. A session started under an earlier naming scheme keeps its name until it ends and is returned for a launch of the same repository.
 - A `workspaceName` that starts with `eph-` is rejected with an error: that prefix is reserved for the names of ephemeral sessions. Launching a session whose name belongs to a different user answers 403.

@@ -8,7 +8,7 @@
 
 ### Fixes
 
-- [java/service,java/common] Give each repository its own ephemeral session. The session name now includes a hash of the launch's normalized `GIT_URI` (credentials dropped, scheme and host lowercased, default port and trailing `.git` or `/` ignored), so opening a second repository in the same app definition no longer reopens the first repository's session. Launches without `GIT_URI` and workspace-backed launches keep their names. A session started under an earlier name keeps it until it ends and is reused for a launch of the same repository only. A user can now hold one ephemeral session per repository, still capped by `--sessionsPerUser`.
+- [java/service,java/common] Give each repository its own ephemeral session. The session name now includes a hash of the launch's normalized `GIT_URI` (credentials dropped, scheme and host lowercased, default port and trailing `.git` or `/` ignored), so opening a second repository in the same app definition no longer reopens the first repository's session. A `GIT_REF` joins the hash, so another branch, tag or commit of the same repository gets its own session too, matching the landing page's workspace per ref. Launches without `GIT_URI` and workspace-backed launches keep their names. A session started under an earlier name keeps it until it ends and is reused for a launch of the same repository only. A user can now hold one ephemeral session per repository, still capped by `--sessionsPerUser`.
 
 ## [3.0.0] - 2026-11-16
 

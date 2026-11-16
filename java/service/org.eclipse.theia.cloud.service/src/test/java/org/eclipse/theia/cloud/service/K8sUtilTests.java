@@ -100,6 +100,19 @@ class K8sUtilTests {
     }
 
     @Test
+    void launchEphemeralSession_namesTheSessionAfterTheRef() throws Exception {
+        String main = launchedSessionName(envOf(Map.of("GIT_URI", "https://gitlab.com/group/sub/repo.git", "GIT_REF", "main")));
+        String solution = launchedSessionName(
+                envOf(Map.of("GIT_URI", "https://gitlab.com/group/sub/repo.git", "GIT_REF", "solution")));
+        String noRef = launchedSessionName(env("https://gitlab.com/group/sub/repo.git"));
+        String blankRef = launchedSessionName(envOf(Map.of("GIT_URI", "https://gitlab.com/group/sub/repo.git", "GIT_REF", " ")));
+
+        assertNotEquals(main, solution, "another ref of the same repository must not reopen the first ref's session");
+        assertNotEquals(main, noRef);
+        assertEquals(noRef, blankRef, "a blank ref keeps the name of a launch without a ref");
+    }
+
+    @Test
     void launchEphemeralSession_ignoresCredentialsInTheRepository() throws Exception {
         String withToken = launchedSessionName(env("https://student1:token-1@artemis.example.org/git/EX/ex-student1.git"));
         String newToken = launchedSessionName(env("https://student1:token-2@artemis.example.org/git/EX/ex-student1.git"));

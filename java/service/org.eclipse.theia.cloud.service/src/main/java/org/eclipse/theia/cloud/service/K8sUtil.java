@@ -63,6 +63,8 @@ import jakarta.ws.rs.core.Response.Status;
 public final class K8sUtil {
     /** Session environment variable with the repository the IDE clones (read by Scorpio). */
     static final String GIT_URI_ENV = "GIT_URI";
+    /** Session environment variable with the branch, tag or commit Scorpio checks out after the clone. */
+    static final String GIT_REF_ENV = "GIT_REF";
 
     private NamespacedKubernetesClient KUBERNETES = CustomResourceUtil.createClient();
     public TheiaCloudClient CLIENT = new DefaultTheiaCloudClient(KUBERNETES);
@@ -170,9 +172,11 @@ public final class K8sUtil {
      * Returns the repository a session clones, normalized so that every launch of the same repository maps to the same
      * session: credentials are dropped (Artemis embeds a token in {@value #GIT_URI_ENV} that may change between
      * launches), scheme and host are lowercased, a default port is dropped, and a trailing ".git" or "/" is ignored.
+     * A {@value #GIT_REF_ENV} is appended after a "#": Scorpio checks it out only after a fresh clone, so another ref
+     * of the same repository needs a session of its own.
      *
      * @param env the launch environment, may be <code>null</code>
-     * @return the normalized repository, or <code>null</code> if the environment names none
+     * @return the normalized repository and ref, or <code>null</code> if the environment names no repository
      */
     static String repositoryOf(EnvironmentVars env) {
         return env == null ? null : repositoryOf(env.fromMap);
@@ -186,7 +190,12 @@ public final class K8sUtil {
         if (gitUri == null || gitUri.isBlank()) {
             return null;
         }
-        gitUri = gitUri.strip();
+        String ref = env.get(GIT_REF_ENV);
+        String repository = normalizedRepository(gitUri.strip());
+        return ref == null || ref.isBlank() ? repository : repository + "#" + ref.strip();
+    }
+
+    private static String normalizedRepository(String gitUri) {
         try {
             URI uri = new URI(gitUri);
             if (uri.getScheme() == null || uri.getHost() == null) {

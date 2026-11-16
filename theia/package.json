@@ -33,7 +33,7 @@
     "eslint-plugin-simple-import-sort": "^7.0.0",
     "lerna": "^9.0.7",
     "prettier": "^2.6.2",
-    "typescript": "~5.4.5"
+    "typescript": "~5.9.0"
   },
   "workspaces": [
     "examples/browser-app",

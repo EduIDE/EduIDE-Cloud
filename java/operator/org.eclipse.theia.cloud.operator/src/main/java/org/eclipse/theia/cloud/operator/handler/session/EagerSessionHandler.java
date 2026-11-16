@@ -32,6 +32,7 @@ import org.eclipse.theia.cloud.common.util.DataBridgeUtil;
 import org.eclipse.theia.cloud.operator.databridge.AsyncDataInjector;
 import org.eclipse.theia.cloud.operator.handler.AddedHandlerUtil;
 import org.eclipse.theia.cloud.operator.ingress.IngressManager;
+import org.eclipse.theia.cloud.operator.sidecar.SidecarConfig;
 import org.eclipse.theia.cloud.operator.sidecar.SidecarManager;
 import org.eclipse.theia.cloud.operator.pool.PrewarmedResourcePool;
 import org.eclipse.theia.cloud.common.tracing.Tracing;
@@ -310,7 +311,10 @@ public class EagerSessionHandler implements SessionHandler {
             }
             span.setData("instance_id", instanceId);
 
-            sidecarManager.restartPrewarmedSidecarPods(appDef, instanceId, correlationId);
+            // A shared workspace volume means the instance is recreated below, which replaces the sidecar pods
+            if (!SidecarConfig.requiresSharedWorkspace(appDef)) {
+                sidecarManager.restartPrewarmedSidecarPods(appDef, instanceId, correlationId);
+            }
 
             // Release instance back to pool
             ISpan releaseSpan = Tracing.childSpan(span, "eager.release_instance", "Release pool instance");
@@ -319,10 +323,10 @@ public class EagerSessionHandler implements SessionHandler {
             releaseSpan.setTag("outcome", success ? "success" : "failure");
             Tracing.finish(releaseSpan, success ? SpanStatus.OK : SpanStatus.INTERNAL_ERROR);
 
-            // Reconcile the specific instance
+            // Recreate what the release discarded, in the background and with retries
             ISpan reconcileSpan = Tracing.childSpan(span, "eager.reconcile_instance", "Reconcile released instance");
             reconcileSpan.setData("instance_id", instanceId);
-            pool.reconcileInstance(appDef, instanceId, correlationId);
+            pool.scheduleInstanceRecreation(appDef, instanceId, correlationId);
             Tracing.finishSuccess(reconcileSpan);
 
             span.setTag("outcome", success ? "success" : "failure");

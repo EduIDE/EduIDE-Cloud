@@ -16,6 +16,8 @@
 package org.eclipse.theia.cloud.common.k8s.client;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -66,6 +68,33 @@ class DefaultSessionResourceClientTests {
 
         assertEquals(TheiaCloudError.SESSION_LAUNCH_TIMEOUT.asString(), result.getNonNullStatus().getError());
         verify(client, never()).create(anyString(), any());
+    }
+
+    @Test
+    void launch_existingSessionOfAnotherUser_isRefusedAndNothingIsCreated() {
+        Session alices = session(new SessionSpec(NAME, "app", "alice@example.org"), withUrl());
+        DefaultSessionResourceClient client = spy(new DefaultSessionResourceClient(mock(NamespacedKubernetesClient.class)));
+        doReturn(Optional.of(alices)).when(client).get(NAME);
+
+        assertThrows(SessionOwnerMismatchException.class,
+                () -> client.launch("corr", new SessionSpec(NAME, "app", "bob@example.org"), 1, TimeUnit.SECONDS));
+
+        verify(client, never()).create(anyString(), any());
+    }
+
+    @Test
+    void launch_existingSessionOfTheSameUser_isReturned() {
+        Session alices = session(new SessionSpec(NAME, "app", "alice@example.org"), withUrl());
+        DefaultSessionResourceClient client = spy(new DefaultSessionResourceClient(mock(NamespacedKubernetesClient.class)));
+        doReturn(Optional.of(alices)).when(client).get(NAME);
+
+        assertSame(alices, client.launch("corr", new SessionSpec(NAME, "app", "alice@example.org"), 1, TimeUnit.SECONDS));
+    }
+
+    private SessionStatus withUrl() {
+        SessionStatus status = new SessionStatus();
+        status.setUrl("host/path");
+        return status;
     }
 
     private Session session(SessionSpec spec, SessionStatus status) {

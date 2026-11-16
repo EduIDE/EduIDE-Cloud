@@ -16,6 +16,7 @@
 package org.eclipse.theia.cloud.service;
 
 import static org.eclipse.theia.cloud.common.util.NamingUtil.asValidName;
+import static org.eclipse.theia.cloud.common.util.WorkspaceUtil.getSessionName;
 
 import java.util.Optional;
 
@@ -68,6 +69,9 @@ public class RootResource extends BaseResource {
         final String correlationId = evaluatedRequest.getCorrelationId();
         final String user = evaluatedRequest.getUser();
 
+        // Only an AppDefinition that exists may become a metric tag, or callers choose the series.
+        throwIfAppDefinitionNotLaunchable(correlationId, k8sUtil, request.appDefinition);
+
         String sanitizedAppDef = sanitizeMetricTagValue(request.appDefinition);
         String sanitizedNamespace = sanitizeMetricTagValue(k8sUtil.getNamespace());
         Tag appDefinitionTag = new Tag("app_definition", sanitizedAppDef);
@@ -84,17 +88,7 @@ public class RootResource extends BaseResource {
         Timer.Context timerContext = timer.time();
 
         try {
-            if (!k8sUtil.hasAppDefinition(request.appDefinition)) {
-                error(correlationId,
-                        "Failed to launch session. App Definition '" + request.appDefinition + "' does not exist.");
-                throw new TheiaCloudWebException(TheiaCloudError.INVALID_APP_DEFINITION_NAME);
-            }
-
-            if (k8sUtil.isMaxInstancesReached(request.appDefinition)) {
-                error(correlationId, "Failed to launch session. App Definition '" + request.appDefinition
-                        + "' has max instances reached.");
-                throw new TheiaCloudWebException(TheiaCloudError.SESSION_SERVER_LIMIT_REACHED);
-            }
+            throwIfUserLimitReached(correlationId, k8sUtil, user, existingSessionName(request, user));
 
             if (request.isEphemeral()) {
                 info(correlationId, "Launching ephemeral session " + request);
@@ -147,6 +141,13 @@ public class RootResource extends BaseResource {
             // Stop timing and record the measurement
             timerContext.stop();
         }
+    }
+
+    private String existingSessionName(LaunchRequest request, String user) {
+        if (request.isEphemeral()) {
+            return k8sUtil.ephemeralSessionName(user, request.appDefinition, request.env);
+        }
+        return request.isExistingWorkspace() ? getSessionName(asValidName(request.workspaceName)) : null;
     }
 
     private String sanitizeMetricTagValue(String value) {

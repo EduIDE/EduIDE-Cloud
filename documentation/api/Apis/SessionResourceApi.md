@@ -6,7 +6,6 @@ All URIs are relative to *http://localhost*
 |------------- | ------------- | -------------|
 | [**serviceSessionAppIdUserGet**](SessionResourceApi.md#serviceSessionAppIdUserGet) | **GET** /service/session/{appId}/{user} | List sessions |
 | [**serviceSessionDelete**](SessionResourceApi.md#serviceSessionDelete) | **DELETE** /service/session | Stop session |
-| [**serviceSessionPatch**](SessionResourceApi.md#serviceSessionPatch) | **PATCH** /service/session | Report session activity |
 | [**serviceSessionPerformanceAppIdSessionNameGet**](SessionResourceApi.md#serviceSessionPerformanceAppIdSessionNameGet) | **GET** /service/session/performance/{appId}/{sessionName} | Get performance metrics |
 | [**serviceSessionPost**](SessionResourceApi.md#serviceSessionPost) | **POST** /service/session | Start a new session |
 
@@ -52,33 +51,6 @@ Stop session
 |Name | Type | Description  | Notes |
 |------------- | ------------- | ------------- | -------------|
 | **SessionStopRequest** | [**SessionStopRequest**](../Models/SessionStopRequest.md)|  | |
-
-### Return type
-
-**Boolean**
-
-### Authorization
-
-[SecurityScheme](../README.md#SecurityScheme)
-
-### HTTP request headers
-
-- **Content-Type**: application/json
-- **Accept**: text/plain
-
-<a name="serviceSessionPatch"></a>
-# **serviceSessionPatch**
-> Boolean serviceSessionPatch(SessionActivityRequest)
-
-Report session activity
-
-    Updates the last activity timestamp for a session to monitor activity.
-
-### Parameters
-
-|Name | Type | Description  | Notes |
-|------------- | ------------- | ------------- | -------------|
-| **SessionActivityRequest** | [**SessionActivityRequest**](../Models/SessionActivityRequest.md)|  | |
 
 ### Return type
 

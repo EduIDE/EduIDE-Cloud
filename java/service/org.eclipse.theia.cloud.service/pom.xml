@@ -81,7 +81,6 @@
         <dependency>
             <groupId>io.fabric8</groupId>
             <artifactId>kubernetes-client</artifactId>
-            <version>${kubernetes-client.version}</version><!--$NO-MVN-MAN-VER$ -->
         </dependency>
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
@@ -126,6 +125,10 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>${surefire-plugin.version}</version>
                 <configuration>
+                    <!-- The service refuses to start without an auth token. This is a test value. -->
+                    <environmentVariables>
+                        <THEIA_CLOUD_SERVICE_AUTH_TOKEN>asdfghjkl</THEIA_CLOUD_SERVICE_AUTH_TOKEN>
+                    </environmentVariables>
                     <systemPropertyVariables>
                         <java.util.logging.manager>
                             org.jboss.logmanager.LogManager</java.util.logging.manager>
@@ -181,7 +184,7 @@
                     <plugin>
                         <groupId>io.sentry</groupId>
                         <artifactId>sentry-maven-plugin</artifactId>
-                        <version>0.10.0</version>
+                        <version>0.12.0</version>
                         <extensions>true</extensions>
                         <configuration>
                             <org>aet</org>

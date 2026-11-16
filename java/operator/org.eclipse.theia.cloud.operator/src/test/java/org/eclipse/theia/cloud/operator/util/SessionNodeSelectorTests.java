@@ -38,6 +38,7 @@ import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
 import org.eclipse.theia.cloud.common.k8s.resource.session.SessionSpec;
 import org.eclipse.theia.cloud.operator.TheiaCloudOperatorArguments;
 import org.eclipse.theia.cloud.operator.bandwidth.BandwidthLimiter;
+import org.eclipse.theia.cloud.operator.databridge.DataBridgeTokenManager;
 import org.eclipse.theia.cloud.operator.replacements.DeploymentTemplateReplacements;
 import org.eclipse.theia.cloud.operator.sidecar.SidecarConfig;
 import org.eclipse.theia.cloud.operator.sidecar.SidecarManager;
@@ -217,6 +218,7 @@ class SessionNodeSelectorTests {
         setField(factory, "bandwidthLimiter", mock(BandwidthLimiter.class));
         setField(factory, "deploymentReplacements", mock(DeploymentTemplateReplacements.class));
         setField(factory, "sidecarManager", mock(SidecarManager.class));
+        setField(factory, "dataBridgeTokens", mock(DataBridgeTokenManager.class));
 
         ArgumentCaptor<Consumer<Deployment>> postProcessor = ArgumentCaptor.forClass(Consumer.class);
         try (MockedStatic<K8sUtil> k8sUtil = mockStatic(K8sUtil.class)) {
@@ -233,7 +235,13 @@ class SessionNodeSelectorTests {
 
     private static AppDefinition appDefinition() {
         AppDefinition appDefinition = new AppDefinition();
-        appDefinition.setSpec(new AppDefinitionSpec());
+        AppDefinitionSpec spec = new AppDefinitionSpec();
+        try {
+            setField(spec, "name", "java-17");
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+        appDefinition.setSpec(spec);
         appDefinition.setMetadata(new ObjectMetaBuilder().withName("java-17").withUid("d3d0bb51-1c8f-4ba8-9c6b-0d5f0c8b7ad1").withGeneration(3L)
                 .build());
         return appDefinition;

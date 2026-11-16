@@ -17,9 +17,13 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
+import java.util.Optional;
+
 import org.eclipse.theia.cloud.common.k8s.client.ResourceClient;
 import org.eclipse.theia.cloud.common.k8s.client.SessionResourceClient;
 import org.eclipse.theia.cloud.common.k8s.client.TheiaCloudClient;
+import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
+import org.eclipse.theia.cloud.common.k8s.resource.session.SessionSpec;
 import org.eclipse.theia.cloud.common.k8s.resource.workspace.Workspace;
 import org.eclipse.theia.cloud.common.k8s.resource.workspace.WorkspaceSpec;
 import org.eclipse.theia.cloud.common.util.WorkspaceUtil;
@@ -91,5 +95,48 @@ class LazyWorkspaceHandlerTests {
         assertTrue(handler.workspaceDeleted(workspace, CORRELATION_ID));
 
         verify(pvcClient).delete(CORRELATION_ID, storageName);
+    }
+
+    private static Session sessionOf(String workspace, String user) {
+        Session session = new Session();
+        session.setSpec(new SessionSpec("ws-name-session", "app", user, workspace));
+        return session;
+    }
+
+    @Test
+    void workspaceDeleted_deletesTheSessionOfThisWorkspace() {
+        doReturn(Optional.of(sessionOf("ws-name", "user"))).when(sessionClient).get("ws-name-session");
+
+        handler.workspaceDeleted(workspace, CORRELATION_ID);
+
+        verify(sessionClient).delete(CORRELATION_ID, "ws-name-session");
+    }
+
+    @Test
+    void workspaceDeleted_keepsASessionOfAnotherUser() {
+        doReturn(Optional.of(sessionOf(null, "someone-else"))).when(sessionClient).get("ws-name-session");
+
+        handler.workspaceDeleted(workspace, CORRELATION_ID);
+
+        verify(sessionClient, never()).delete(anyString(), anyString());
+        verify(pvcClient).delete(CORRELATION_ID, storageName);
+    }
+
+    @Test
+    void workspaceDeleted_keepsASessionOfTheSameWorkspaceNameOfAnotherUser() {
+        doReturn(Optional.of(sessionOf("ws-name", "someone-else"))).when(sessionClient).get("ws-name-session");
+
+        handler.workspaceDeleted(workspace, CORRELATION_ID);
+
+        verify(sessionClient, never()).delete(anyString(), anyString());
+    }
+
+    @Test
+    void workspaceDeleted_keepsASessionOfAnotherWorkspaceOfTheSameName() {
+        doReturn(Optional.of(sessionOf("other", "user"))).when(sessionClient).get("ws-name-session");
+
+        handler.workspaceDeleted(workspace, CORRELATION_ID);
+
+        verify(sessionClient, never()).delete(anyString(), anyString());
     }
 }

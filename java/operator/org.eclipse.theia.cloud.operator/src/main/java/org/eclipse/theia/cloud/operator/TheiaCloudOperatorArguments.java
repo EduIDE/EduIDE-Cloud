@@ -132,7 +132,7 @@ public class TheiaCloudOperatorArguments {
     private boolean continueOnException;
 
     @Option(names = {
-            "--oAuth2ProxyVersion" }, description = "The version to use of the quay.io/oauth2-proxy/oauth2-proxy image.", required = false, defaultValue = "latest")
+            "--oAuth2ProxyVersion" }, description = "The version to use of the quay.io/oauth2-proxy/oauth2-proxy image.", required = false, defaultValue = "v7.12.0")
     private String oAuth2ProxyVersion;
 
     @Option(names = {

@@ -2,7 +2,53 @@
 
 ## [Unreleased]
 
-- [java/service,java/common] Give each repository its own ephemeral session. The session name now includes a hash of the launch's normalized `GIT_URI` (credentials dropped, scheme and host lowercased, default port and trailing `.git` or `/` ignored), so opening a second repository in the same app definition no longer reopens the first repository's session. Launches without `GIT_URI` and workspace-backed launches keep their old names. A user can now hold one ephemeral session per repository, still capped by `--sessionsPerUser`.
+- [java/service,java/common] Give each repository its own ephemeral session. The session name now includes a hash of the launch's normalized `GIT_URI` (credentials dropped, scheme and host lowercased, default port and trailing `.git` or `/` ignored), so opening a second repository in the same app definition no longer reopens the first repository's session. Launches without `GIT_URI` and workspace-backed launches keep their names. A session started under an earlier name keeps it until it ends and is reused for a launch of the same repository only. A user can now hold one ephemeral session per repository, still capped by `--sessionsPerUser`.
+
+## [3.0.0] - 2026-11-16
+
+Security release. It contains the fixes of an internal security audit (CL-01 to CL-14, DB-01, DEP-01, CI-01) and several breaking changes. Read the upgrade notes before you upgrade.
+
+### Breaking changes / Upgrade notes
+
+- Upgrade the `eduide-cluster` chart first. The operator needs `create`, `get` and `delete` on `networkpolicies` for the per-session sidecar NetworkPolicies, and the Secret Role of the chart for the data bridge token. Without the permission a session with sidecars fails to start, and the pool is built without tokens.
+- Ship this release before the data bridge 2.0.0 IDE image. A data bridge without the token check ignores the header, so the order matters only for the protection, not for the function.
+- The unauthenticated session keep-alive `PATCH /service/session` is removed, and `TheiaCloud.Session.reportSessionActivity` is removed from `@eclipse-theiacloud/common`. The operator polls the monitor in the session pod instead. ([#179](https://github.com/EduIDE/EduIDE-Cloud/pull/179))
+- CORS is off unless `CORS_ORIGINS` is set. The chart passes the landing page origin; set it for other deployments. `GET /service/appdefinition/{appId}` returns only the names of the AppDefinitions. ([#179](https://github.com/EduIDE/EduIDE-Cloud/pull/179))
+- The service refuses to start without a service auth token. Set one before you upgrade. The image reads its secrets from environment variables instead of `-D` arguments, and it has no default `APPID` any more. ([#179](https://github.com/EduIDE/EduIDE-Cloud/pull/179))
+- Health, metrics and OpenAPI move to the management port 9000, which is not routed through the gateway. Point the Prometheus scrape of `/q/metrics` at that port. Chart 3.x renders a second PodMonitor during the transition. ([#179](https://github.com/EduIDE/EduIDE-Cloud/pull/179))
+- The operator, service and conversion webhook images run as uid 10001. Check volume permissions and security contexts that assume root. ([#179](https://github.com/EduIDE/EduIDE-Cloud/pull/179), [#180](https://github.com/EduIDE/EduIDE-Cloud/pull/180))
+- The OIDC token audience is checked when `KEYCLOAK_AUDIENCE` is set (optional; the Keycloak client needs an audience mapper). TLS verification of the identity provider is always on. A private CA goes into a trust store (`KEYCLOAK_TRUSTSTORE_FILE`, `KEYCLOAK_TRUSTSTORE_PASSWORD`). ([#179](https://github.com/EduIDE/EduIDE-Cloud/pull/179))
+- New `SESSIONS_PER_USER` limits the active sessions per user on all launch paths. 0, the default, means no limit. ([#179](https://github.com/EduIDE/EduIDE-Cloud/pull/179))
+- Ephemeral session names start with `eph-` and end with a hash of the exact user. A workspace name that starts with `eph-` is rejected. A user whose ephemeral session started under the old name keeps it until it ends. ([#178](https://github.com/EduIDE/EduIDE-Cloud/pull/178))
+- Rotate the admin API token and the OIDC client secret in every environment that ran an earlier version, because earlier versions wrote configuration values to the startup log. ([#179](https://github.com/EduIDE/EduIDE-Cloud/pull/179))
+- The data bridge authenticates injection with a per-instance token. The operator keeps a token per prewarmed instance in a Secret `instance-<n>-<appdef>-bridge-token`, hands it to the pod as `DATA_BRIDGE_TOKEN` and sends it as `Authorization: Bearer <token>` on `POST /data`. Pool deployments without the token reference are recreated. `DataBridgeClient.injectData` takes the token as a new parameter. ([#156](https://github.com/EduIDE/EduIDE-Cloud/pull/156))
+- Warm pool instances that serve a session are not touched. Their pods keep the old arguments until the session ends and the instance is released and recreated. Restart the operator after upgrading the `eduide` chart so the pool is reconciled and outdated unclaimed instances are replaced. ([#178](https://github.com/EduIDE/EduIDE-Cloud/pull/178))
+- A monitor port equal to the app port is no longer reachable through the proxy; keep them different (the chart does). ([#178](https://github.com/EduIDE/EduIDE-Cloud/pull/178))
+
+### Security
+
+Fixes from an internal security audit (2026-11-16).
+
+- [java/operator] CL-01: the oauth2-proxy sidecar of a session no longer skips authentication for the monitor route. This also applies to the demo custom template. Unclaimed warm pool instances that carry the old argument are recreated by the operator after the upgrade. ([#178](https://github.com/EduIDE/EduIDE-Cloud/pull/178))
+- [java/common,java/service] CL-02: launching a session whose name already exists for another user is refused with 403. ([#178](https://github.com/EduIDE/EduIDE-Cloud/pull/178))
+- [java/operator] CL-03: deleting a workspace deletes only the session that belongs to that workspace and user. ([#178](https://github.com/EduIDE/EduIDE-Cloud/pull/178))
+- [java/service] CL-04: remove the unauthenticated session activity endpoint. ([#179](https://github.com/EduIDE/EduIDE-Cloud/pull/179))
+- [java/service] CL-05: stop writing configuration values to the log at startup. ([#179](https://github.com/EduIDE/EduIDE-Cloud/pull/179))
+- [java/service] CL-06: `POST /service/session` runs the same AppDefinition checks as `POST /service`, and a request can no longer change the AppDefinition of a workspace. ([#179](https://github.com/EduIDE/EduIDE-Cloud/pull/179))
+- [java/service] CL-07: CORS is off by default, the AppDefinition lookup returns names only, and health, metrics and OpenAPI move to the management port. ([#179](https://github.com/EduIDE/EduIDE-Cloud/pull/179))
+- [java/service] CL-08: optional OIDC audience check, and TLS verification of the identity provider with a trust store option. ([#179](https://github.com/EduIDE/EduIDE-Cloud/pull/179))
+- [java/service,java/operator] CL-09: the email claim in Keycloak mode passes the same character check as an anonymous `user`, and the operator replaces template placeholders in a single pass. ([#179](https://github.com/EduIDE/EduIDE-Cloud/pull/179), [#178](https://github.com/EduIDE/EduIDE-Cloud/pull/178))
+- [java/service] CL-10: the AppDefinition is checked before the startup-time metric is tagged, and `SESSIONS_PER_USER` limits active sessions per user. ([#179](https://github.com/EduIDE/EduIDE-Cloud/pull/179))
+- [java/operator] CL-12: sidecar pods carry the session labels, run with the restrictions of the IDE container and mount no service account token. The operator creates one NetworkPolicy per session, or per pool instance for eager sessions, that connects the IDE pod and its own sidecars on the sidecar ports only. ([#178](https://github.com/EduIDE/EduIDE-Cloud/pull/178))
+- [java/operator] CL-13: an instance of the warm pool is marked as claimed in the same edit that adds the session as owner, and is free again only after it was reset. Instances claimed by a session that no longer exists are reset when the pool is reconciled. ([#178](https://github.com/EduIDE/EduIDE-Cloud/pull/178))
+- [java/operator,java/service,dockerfiles,node/monitor] CL-14: no rendered templates or replacement values in TRACE logs, no launch environment values in logs or Sentry events, secrets from environment variables instead of `-D`, non-root images, constant-time comparison of the monitor session secret, and `--oAuth2ProxyVersion` defaults to `v7.12.0` instead of `latest`. ([#178](https://github.com/EduIDE/EduIDE-Cloud/pull/178), [#179](https://github.com/EduIDE/EduIDE-Cloud/pull/179), [#180](https://github.com/EduIDE/EduIDE-Cloud/pull/180))
+- [java/operator,java/common] DB-01: the operator authenticates data bridge injection with a per-instance token (see the upgrade notes). ([#156](https://github.com/EduIDE/EduIDE-Cloud/pull/156))
+- [ci] CI-01: new `tests.yml` runs the operator and service unit tests on every pull request that touches `java/`. ([#180](https://github.com/EduIDE/EduIDE-Cloud/pull/180))
+
+### Dependencies
+
+- DEP-01: update the Quarkus platform from 3.25.1 to 3.27.6.1 (LTS). The service now ships jackson 2.21.7 and netty 4.1.139.Final, which fix several denial-of-service advisories. The fabric8 Kubernetes client stays at 7.3.1. The operator modules import the jackson BOM and no longer pull in netty. The service stays on the 3.27 LTS line until its metrics move to Micrometer. ([#176](https://github.com/EduIDE/EduIDE-Cloud/pull/176))
+- Update the Java dependencies: Maven wrapper 3.3.4 (Maven 3.10.0), Sentry 8.63.0, sentry-maven-plugin 0.12.0, flatten-maven-plugin 1.9.0, slf4j 2.0.20, kubernetes-webhooks-framework-core 3.0.5, log4j 2.25.5, JUnit 5.14.4, Mockito 5.24.0 and the compiler, surefire and assembly plugins. ([#176](https://github.com/EduIDE/EduIDE-Cloud/pull/176))
 
 ## [2.0.1] - 2026-11-16
 

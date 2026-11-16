@@ -33,14 +33,18 @@ import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
 import org.eclipse.theia.cloud.common.util.LabelsUtil;
 import org.eclipse.theia.cloud.common.k8s.resource.session.SessionSpec;
 import org.eclipse.theia.cloud.operator.handler.AddedHandlerUtil;
+import org.eclipse.theia.cloud.common.util.DataBridgeUtil;
 import org.eclipse.theia.cloud.operator.TheiaCloudOperatorArguments;
+import org.eclipse.theia.cloud.operator.databridge.DataBridgeTokenManager;
 import org.eclipse.theia.cloud.operator.handler.session.EagerSessionHandler;
 import org.eclipse.theia.cloud.operator.sidecar.SidecarManager;
 import org.eclipse.theia.cloud.operator.util.K8sResourceFactory;
 import org.eclipse.theia.cloud.operator.util.TheiaCloudConfigMapUtil;
 import org.eclipse.theia.cloud.operator.util.TheiaCloudDeploymentUtil;
+import org.eclipse.theia.cloud.operator.util.TheiaCloudServiceUtil;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mockito;
 
 import io.fabric8.kubernetes.api.model.ConfigMap;
@@ -56,6 +60,8 @@ import io.fabric8.kubernetes.api.model.PodBuilder;
 import io.fabric8.kubernetes.api.model.PodList;
 import io.fabric8.kubernetes.api.model.PodListBuilder;
 import io.fabric8.kubernetes.api.model.Service;
+import io.fabric8.kubernetes.api.model.ServiceBuilder;
+import io.fabric8.kubernetes.api.model.ServiceListBuilder;
 import io.fabric8.kubernetes.api.model.ServiceList;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
 import io.fabric8.kubernetes.api.model.apps.DeploymentBuilder;
@@ -131,17 +137,236 @@ class PrewarmedResourcePoolTests {
                 any());
     }
 
+    // ========== data bridge token ==========
+
+    @Test
+    void reconcileInstance_excessInstance_deletesDataBridgeToken() throws Exception {
+        ReconcileFixture fixture = createReconcileFixture("6", true);
+        enableDataBridge(fixture.appDefinition);
+        setFieldUnchecked(fixture.appDefinition.getSpec(), "minInstances", 0);
+
+        fixture.pool.reconcileInstance(fixture.appDefinition, 1, "cid");
+
+        verify(fixture.deploymentResource).delete();
+        verify(fixture.dataBridgeTokens).delete(fixture.appDefinition, 1, "cid");
+    }
+
+    @Test
+    void reconcileInstance_excessInstanceWithoutDataBridge_leavesSecretsAlone() throws Exception {
+        ReconcileFixture fixture = createReconcileFixture("6", true);
+        setFieldUnchecked(fixture.appDefinition.getSpec(), "minInstances", 0);
+
+        fixture.pool.reconcileInstance(fixture.appDefinition, 1, "cid");
+
+        verify(fixture.dataBridgeTokens, never()).delete(any(), Mockito.anyInt(), any());
+    }
+
+    @Test
+    void reconcileInstance_upToDate_keepsDataBridgeToken() throws Exception {
+        ReconcileFixture fixture = createReconcileFixture("6", true, true);
+        enableDataBridge(fixture.appDefinition);
+
+        fixture.pool.reconcileInstance(fixture.appDefinition, 1, "cid");
+
+        verify(fixture.dataBridgeTokens, never()).delete(any(), Mockito.anyInt(), any());
+        verify(fixture.dataBridgeTokens, never()).rotate(any(), Mockito.anyInt(), any());
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void resetPod_rotatesTheTokenBeforeDeletingThePod() throws Exception {
+        AppDefinition appDefinition = createAppDefinition();
+        enableDataBridge(appDefinition);
+        String deploymentName = TheiaCloudDeploymentUtil.getDeploymentName(appDefinition, 1);
+
+        TheiaCloudClient client = Mockito.mock(TheiaCloudClient.class);
+        NamespacedKubernetesClient kubernetes = Mockito.mock(NamespacedKubernetesClient.class);
+        MixedOperation<Pod, PodList, PodResource> listedPods = Mockito.mock(MixedOperation.class);
+        MixedOperation<Pod, PodList, PodResource> deletedPods = Mockito.mock(MixedOperation.class);
+        PodResource podResource = Mockito.mock(PodResource.class);
+        Pod pod = createPod(deploymentName);
+        when(client.kubernetes()).thenReturn(kubernetes);
+        when(kubernetes.pods()).thenReturn(listedPods);
+        when(listedPods.list()).thenReturn(new PodListBuilder().withItems(pod).build());
+        stubNoDeployment(client, kubernetes);
+        when(client.pods()).thenReturn(deletedPods);
+        when(deletedPods.withName(pod.getMetadata().getName())).thenReturn(podResource);
+        DataBridgeTokenManager tokens = Mockito.mock(DataBridgeTokenManager.class);
+        when(tokens.rotate(appDefinition, 1, "cid")).thenReturn(true);
+        PrewarmedResourcePool pool = new PrewarmedResourcePool();
+        setField(pool, "client", client);
+        setField(pool, "dataBridgeTokens", tokens);
+
+        pool.resetPod(appDefinition, 1, deploymentName, "cid");
+
+        InOrder order = Mockito.inOrder(tokens, podResource);
+        order.verify(tokens).rotate(appDefinition, 1, "cid");
+        order.verify(podResource).delete();
+    }
+
+    @Test
+    void reconcileInstance_bridgeAppWithoutTokenReference_recreatesDeploymentAndKeepsPvc() throws Exception {
+        ReconcileFixture fixture = createReconcileFixture("6", true, false);
+        enableDataBridge(fixture.appDefinition);
+
+        fixture.pool.reconcileInstance(fixture.appDefinition, 1, "cid");
+
+        verify(fixture.pvcResource, never()).delete();
+        verify(fixture.deploymentResource).delete();
+        verify(fixture.resourceFactory).createDeploymentForEagerInstance(any(), Mockito.eq(1), any(), any(), any());
+    }
+
+    @Test
+    void reconcileInstance_appWithoutBridge_needsNoTokenReference() throws Exception {
+        ReconcileFixture fixture = createReconcileFixture("6", true, false);
+
+        fixture.pool.reconcileInstance(fixture.appDefinition, 1, "cid");
+
+        verify(fixture.deploymentResource, never()).delete();
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void resetPod_rotationFails_replacesTheDeploymentInsteadOfOnlyThePod() throws Exception {
+        AppDefinition appDefinition = createAppDefinition();
+        enableDataBridge(appDefinition);
+        String deploymentName = TheiaCloudDeploymentUtil.getDeploymentName(appDefinition, 1);
+        TheiaCloudClient client = Mockito.mock(TheiaCloudClient.class);
+        NamespacedKubernetesClient kubernetes = Mockito.mock(NamespacedKubernetesClient.class);
+        AppsAPIGroupDSL apps = Mockito.mock(AppsAPIGroupDSL.class);
+        MixedOperation<Deployment, DeploymentList, RollableScalableResource<Deployment>> deployments = Mockito
+                .mock(MixedOperation.class);
+        NonNamespaceOperation<Deployment, DeploymentList, RollableScalableResource<Deployment>> namespaced = Mockito
+                .mock(NonNamespaceOperation.class);
+        RollableScalableResource<Deployment> deployment = Mockito.mock(RollableScalableResource.class);
+        when(client.namespace()).thenReturn(NAMESPACE);
+        when(client.kubernetes()).thenReturn(kubernetes);
+        when(kubernetes.apps()).thenReturn(apps);
+        when(apps.deployments()).thenReturn(deployments);
+        when(deployments.inNamespace(NAMESPACE)).thenReturn(namespaced);
+        when(namespaced.withName(deploymentName)).thenReturn(deployment);
+        DataBridgeTokenManager tokens = Mockito.mock(DataBridgeTokenManager.class);
+        when(tokens.rotate(appDefinition, 1, "cid")).thenReturn(false);
+        K8sResourceFactory factory = Mockito.mock(K8sResourceFactory.class);
+        PrewarmedResourcePool pool = new PrewarmedResourcePool();
+        setField(pool, "client", client);
+        setField(pool, "dataBridgeTokens", tokens);
+        setField(pool, "resourceFactory", factory);
+
+        pool.resetPod(appDefinition, 1, deploymentName, "cid");
+
+        InOrder order = Mockito.inOrder(deployment, factory);
+        order.verify(deployment).delete();
+        order.verify(factory).createDeploymentForEagerInstance(Mockito.eq(appDefinition), Mockito.eq(1), any(), any(),
+                Mockito.eq("cid"));
+        verify(kubernetes, never()).pods();
+    }
+
+    // The instance becomes claimable as soon as its services lose the session as owner. Until then the old pod and
+    // token must already be gone, otherwise a claim could be injected into the previous user's pod.
+    @SuppressWarnings("unchecked")
+    @Test
+    void releaseInstance_resetsPodAndTokenBeforeTheInstanceCanBeClaimed() throws Exception {
+        AppDefinition appDefinition = createAppDefinition();
+        enableDataBridge(appDefinition);
+        Session session = createSession(APP_DEFINITION, USER, null);
+        String deploymentName = TheiaCloudDeploymentUtil.getDeploymentName(appDefinition, 1);
+
+        TheiaCloudClient client = Mockito.mock(TheiaCloudClient.class);
+        when(client.kubernetes()).thenReturn(client);
+        MixedOperation<Service, ServiceList, ServiceResource<Service>> services = Mockito.mock(MixedOperation.class);
+        NonNamespaceOperation<Service, ServiceList, ServiceResource<Service>> namespacedServices = Mockito
+                .mock(NonNamespaceOperation.class);
+        FilterWatchListDeletable<Service, ServiceList, ServiceResource<Service>> selected = Mockito
+                .mock(FilterWatchListDeletable.class);
+        ServiceResource<Service> serviceResource = Mockito.mock(ServiceResource.class);
+        Service external = new ServiceBuilder().withNewMetadata().withName("instance-1-" + APP_DEFINITION)
+                .withNamespace(NAMESPACE).addToLabels(PrewarmedResourcePool.CLAIM_LABEL,
+                        session.getMetadata().getUid())
+                .endMetadata().build();
+        Service internal = new ServiceBuilder().withNewMetadata().withName("instance-1-" + APP_DEFINITION + "-int")
+                .withNamespace(NAMESPACE).addToLabels(PrewarmedResourcePool.CLAIM_LABEL,
+                        session.getMetadata().getUid())
+                .endMetadata().build();
+        when(client.services()).thenReturn(services);
+        when(services.inNamespace(any())).thenReturn(namespacedServices);
+        when(namespacedServices.withLabelSelector(Mockito.anyString())).thenReturn(selected);
+        when(selected.list()).thenReturn(new ServiceListBuilder().withItems(external, internal).build());
+        when(namespacedServices.withName(Mockito.anyString())).thenReturn(serviceResource);
+
+        AppsAPIGroupDSL apps = Mockito.mock(AppsAPIGroupDSL.class);
+        MixedOperation<Deployment, DeploymentList, RollableScalableResource<Deployment>> deployments = Mockito
+                .mock(MixedOperation.class);
+        when(client.apps()).thenReturn(apps);
+        when(apps.deployments()).thenReturn(deployments);
+        RollableScalableResource<Deployment> deploymentResource = Mockito.mock(RollableScalableResource.class);
+        when(deployments.withName(deploymentName)).thenReturn(deploymentResource);
+        NonNamespaceOperation<Deployment, DeploymentList, RollableScalableResource<Deployment>> namespacedDeployments = Mockito
+                .mock(NonNamespaceOperation.class);
+        when(deployments.inNamespace(any())).thenReturn(namespacedDeployments);
+        when(namespacedDeployments.withName(Mockito.anyString()))
+                .thenReturn(Mockito.mock(RollableScalableResource.class));
+
+        MixedOperation<Pod, PodList, PodResource> pods = Mockito.mock(MixedOperation.class);
+        PodResource podResource = Mockito.mock(PodResource.class);
+        Pod pod = createPod(deploymentName);
+        when(client.pods()).thenReturn(pods);
+        when(pods.list()).thenReturn(new PodListBuilder().withItems(pod).build());
+        when(pods.withName(pod.getMetadata().getName())).thenReturn(podResource);
+
+        DataBridgeTokenManager tokens = Mockito.mock(DataBridgeTokenManager.class);
+        when(tokens.rotate(appDefinition, 1, "cid")).thenReturn(true);
+        PrewarmedResourcePool pool = Mockito.spy(new PrewarmedResourcePool());
+        setField(pool, "client", client);
+        setField(pool, "dataBridgeTokens", tokens);
+        setField(pool, "arguments", Mockito.mock(TheiaCloudOperatorArguments.class));
+        Mockito.doReturn(false).when(pool).needsRecreation(any(), Mockito.anyInt());
+
+        pool.releaseInstance(session, appDefinition, "cid");
+
+        InOrder order = Mockito.inOrder(tokens, podResource, deploymentResource, serviceResource);
+        order.verify(tokens).rotate(appDefinition, 1, "cid");
+        order.verify(podResource).delete();
+        order.verify(deploymentResource).edit(any(UnaryOperator.class));
+        order.verify(serviceResource, Mockito.atLeastOnce()).edit(any(UnaryOperator.class));
+    }
+
+    /** The deployment cannot be read, so deletePod falls back to the pods named after it. */
+    @SuppressWarnings("unchecked")
+    private void stubNoDeployment(TheiaCloudClient client, NamespacedKubernetesClient kubernetes) {
+        AppsAPIGroupDSL apps = Mockito.mock(AppsAPIGroupDSL.class);
+        MixedOperation<Deployment, DeploymentList, RollableScalableResource<Deployment>> deployments = Mockito
+                .mock(MixedOperation.class);
+        NonNamespaceOperation<Deployment, DeploymentList, RollableScalableResource<Deployment>> namespaced = Mockito
+                .mock(NonNamespaceOperation.class);
+        when(kubernetes.apps()).thenReturn(apps);
+        when(apps.deployments()).thenReturn(deployments);
+        when(deployments.inNamespace(any())).thenReturn(namespaced);
+        when(namespaced.withName(Mockito.anyString())).thenReturn(Mockito.mock(RollableScalableResource.class));
+    }
+
+    private void enableDataBridge(AppDefinition appDefinition) {
+        setFieldUnchecked(appDefinition.getSpec(), "options",
+                Map.of(DataBridgeUtil.DATA_BRIDGE_ENABLED_OPTION, "true"));
+    }
+
     private static class ReconcileFixture {
         private PrewarmedResourcePool pool;
+        private DataBridgeTokenManager dataBridgeTokens;
         private K8sResourceFactory resourceFactory;
         private AppDefinition appDefinition;
         private RollableScalableResource<Deployment> deploymentResource;
         private Resource<PersistentVolumeClaim> pvcResource;
     }
 
-    @SuppressWarnings("unchecked")
     private ReconcileFixture createReconcileFixture(String generation, boolean withNetworkPolicyLabels)
             throws Exception {
+        return createReconcileFixture(generation, withNetworkPolicyLabels, false);
+    }
+
+    @SuppressWarnings("unchecked")
+    private ReconcileFixture createReconcileFixture(String generation, boolean withNetworkPolicyLabels,
+            boolean withTokenReference) throws Exception {
         ReconcileFixture fixture = new ReconcileFixture();
         fixture.appDefinition = createAppDefinition();
         fixture.appDefinition.getMetadata().setGeneration(6L);
@@ -160,6 +385,12 @@ class PrewarmedResourcePoolTests {
                     .addToLabels(LabelsUtil.LABEL_KEY_THEIACLOUD, LabelsUtil.LABEL_VALUE_THEIACLOUD).endMetadata()
                     .endTemplate().endSpec();
         }
+        if (withTokenReference) {
+            deployment.editSpec().editTemplate().withNewSpec().addNewContainer().withName("theia")
+                    .addNewEnv().withName(DataBridgeTokenManager.TOKEN_ENV).withNewValueFrom().withNewSecretKeyRef()
+                    .withName(DataBridgeTokenManager.getSecretName(fixture.appDefinition, 1)).withKey("token")
+                    .endSecretKeyRef().endValueFrom().endEnv().endContainer().endSpec().endTemplate().endSpec();
+        }
         Deployment builtDeployment = deployment.build();
 
         TheiaCloudClient client = Mockito.mock(TheiaCloudClient.class);
@@ -172,7 +403,13 @@ class PrewarmedResourcePoolTests {
                 .mock(NonNamespaceOperation.class);
         when(kubernetes.services()).thenReturn(services);
         when(services.inNamespace(NAMESPACE)).thenReturn(namespacedServices);
-        when(namespacedServices.list()).thenReturn(new ServiceList());
+        ServiceList instanceServices = new ServiceList();
+        instanceServices.setItems(List.of(
+                instanceService(fixture.appDefinition, TheiaCloudServiceUtil.getServiceName(fixture.appDefinition, 1)),
+                instanceService(fixture.appDefinition,
+                        TheiaCloudServiceUtil.getInternalServiceName(fixture.appDefinition, 1))));
+        when(namespacedServices.list()).thenReturn(instanceServices);
+        when(namespacedServices.resource(any(Service.class))).thenReturn(Mockito.mock(ServiceResource.class));
 
         MixedOperation<ConfigMap, ConfigMapList, Resource<ConfigMap>> configMaps = Mockito.mock(MixedOperation.class);
         NonNamespaceOperation<ConfigMap, ConfigMapList, Resource<ConfigMap>> namespacedConfigMaps = Mockito
@@ -211,7 +448,23 @@ class PrewarmedResourcePoolTests {
         setField(fixture.pool, "resourceFactory", fixture.resourceFactory);
         setField(fixture.pool, "sidecarManager", Mockito.mock(SidecarManager.class));
         setField(fixture.pool, "arguments", Mockito.mock(TheiaCloudOperatorArguments.class));
+        fixture.dataBridgeTokens = Mockito.mock(DataBridgeTokenManager.class);
+        setField(fixture.pool, "dataBridgeTokens", fixture.dataBridgeTokens);
         return fixture;
+    }
+
+    private Service claimedService(AppDefinition appDefinition, String name, String claimant) {
+        Service service = instanceService(appDefinition, name);
+        service.getMetadata().getLabels().put(PrewarmedResourcePool.CLAIM_LABEL, claimant);
+        return service;
+    }
+
+    private Service instanceService(AppDefinition appDefinition, String name) {
+        return new ServiceBuilder().withNewMetadata().withName(name).withNamespace(NAMESPACE)
+                .addToLabels(PrewarmedResourcePool.APPDEFINITION_GENERATION_LABEL, "6")
+                .withOwnerReferences(new OwnerReferenceBuilder().withName(APP_DEFINITION)
+                        .withUid(appDefinition.getMetadata().getUid()).build())
+                .endMetadata().build();
     }
 
     // ========== computeClaimedInstances ==========
@@ -452,6 +705,19 @@ class PrewarmedResourcePoolTests {
             when(sessionClient.get(session.getMetadata().getName())).thenReturn(Optional.of(session));
         }
         when(client.kubernetes()).thenReturn(kubernetes);
+        // The services of instance 1 carry the claim of the first session, which is what the restore checks.
+        MixedOperation<Service, ServiceList, ServiceResource<Service>> services = Mockito.mock(MixedOperation.class);
+        NonNamespaceOperation<Service, ServiceList, ServiceResource<Service>> namespacedServices = Mockito
+                .mock(NonNamespaceOperation.class);
+        String claimant = sessions.isEmpty() ? "none" : sessions.get(0).getMetadata().getUid();
+        ServiceList claimedServices = new ServiceList();
+        claimedServices.setItems(List.of(
+                claimedService(appDefinition, TheiaCloudServiceUtil.getServiceName(appDefinition, 1), claimant),
+                claimedService(appDefinition, TheiaCloudServiceUtil.getInternalServiceName(appDefinition, 1),
+                        claimant)));
+        when(kubernetes.services()).thenReturn(services);
+        when(services.inNamespace(NAMESPACE)).thenReturn(namespacedServices);
+        when(namespacedServices.list()).thenReturn(claimedServices);
         when(kubernetes.configMaps()).thenReturn(configMaps);
         when(configMaps.inNamespace(NAMESPACE)).thenReturn(namespacedConfigMaps);
         when(namespacedConfigMaps.withName(TheiaCloudConfigMapUtil.getEmailConfigName(appDefinition, 1)))

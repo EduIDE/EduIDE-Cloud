@@ -43,7 +43,7 @@ RUN mkdir /templates
 WORKDIR /log-config
 COPY java/operator/org.eclipse.theia.cloud.defaultoperator/log4j2.xml .
 WORKDIR /operator
-RUN curl -fsSL -o sentry-agent.zip https://github.com/getsentry/sentry-java/releases/download/8.29.0/sentry-opentelemetry-agent-8.29.0.zip && \
+RUN curl -fsSL -o sentry-agent.zip https://github.com/getsentry/sentry-java/releases/download/8.63.0/sentry-opentelemetry-agent-8.63.0.zip && \
     unzip -j sentry-agent.zip -d . && \
     rm sentry-agent.zip
 COPY --from=builder /operator/operator/org.eclipse.theia.cloud.defaultoperator/target/defaultoperator-${APP_VERSION}-jar-with-dependencies.jar ./operator.jar
@@ -61,7 +61,7 @@ set -eu
 
 JAVA_OPTS=""
 if [ "${SENTRY_ENABLE:-false}" = "true" ]; then
-  JAVA_OPTS="$JAVA_OPTS -javaagent:/operator/sentry-opentelemetry-agent-8.29.0.jar"
+  JAVA_OPTS="$JAVA_OPTS -javaagent:/operator/sentry-opentelemetry-agent-8.63.0.jar"
   if [ -n "${SENTRY_PROPERTIES_FILE:-}" ] && [ -f "${SENTRY_PROPERTIES_FILE}" ]; then
     JAVA_OPTS="$JAVA_OPTS -Dsentry.properties.file=${SENTRY_PROPERTIES_FILE}"
   fi
@@ -72,6 +72,9 @@ exec java $JAVA_OPTS \
   -jar ./operator.jar \
   "$@"
 EOF_ENTRYPOINT
+
+RUN addgroup -S -g 10001 operator && adduser -S -u 10001 -G operator operator
+USER 10001
 
 # to get more debug information from the kubernetes client itself, add -Dorg.slf4j.simpleLogger.defaultLogLevel=DEBUG below
 ENTRYPOINT ["/entrypoint.sh"]

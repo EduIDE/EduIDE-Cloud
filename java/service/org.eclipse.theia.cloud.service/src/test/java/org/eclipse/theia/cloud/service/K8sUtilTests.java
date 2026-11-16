@@ -27,6 +27,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import org.eclipse.theia.cloud.common.k8s.client.AppDefinitionResourceClient;
+import org.eclipse.theia.cloud.common.k8s.client.SessionOwnerMismatchException;
 import org.eclipse.theia.cloud.common.k8s.client.SessionResourceClient;
 import org.eclipse.theia.cloud.common.k8s.client.TheiaCloudClient;
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinition;
@@ -35,7 +36,9 @@ import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.SidecarSpec;
 import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
 import org.eclipse.theia.cloud.common.k8s.resource.session.SessionSpec;
 import org.eclipse.theia.cloud.common.k8s.resource.session.SessionStatus;
+import org.eclipse.theia.cloud.common.util.TheiaCloudError;
 import org.eclipse.theia.cloud.common.util.WorkspaceUtil;
+import org.eclipse.theia.cloud.service.workspace.UserWorkspace;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
@@ -43,6 +46,20 @@ import org.mockito.Mockito;
 import jakarta.ws.rs.core.Response.Status;
 
 class K8sUtilTests {
+
+    @Test
+    void countActiveSessions_countsSessionsOfTheUserWithoutErrors() throws Exception {
+        K8sUtil util = createK8sUtil();
+        Session running = new Session();
+        Session failed = new Session();
+        SessionStatus errorStatus = new SessionStatus();
+        errorStatus.setError(org.eclipse.theia.cloud.common.util.TheiaCloudError.SESSION_LAUNCH_TIMEOUT);
+        failed.setStatus(errorStatus);
+        Mockito.when(util.CLIENT.sessions().list("alice")).thenReturn(java.util.List.of(running, failed));
+
+        assertEquals(1, util.countActiveSessions("alice"));
+        Mockito.verify(util.CLIENT.sessions(), Mockito.never()).list();
+    }
 
     @Test
     void launchEphemeralSession_allowsSidecarsWithoutWorkspaceMount() throws Exception {
@@ -125,7 +142,10 @@ class K8sUtilTests {
     }
 
     private String launchedSessionName(EnvironmentVars env) throws Exception {
-        K8sUtil util = createK8sUtil();
+        return launchedSessionName(createK8sUtil(), env);
+    }
+
+    private String launchedSessionName(K8sUtil util, EnvironmentVars env) throws Exception {
         Mockito.when(util.CLIENT.appDefinitions().get("test-app")).thenReturn(Optional.empty());
         Mockito.when(util.CLIENT.sessions().launch(anyString(), any(), anyInt())).thenReturn(launchedSession("https://example.test"));
 
@@ -157,6 +177,81 @@ class K8sUtilTests {
                 () -> util.launchEphemeralSession("corr", "test-app", "alice", 3, null));
 
         assertEquals(Status.SERVICE_UNAVAILABLE.getStatusCode(), exception.getResponse().getStatus());
+    }
+
+    @Test
+    void launchEphemeralSession_sessionOfAnotherUser_throwsForbidden() throws Exception {
+        K8sUtil util = createK8sUtil();
+
+        Mockito.when(util.CLIENT.appDefinitions().get("test-app")).thenReturn(Optional.of(createAppDefinition(false)));
+        Mockito.when(util.CLIENT.sessions().launch(anyString(), any(), anyInt()))
+                .thenThrow(new SessionOwnerMismatchException("session"));
+
+        TheiaCloudWebException exception = assertThrows(TheiaCloudWebException.class,
+                () -> util.launchEphemeralSession("corr", "test-app", "bob", 3, null));
+
+        assertEquals(Status.FORBIDDEN.getStatusCode(), exception.getResponse().getStatus());
+    }
+
+    @Test
+    void launchEphemeralSession_runningLegacySessionOfTheSameUser_isReused() throws Exception {
+        K8sUtil util = createK8sUtil();
+        String legacy = WorkspaceUtil.getLegacyEphemeralSessionName("alice", "test-app");
+        Session running = new Session();
+        running.setSpec(new SessionSpec(legacy, "test-app", "alice"));
+
+        Mockito.when(util.CLIENT.appDefinitions().get("test-app")).thenReturn(Optional.of(createAppDefinition(false)));
+        Mockito.when(util.CLIENT.sessions().get(legacy)).thenReturn(Optional.of(running));
+        Mockito.when(util.CLIENT.sessions().launch(anyString(), any(), anyInt())).thenReturn(launchedSession("https://example.test"));
+
+        util.launchEphemeralSession("corr", "test-app", "alice", 3, null);
+
+        ArgumentCaptor<SessionSpec> spec = ArgumentCaptor.forClass(SessionSpec.class);
+        Mockito.verify(util.CLIENT.sessions()).launch(anyString(), spec.capture(), anyInt());
+        assertEquals(legacy, spec.getValue().getName());
+    }
+
+    @Test
+    void launchEphemeralSession_earlierSessionOfAnotherRepository_isNotReused() throws Exception {
+        K8sUtil util = createK8sUtil();
+        String legacy = WorkspaceUtil.getLegacyEphemeralSessionName("alice", "test-app");
+        Mockito.when(util.CLIENT.sessions().get(legacy)).thenReturn(
+                Optional.of(earlierSession(legacy, Map.of("GIT_URI", "https://github.com/octocat/Hello-World.git"))));
+
+        EnvironmentVars spoonKnife = env("https://github.com/octocat/Spoon-Knife.git");
+
+        assertEquals(WorkspaceUtil.getSessionName("alice", "test-app", K8sUtil.repositoryOf(spoonKnife)),
+                launchedSessionName(util, spoonKnife));
+    }
+
+    @Test
+    void launchEphemeralSession_earlierSessionOfTheSameRepository_isReused() throws Exception {
+        K8sUtil util = createK8sUtil();
+        String legacy = WorkspaceUtil.getLegacyEphemeralSessionName("alice", "test-app");
+        String withoutRepository = WorkspaceUtil.getSessionName("alice", "test-app", false);
+        Mockito.when(util.CLIENT.sessions().get(legacy)).thenReturn(Optional.empty());
+        Mockito.when(util.CLIENT.sessions().get(withoutRepository)).thenReturn(Optional.of(
+                earlierSession(withoutRepository, Map.of("GIT_URI", "https://token@github.com/octocat/Hello-World.git"))));
+
+        assertEquals(withoutRepository,
+                launchedSessionName(util, env("https://github.com/octocat/Hello-World")));
+    }
+
+    private Session earlierSession(String name, Map<String, String> envVars) {
+        Session session = new Session();
+        session.setSpec(new SessionSpec(name, "test-app", "alice", null, envVars));
+        return session;
+    }
+
+    @Test
+    void createWorkspace_nameOfAnEphemeralSession_isRejected() {
+        K8sUtil util = createK8sUtil();
+        String reserved = WorkspaceUtil.generateNonUniqueWorkspaceName("alice@example.org", "test-app");
+
+        TheiaCloudWebException exception = assertThrows(TheiaCloudWebException.class,
+                () -> util.createWorkspace("corr", new UserWorkspace("test-app", "bob@example.org", reserved, null)));
+
+        assertEquals(TheiaCloudError.INVALID_WORKSPACE_NAME.getCode(), exception.getResponse().getStatus());
     }
 
     private K8sUtil createK8sUtil() {

@@ -23,12 +23,14 @@ import java.net.URISyntaxException;
 import java.text.MessageFormat;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import org.eclipse.theia.cloud.common.k8s.client.DefaultTheiaCloudClient;
+import org.eclipse.theia.cloud.common.k8s.client.SessionOwnerMismatchException;
 import org.eclipse.theia.cloud.common.k8s.client.TheiaCloudClient;
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinition;
 import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinitionSpec;
@@ -39,6 +41,8 @@ import org.eclipse.theia.cloud.common.k8s.resource.workspace.Workspace;
 import org.eclipse.theia.cloud.common.k8s.resource.workspace.WorkspaceSpec;
 import org.eclipse.theia.cloud.common.util.CustomResourceUtil;
 import org.eclipse.theia.cloud.common.util.LogMessageUtil;
+import org.eclipse.theia.cloud.common.util.TheiaCloudError;
+import org.eclipse.theia.cloud.common.util.WorkspaceUtil;
 import org.eclipse.theia.cloud.service.session.SessionPerformance;
 import org.eclipse.theia.cloud.service.workspace.UserWorkspace;
 import org.jboss.logging.Logger;
@@ -70,6 +74,9 @@ public final class K8sUtil {
     }
 
     public Workspace createWorkspace(String correlationId, UserWorkspace data) {
+        if (WorkspaceUtil.isReservedWorkspaceName(data.name)) {
+            throw new TheiaCloudWebException(TheiaCloudError.INVALID_WORKSPACE_NAME);
+        }
         WorkspaceSpec spec = new WorkspaceSpec(data.name, data.label, data.appDefinition, data.user);
         return CLIENT.workspaces().launch(correlationId, spec);
     }
@@ -116,13 +123,47 @@ public final class K8sUtil {
                     "Ephemeral sessions are not supported for app definitions whose sidecars mount the workspace. Use a workspace-backed session.");
         }
 
-        // An existing session of the same name is returned as it is, with its old environment. Without the repository
-        // in the name, a second repository in the same app definition would reopen the first one's session.
-        SessionSpec sessionSpec = new SessionSpec(getSessionName(user, appDefinition, repositoryOf(env)),
-                appDefinition, user);
+        SessionSpec sessionSpec = new SessionSpec(ephemeralSessionName(user, appDefinition, env), appDefinition, user);
         sessionSpec = sessionSpecWithEnv(sessionSpec, env);
 
         return launchSession(correlationId, sessionSpec, timeout);
+    }
+
+    /**
+     * Returns the name of the ephemeral session a launch with these arguments starts or reopens. An existing session of
+     * that name is returned as it is, with its old environment. Without the repository in the name, a second repository
+     * in the same app definition would reopen the first one's session.
+     *
+     * @param user          the session's user
+     * @param appDefinition the session's app definition
+     * @param env           the launch environment, may be <code>null</code>
+     * @return the session name
+     */
+    public String ephemeralSessionName(String user, String appDefinition, EnvironmentVars env) {
+        String repository = repositoryOf(env);
+        return earlierEphemeralSessionName(user, appDefinition, repository)
+                .orElse(getSessionName(user, appDefinition, repository));
+    }
+
+    /**
+     * Returns the name of a running ephemeral session of the user that was started under an earlier naming scheme and
+     * works on the same repository. Such a session keeps its name until it ends, so a relaunch has to find it to not
+     * count as a second session. The earlier names are the one before the reserved prefix and the hash, and, for a
+     * launch with a repository, the one without the repository.
+     */
+    private Optional<String> earlierEphemeralSessionName(String user, String appDefinition, String repository) {
+        List<String> earlierNames = repository == null
+                ? List.of(WorkspaceUtil.getLegacyEphemeralSessionName(user, appDefinition))
+                : List.of(WorkspaceUtil.getLegacyEphemeralSessionName(user, appDefinition),
+                        getSessionName(user, appDefinition, false));
+        return earlierNames.stream()
+                .filter(name -> CLIENT.sessions().get(name)
+                        .map(Session::getSpec)
+                        .filter(spec -> Objects.equals(spec.getUser(), user)
+                                && (spec.getWorkspace() == null || spec.getWorkspace().isEmpty())
+                                && Objects.equals(repositoryOf(spec.getEnvVars()), repository))
+                        .isPresent())
+                .findFirst();
     }
 
     /**
@@ -134,10 +175,14 @@ public final class K8sUtil {
      * @return the normalized repository, or <code>null</code> if the environment names none
      */
     static String repositoryOf(EnvironmentVars env) {
-        if (env == null || env.fromMap == null) {
+        return env == null ? null : repositoryOf(env.fromMap);
+    }
+
+    private static String repositoryOf(Map<String, String> env) {
+        if (env == null) {
             return null;
         }
-        String gitUri = env.fromMap.get(GIT_URI_ENV);
+        String gitUri = env.get(GIT_URI_ENV);
         if (gitUri == null || gitUri.isBlank()) {
             return null;
         }
@@ -189,7 +234,12 @@ public final class K8sUtil {
     }
 
     private String launchSession(String correlationId, SessionSpec sessionSpec, int timeout) {
-        SessionStatus status = CLIENT.sessions().launch(correlationId, sessionSpec, timeout).getNonNullStatus();
+        SessionStatus status;
+        try {
+            status = CLIENT.sessions().launch(correlationId, sessionSpec, timeout).getNonNullStatus();
+        } catch (SessionOwnerMismatchException e) {
+            throw new TheiaCloudWebException(Status.FORBIDDEN);
+        }
         TheiaCloudWebException.throwIfErroneous(status);
         if (!status.hasUrl()) {
             // An empty 200 would redirect the browser to "https://". Let the client retry instead.
@@ -204,10 +254,6 @@ public final class K8sUtil {
 
         return new SessionSpec(spec.getName(), spec.getAppDefinition(), spec.getUser(), spec.getWorkspace(),
                 env.fromMap, env.fromConfigMaps, env.fromSecrets);
-    }
-
-    public boolean reportSessionActivity(String correlationId, String sessionName) {
-        return CLIENT.sessions().reportActivity(correlationId, sessionName);
     }
 
     public boolean stopSession(String correlationId, String sessionName, String user) {
@@ -322,6 +368,13 @@ public final class K8sUtil {
     public AppDefinition editAppDefinition(String correlationId, String appDefinition,
             Consumer<AppDefinition> consumer) {
         return CLIENT.appDefinitions().edit(correlationId, appDefinition, consumer);
+    }
+
+    /** @return the number of sessions of the user that are not in error state */
+    public long countActiveSessions(String user) {
+        return CLIENT.sessions().list(user).stream() //
+                .filter(s -> s.getStatus() == null || !s.getStatus().hasError()) //
+                .count();
     }
 
     public boolean isMaxInstancesReached(String appDefString) {

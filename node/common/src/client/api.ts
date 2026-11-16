@@ -268,6 +268,19 @@ export interface AppDefinitionSpec {
     'ingressHostnamePrefixes'?: Array<string>;
 }
 /**
+ * Public information about an app definition.
+ * @export
+ * @interface AppDefinitionSummary
+ */
+export interface AppDefinitionSummary {
+    /**
+     * The name of the app definition.
+     * @type {string}
+     * @memberof AppDefinitionSummary
+     */
+    'name'?: string;
+}
+/**
  * 
  * @export
  * @interface AppDefinitionStatus
@@ -611,25 +624,6 @@ export interface PingRequest {
      * @memberof PingRequest
      */
     'appId': string;
-}
-/**
- * A request to report activity for a running session.
- * @export
- * @interface SessionActivityRequest
- */
-export interface SessionActivityRequest {
-    /**
-     * The App Id of this Theia Cloud instance. Request without a matching Id will be denied.
-     * @type {string}
-     * @memberof SessionActivityRequest
-     */
-    'appId': string;
-    /**
-     * The name of the session for which activity is reported.
-     * @type {string}
-     * @memberof SessionActivityRequest
-     */
-    'sessionName': string;
 }
 /**
  * A request to list the sessions of a user.
@@ -1103,7 +1097,7 @@ export class AppDefinitionAdminResourceApi extends BaseAPI {
 export const AppDefinitionResourceApiAxiosParamCreator = function (configuration?: Configuration) {
     return {
         /**
-         * List available app definitions.
+         * List the names of the available app definitions. Admins read the full configuration through the admin API.
          * @summary List app definitions
          * @param {string} appId 
          * @param {*} [options] Override http request option.
@@ -1151,13 +1145,13 @@ export const AppDefinitionResourceApiFp = function(configuration?: Configuration
     const localVarAxiosParamCreator = AppDefinitionResourceApiAxiosParamCreator(configuration)
     return {
         /**
-         * List available app definitions.
+         * List the names of the available app definitions. Admins read the full configuration through the admin API.
          * @summary List app definitions
          * @param {string} appId 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async serviceAppdefinitionAppIdGet(appId: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<Array<AppDefinitionSpec>>> {
+        async serviceAppdefinitionAppIdGet(appId: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<Array<AppDefinitionSummary>>> {
             const localVarAxiosArgs = await localVarAxiosParamCreator.serviceAppdefinitionAppIdGet(appId, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['AppDefinitionResourceApi.serviceAppdefinitionAppIdGet']?.[localVarOperationServerIndex]?.url;
@@ -1174,13 +1168,13 @@ export const AppDefinitionResourceApiFactory = function (configuration?: Configu
     const localVarFp = AppDefinitionResourceApiFp(configuration)
     return {
         /**
-         * List available app definitions.
+         * List the names of the available app definitions. Admins read the full configuration through the admin API.
          * @summary List app definitions
          * @param {string} appId 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        serviceAppdefinitionAppIdGet(appId: string, options?: RawAxiosRequestConfig): AxiosPromise<Array<AppDefinitionSpec>> {
+        serviceAppdefinitionAppIdGet(appId: string, options?: RawAxiosRequestConfig): AxiosPromise<Array<AppDefinitionSummary>> {
             return localVarFp.serviceAppdefinitionAppIdGet(appId, options).then((request) => request(axios, basePath));
         },
     };
@@ -1194,7 +1188,7 @@ export const AppDefinitionResourceApiFactory = function (configuration?: Configu
  */
 export class AppDefinitionResourceApi extends BaseAPI {
     /**
-     * List available app definitions.
+     * List the names of the available app definitions. Admins read the full configuration through the admin API.
      * @summary List app definitions
      * @param {string} appId 
      * @param {*} [options] Override http request option.
@@ -1592,46 +1586,6 @@ export const SessionResourceApiAxiosParamCreator = function (configuration?: Con
             };
         },
         /**
-         * Updates the last activity timestamp for a session to monitor activity.
-         * @summary Report session activity
-         * @param {SessionActivityRequest} sessionActivityRequest 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        serviceSessionPatch: async (sessionActivityRequest: SessionActivityRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
-            // verify required parameter 'sessionActivityRequest' is not null or undefined
-            assertParamExists('serviceSessionPatch', 'sessionActivityRequest', sessionActivityRequest)
-            const localVarPath = `/service/session`;
-            // use dummy base URL string because the URL constructor only accepts absolute URLs.
-            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
-            let baseOptions;
-            if (configuration) {
-                baseOptions = configuration.baseOptions;
-            }
-
-            const localVarRequestOptions = { method: 'PATCH', ...baseOptions, ...options};
-            const localVarHeaderParameter = {} as any;
-            const localVarQueryParameter = {} as any;
-
-            // authentication SecurityScheme required
-            // oauth required
-            await setOAuthToObject(localVarHeaderParameter, "SecurityScheme", [], configuration)
-
-
-    
-            localVarHeaderParameter['Content-Type'] = 'application/json';
-
-            setSearchParams(localVarUrlObj, localVarQueryParameter);
-            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
-            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
-            localVarRequestOptions.data = serializeDataIfNeeded(sessionActivityRequest, localVarRequestOptions, configuration)
-
-            return {
-                url: toPathString(localVarUrlObj),
-                options: localVarRequestOptions,
-            };
-        },
-        /**
          * Returns the current CPU and memory usage of the session\'s pod.
          * @summary Get performance metrics
          * @param {string} appId 
@@ -1795,19 +1749,6 @@ export const SessionResourceApiFp = function(configuration?: Configuration) {
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
-         * Updates the last activity timestamp for a session to monitor activity.
-         * @summary Report session activity
-         * @param {SessionActivityRequest} sessionActivityRequest 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        async serviceSessionPatch(sessionActivityRequest: SessionActivityRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<boolean>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.serviceSessionPatch(sessionActivityRequest, options);
-            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
-            const localVarOperationServerBasePath = operationServerMap['SessionResourceApi.serviceSessionPatch']?.[localVarOperationServerIndex]?.url;
-            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
-        },
-        /**
          * Returns the current CPU and memory usage of the session\'s pod.
          * @summary Get performance metrics
          * @param {string} appId 
@@ -1880,16 +1821,6 @@ export const SessionResourceApiFactory = function (configuration?: Configuration
             return localVarFp.serviceSessionDelete(sessionStopRequest, options).then((request) => request(axios, basePath));
         },
         /**
-         * Updates the last activity timestamp for a session to monitor activity.
-         * @summary Report session activity
-         * @param {SessionActivityRequest} sessionActivityRequest 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        serviceSessionPatch(sessionActivityRequest: SessionActivityRequest, options?: RawAxiosRequestConfig): AxiosPromise<boolean> {
-            return localVarFp.serviceSessionPatch(sessionActivityRequest, options).then((request) => request(axios, basePath));
-        },
-        /**
          * Returns the current CPU and memory usage of the session\'s pod.
          * @summary Get performance metrics
          * @param {string} appId 
@@ -1956,17 +1887,6 @@ export class SessionResourceApi extends BaseAPI {
         return SessionResourceApiFp(this.configuration).serviceSessionDelete(sessionStopRequest, options).then((request) => request(this.axios, this.basePath));
     }
 
-    /**
-     * Updates the last activity timestamp for a session to monitor activity.
-     * @summary Report session activity
-     * @param {SessionActivityRequest} sessionActivityRequest 
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof SessionResourceApi
-     */
-    public serviceSessionPatch(sessionActivityRequest: SessionActivityRequest, options?: RawAxiosRequestConfig) {
-        return SessionResourceApiFp(this.configuration).serviceSessionPatch(sessionActivityRequest, options).then((request) => request(this.axios, this.basePath));
-    }
 
     /**
      * Returns the current CPU and memory usage of the session\'s pod.

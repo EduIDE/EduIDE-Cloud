@@ -15,6 +15,8 @@
  ********************************************************************************/
 package org.eclipse.theia.cloud.service.session;
 
+import static org.eclipse.theia.cloud.common.util.WorkspaceUtil.getSessionName;
+
 import java.text.MessageFormat;
 import java.util.List;
 import java.util.Optional;
@@ -40,13 +42,11 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClientOptions;
 import io.vertx.mutiny.core.Vertx;
 import io.vertx.mutiny.ext.web.client.WebClient;
-import jakarta.annotation.security.PermitAll;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.InternalServerErrorException;
-import jakarta.ws.rs.PATCH;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
@@ -94,6 +94,9 @@ public class SessionResource extends BaseResource {
 
         info(correlationId, "Launching session " + request);
         if (request.isEphemeral()) {
+            throwIfAppDefinitionNotLaunchable(correlationId, k8sUtil, request.appDefinition);
+            throwIfUserLimitReached(correlationId, k8sUtil, user,
+                    k8sUtil.ephemeralSessionName(user, request.appDefinition, request.env));
             return k8sUtil.launchEphemeralSession(correlationId, request.appDefinition, user, request.timeout,
                     request.env);
         }
@@ -105,10 +108,16 @@ public class SessionResource extends BaseResource {
             throw new TheiaCloudWebException(TheiaCloudError.INVALID_WORKSPACE_NAME);
         }
 
-        if (request.appDefinition != null) {
-            // request can override default application definition stored in workspace
-            workspace.get().getSpec().setAppDefinition(request.appDefinition);
+        // The AppDefinition of the workspace decides. A request may repeat it but not replace it.
+        String workspaceAppDefinition = workspace.get().getSpec().getAppDefinition();
+        if (request.appDefinition != null && !request.appDefinition.equals(workspaceAppDefinition)) {
+            error(correlationId, "Failed to launch session. Workspace App Definition '" + workspaceAppDefinition
+                    + "' does not match Request App Definition '" + request.appDefinition + "'.");
+            throw new TheiaCloudWebException(TheiaCloudError.APP_DEFINITION_NAME_MISMATCH);
         }
+        throwIfAppDefinitionNotLaunchable(correlationId, k8sUtil, workspaceAppDefinition);
+        throwIfUserLimitReached(correlationId, k8sUtil, user, getSessionName(workspace.get().getSpec().getName()));
+
         info(correlationId, "Launch workspace session: " + request);
         return k8sUtil.launchWorkspaceSession(correlationId, new UserWorkspace(workspace.get().getSpec()),
                 request.timeout, request.env);
@@ -140,22 +149,6 @@ public class SessionResource extends BaseResource {
 
         info(correlationId, "Stop session: " + request);
         return k8sUtil.stopSession(correlationId, request.sessionName, evaluatedRequest.getUser());
-    }
-
-    @Operation(summary = "Report session activity", description = "Updates the last activity timestamp for a session to monitor activity.")
-    @PATCH
-    @PermitAll
-    public boolean activity(SessionActivityRequest request) {
-        // TODO activity reporting will be removed from this service
-        // There will be a dedicated service that will have direct communication with
-        // the pods
-        // Permit All until this is implemented
-        String correlationId = evaluateRequest(request);
-        if (request.sessionName == null) {
-            throw new TheiaCloudWebException(TheiaCloudError.MISSING_SESSION_NAME);
-        }
-        info(correlationId, "Report session activity: " + request);
-        return k8sUtil.reportSessionActivity(correlationId, request.sessionName);
     }
 
     @Operation(summary = "Get performance metrics", description = "Returns the current CPU and memory usage of the session's pod.")

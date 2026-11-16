@@ -49,6 +49,13 @@ public class TheiaCloudWebException extends WebApplicationException {
         this(TheiaCloudError.fromString(error));
     }
 
+    /** 403 with a reason in the body for a caller whose email claim is not accepted as identifier. */
+    public static TheiaCloudWebException emailRejected() {
+        return new TheiaCloudWebException(Response.status(Response.Status.FORBIDDEN).type(MediaType.TEXT_PLAIN_TYPE)
+                .entity("The email address of your account contains characters that are not supported. Contact an administrator.")
+                .build());
+    }
+
     public static Session throwIfErroneous(Session session) {
         throwIfErroneous(session.getNonNullStatus());
         return session;

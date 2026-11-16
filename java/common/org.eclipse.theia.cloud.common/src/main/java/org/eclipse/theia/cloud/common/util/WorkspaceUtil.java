@@ -28,6 +28,9 @@ import org.eclipse.theia.cloud.common.k8s.resource.workspace.Workspace;
 public final class WorkspaceUtil {
     private static final String SESSION_SUFFIX = "-session";
     private static final String WORKSPACE_PREFIX = "ws-";
+    /** Prefix of ephemeral session names. Users cannot create workspaces with this prefix. */
+    private static final String EPHEMERAL_PREFIX = "eph-";
+    private static final int EPHEMERAL_HASH_LENGTH = 16;
     private static final int WORKSPACE_NAME_LIMIT = NamingUtil.VALID_NAME_LIMIT - SESSION_SUFFIX.length();
     private static final int DISCRIMINATOR_HASH_LENGTH = 10;
 
@@ -40,9 +43,42 @@ public final class WorkspaceUtil {
                 + "-" + user).toLowerCase(), WORKSPACE_NAME_LIMIT);
     }
 
+    /**
+     * Name of the ephemeral session of a user. Emails that differ only in characters that are replaced by '-' or in
+     * case would collide in the readable part, so a hash of the exact user is appended.
+     */
     public static String generateNonUniqueWorkspaceName(String user, String appDefinitionName) {
-        return asValidName((WORKSPACE_PREFIX + getWorkspaceDescription(appDefinitionName) + "-" + user).toLowerCase(),
-                WORKSPACE_NAME_LIMIT);
+        return ephemeralReadablePart(user, appDefinitionName, WORKSPACE_NAME_LIMIT - EPHEMERAL_HASH_LENGTH - 1) + "-"
+                + hash(user);
+    }
+
+    private static String ephemeralReadablePart(String user, String appDefinitionName, int limit) {
+        return asValidName((EPHEMERAL_PREFIX + getWorkspaceDescription(appDefinitionName) + "-" + user).toLowerCase(),
+                limit);
+    }
+
+    /**
+     * The name ephemeral sessions had before they got the reserved prefix and the hash. Sessions that were started
+     * under it keep running, and a relaunch has to find them to not count as a second session.
+     */
+    public static String getLegacyEphemeralSessionName(String user, String appDefinitionName) {
+        return getSessionName(asValidName(
+                (WORKSPACE_PREFIX + getWorkspaceDescription(appDefinitionName) + "-" + user).toLowerCase(),
+                WORKSPACE_NAME_LIMIT));
+    }
+
+    public static boolean isReservedWorkspaceName(String workspaceName) {
+        return workspaceName != null && workspaceName.toLowerCase().startsWith(EPHEMERAL_PREFIX);
+    }
+
+    private static String hash(String user) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(String.valueOf(user).getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest).substring(0, EPHEMERAL_HASH_LENGTH);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     public static String getSessionName(String workspaceName) {
@@ -57,9 +93,10 @@ public final class WorkspaceUtil {
 
     /**
      * Returns the non-unique session name of the given user and app definition, told apart by a discriminator such as
-     * the repository the session works on. The name ends with a hash of user, app definition and discriminator, which
-     * is kept in full when the readable part has to be shortened. Truncation therefore cannot make two users, two app
-     * definitions or two discriminators share a session.
+     * the repository the session works on. Like every ephemeral session name it starts with the reserved prefix. It
+     * ends with a hash of the exact user, the app definition and the discriminator, which is kept in full when the
+     * readable part has to be shortened. Truncation therefore cannot make two users, two app definitions or two
+     * discriminators share a session.
      * A <code>null</code> or blank discriminator yields the same name as
      * {@link #getSessionName(String, String, boolean)} with <code>unique == false</code>.
      *
@@ -77,7 +114,8 @@ public final class WorkspaceUtil {
         String hashInput = String.join("", lengthPrefixed(user), lengthPrefixed(appDefinitionName),
                 lengthPrefixed(discriminator));
         String hashSuffix = "-" + sha256Hex(hashInput).substring(0, DISCRIMINATOR_HASH_LENGTH);
-        String workspaceName = asValidName(generateNonUniqueWorkspaceName(user, appDefinitionName),
+        // This hash covers the exact user, so the user hash of the name without discriminator is not needed.
+        String workspaceName = ephemeralReadablePart(user, appDefinitionName,
                 WORKSPACE_NAME_LIMIT - hashSuffix.length());
         return getSessionName(workspaceName + hashSuffix);
     }

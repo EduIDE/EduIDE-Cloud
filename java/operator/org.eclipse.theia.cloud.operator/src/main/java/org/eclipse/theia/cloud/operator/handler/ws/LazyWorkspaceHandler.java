@@ -17,6 +17,7 @@ package org.eclipse.theia.cloud.operator.handler.ws;
 
 import static org.eclipse.theia.cloud.common.util.LogMessageUtil.formatLogMessage;
 
+import java.util.Objects;
 import java.util.Optional;
 
 import org.apache.logging.log4j.LogManager;
@@ -131,7 +132,11 @@ public class LazyWorkspaceHandler implements WorkspaceHandler {
     @Override
     public boolean workspaceDeleted(Workspace workspace, String correlationId) {
         String sessionName = WorkspaceUtil.getSessionName(workspace.getSpec().getName());
-        client.sessions().delete(correlationId, sessionName);
+        // Delete only the session of this workspace: a session of the same name may belong to another user.
+        client.sessions().get(sessionName)
+                .filter(session -> Objects.equals(session.getSpec().getWorkspace(), workspace.getSpec().getName())
+                        && Objects.equals(session.getSpec().getUser(), workspace.getSpec().getUser()))
+                .ifPresent(session -> client.sessions().delete(correlationId, sessionName));
 
         String storageName = WorkspaceUtil.getStorageName(workspace);
         client.persistentVolumeClaimsClient().delete(correlationId, storageName);

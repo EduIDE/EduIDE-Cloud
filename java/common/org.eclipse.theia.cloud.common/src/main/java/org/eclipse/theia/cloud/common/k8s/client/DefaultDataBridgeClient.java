@@ -3,6 +3,8 @@ package org.eclipse.theia.cloud.common.k8s.client;
 import static org.eclipse.theia.cloud.common.util.LogMessageUtil.formatLogMessage;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -13,6 +15,8 @@ import org.eclipse.theia.cloud.common.k8s.resource.appdefinition.AppDefinition;
 import org.eclipse.theia.cloud.common.k8s.resource.session.DataInjectionResponse;
 import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
 import org.eclipse.theia.cloud.common.util.DataBridgeUtil;
+import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import okhttp3.MediaType;
@@ -67,18 +71,18 @@ public class DefaultDataBridgeClient implements DataBridgeClient {
     }
 
     @Override
-    public Optional<DataInjectionResponse> injectData(String sessionName, Map<String, String> data,
+    public Optional<DataInjectionResponse> injectData(String sessionName, Map<String, String> data, String token,
             String correlationId) {
         Optional<Session> session = theiaCloudClient.sessions().get(sessionName);
         if (session.isEmpty()) {
             LOGGER.warn(formatLogMessage(correlationId, "Session not found: " + sessionName));
             return Optional.empty();
         }
-        return injectData(session.get(), data, correlationId);
+        return injectData(session.get(), data, token, correlationId);
     }
 
     @Override
-    public Optional<DataInjectionResponse> injectData(Session session, Map<String, String> data,
+    public Optional<DataInjectionResponse> injectData(Session session, Map<String, String> data, String token,
             String correlationId) {
         String sessionName = session.getSpec().getName();
 
@@ -116,11 +120,11 @@ public class DefaultDataBridgeClient implements DataBridgeClient {
             return Optional.empty();
         }
 
-        return performInjection(url.get(), data, correlationId, sessionName);
+        return performInjection(url.get(), data, token, correlationId, sessionName);
     }
 
     private Optional<DataInjectionResponse> performInjection(String url, Map<String, String> data,
-            String correlationId, String sessionName) {
+            String token, String correlationId, String sessionName) {
         LOGGER.info(formatLogMessage(correlationId, "Injecting data to session: " + sessionName + " at " + url));
 
         try {
@@ -131,14 +135,21 @@ public class DefaultDataBridgeClient implements DataBridgeClient {
 
             RequestBody body = RequestBody.create(requestBody.toString(), JSON_MEDIA_TYPE);
 
-            Request request = new Request.Builder().url(url).post(body).build();
+            Request.Builder request = new Request.Builder().url(url).post(body);
+            // The data bridge only accepts writes that carry its instance token. Older bridges ignore the header.
+            if (token != null && !token.isEmpty()) {
+                request.header("Authorization", "Bearer " + token);
+            } else {
+                LOGGER.warn(formatLogMessage(correlationId,
+                        "No data bridge token for session " + sessionName + ", injecting without Authorization header"));
+            }
 
-            try (Response response = httpClient.newCall(request).execute()) {
+            try (Response response = httpClient.newCall(request.build()).execute()) {
                 if (response.isSuccessful()) {
                     LOGGER.info(formatLogMessage(correlationId,
                             "Successfully injected data to: " + sessionName));
-                    return Optional
-                            .of(DataInjectionResponse.success("Data injected successfully"));
+                    return Optional.of(DataInjectionResponse.success("Data injected successfully",
+                            readIgnoredKeys(response.body() != null ? response.body().string() : "")));
                 } else {
                     String errorBody = response.body() != null ? response.body().string() : "Unknown error";
                     LOGGER.warn(formatLogMessage(correlationId, "Failed to inject data. Status: "
@@ -151,6 +162,20 @@ public class DefaultDataBridgeClient implements DataBridgeClient {
             LOGGER.error(
                     formatLogMessage(correlationId, "IOException while injecting data to: " + sessionName), e);
             return Optional.of(DataInjectionResponse.failure("Network error: " + e.getMessage()));
+        }
+    }
+
+    /** The data bridge lists the keys it did not store as {"ignored": [...]}. Older bridges send no such list. */
+    static List<String> readIgnoredKeys(String body) {
+        try {
+            JSONArray ignored = new JSONObject(body).optJSONArray("ignored");
+            List<String> names = new ArrayList<>();
+            for (int i = 0; ignored != null && i < ignored.length(); i++) {
+                names.add(ignored.optString(i));
+            }
+            return names;
+        } catch (JSONException e) {
+            return List.of();
         }
     }
 

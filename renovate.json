@@ -3,6 +3,11 @@
   "extends": ["local>EduIDE/.github:renovate-config"],
   "packageRules": [
     {
+      "description": "The service gets its fabric8 jars from the Quarkus BOM, so a separate fabric8 bump mixes versions at runtime (NoClassDefFoundError). The Quarkus modules take the Quarkus-managed fabric8 version; kubernetes-client.version only serves the operator modules and must equal the version the Quarkus BOM manages.",
+      "matchPackageNames": ["io.fabric8:**"],
+      "enabled": false
+    },
+    {
       "description": "Sample project shipped for the demo, not a dependency of this repo.",
       "matchFileNames": ["demo/dockerfiles/demo-theia-docker/project/**"],
       "enabled": false

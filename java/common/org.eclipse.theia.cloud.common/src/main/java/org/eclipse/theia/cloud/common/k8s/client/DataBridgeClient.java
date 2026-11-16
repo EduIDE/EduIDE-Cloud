@@ -17,11 +17,12 @@ public interface DataBridgeClient {
      * 
      * @param sessionName   The name of the session
      * @param data          Map of environment variable data to inject
+     * @param token         Bearer token the data bridge expects, or null to send none
      * @param correlationId For logging/tracing
      * @return Response indicating success or failure, or empty if the session or
      *         bridge is unreachable
      */
-    Optional<DataInjectionResponse> injectData(String sessionName, Map<String, String> data,
+    Optional<DataInjectionResponse> injectData(String sessionName, Map<String, String> data, String token,
             String correlationId);
 
     /**
@@ -29,11 +30,12 @@ public interface DataBridgeClient {
      * 
      * @param session       The session object
      * @param data          Map of environment variable data to inject
+     * @param token         Bearer token the data bridge expects, or null to send none
      * @param correlationId For logging/tracing
      * @return Response indicating success or failure, or empty if the bridge is
      *         unreachable
      */
-    Optional<DataInjectionResponse> injectData(Session session, Map<String, String> data,
+    Optional<DataInjectionResponse> injectData(Session session, Map<String, String> data, String token,
             String correlationId);
 
     /**

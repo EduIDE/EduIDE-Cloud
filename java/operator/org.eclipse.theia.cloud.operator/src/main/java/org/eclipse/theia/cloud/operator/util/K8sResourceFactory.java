@@ -28,6 +28,7 @@ import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
 import org.eclipse.theia.cloud.common.util.LabelsUtil;
 import org.eclipse.theia.cloud.operator.TheiaCloudOperatorArguments;
 import org.eclipse.theia.cloud.operator.bandwidth.BandwidthLimiter;
+import org.eclipse.theia.cloud.operator.databridge.DataBridgeTokenManager;
 import org.eclipse.theia.cloud.operator.handler.AddedHandlerUtil;
 import org.eclipse.theia.cloud.operator.ingress.IngressPathProvider;
 import org.eclipse.theia.cloud.operator.replacements.DeploymentTemplateReplacements;
@@ -74,6 +75,9 @@ public class K8sResourceFactory {
 
     @Inject
     private SidecarManager sidecarManager;
+
+    @Inject
+    private DataBridgeTokenManager dataBridgeTokens;
 
     // ========== Service Creation ==========
 
@@ -178,6 +182,7 @@ public class K8sResourceFactory {
                         AddedHandlerUtil.addImagePullSecret(deployment, appDef.getSpec().getPullSecret());
                     }
                     sidecarManager.injectPrewarmedSidecarEnvVars(deployment, appDef, instance, correlationId);
+                    dataBridgeTokens.prepareDeployment(deployment, appDef, instance, correlationId);
                 }, correlationId);
     }
 

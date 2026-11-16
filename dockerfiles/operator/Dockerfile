@@ -43,7 +43,7 @@ RUN mkdir /templates
 WORKDIR /log-config
 COPY java/operator/org.eclipse.theia.cloud.defaultoperator/log4j2.xml .
 WORKDIR /operator
-RUN curl -fsSL -o sentry-agent.zip https://github.com/getsentry/sentry-java/releases/download/8.29.0/sentry-opentelemetry-agent-8.29.0.zip && \
+RUN curl -fsSL -o sentry-agent.zip https://github.com/getsentry/sentry-java/releases/download/8.63.0/sentry-opentelemetry-agent-8.63.0.zip && \
     unzip -j sentry-agent.zip -d . && \
     rm sentry-agent.zip
 COPY --from=builder /operator/operator/org.eclipse.theia.cloud.defaultoperator/target/defaultoperator-${APP_VERSION}-jar-with-dependencies.jar ./operator.jar
@@ -61,7 +61,7 @@ set -eu
 
 JAVA_OPTS=""
 if [ "${SENTRY_ENABLE:-false}" = "true" ]; then
-  JAVA_OPTS="$JAVA_OPTS -javaagent:/operator/sentry-opentelemetry-agent-8.29.0.jar"
+  JAVA_OPTS="$JAVA_OPTS -javaagent:/operator/sentry-opentelemetry-agent-8.63.0.jar"
   if [ -n "${SENTRY_PROPERTIES_FILE:-}" ] && [ -f "${SENTRY_PROPERTIES_FILE}" ]; then
     JAVA_OPTS="$JAVA_OPTS -Dsentry.properties.file=${SENTRY_PROPERTIES_FILE}"
   fi

@@ -72,6 +72,23 @@ class ApplicationPropertiesTests {
     }
 
     @Test
+    void isAdminApiEnabled_notSet_returnFalse() {
+        System.clearProperty("theia.cloud.admin.api.enabled");
+        System.setProperty("theia.cloud.service.auth.token", "auth-token");
+        ApplicationProperties fixture = new ApplicationProperties(env -> null);
+        assertFalse(fixture.isAdminApiEnabled());
+    }
+
+    @Test
+    void isAdminApiEnabled_envTrue_returnTrue() {
+        System.clearProperty("theia.cloud.admin.api.enabled");
+        System.setProperty("theia.cloud.service.auth.token", "auth-token");
+        ApplicationProperties fixture = new ApplicationProperties(
+                env -> "THEIA_CLOUD_ADMIN_API_ENABLED".equals(env) ? "true" : null);
+        assertTrue(fixture.isAdminApiEnabled());
+    }
+
+    @Test
     void getServiceAuthToken_newPropertySet_returnValue() {
         System.clearProperty("theia.cloud.app.id");
         System.setProperty("theia.cloud.service.auth.token", "new-auth-token");

@@ -54,6 +54,16 @@ class AppDefinitionAdminApiTokenFilterTests {
     }
 
     @Test
+    void filter_adminApiDisabled_abortNotFound() {
+        fixture.applicationProperties = new TestApplicationProperties("token-1", false);
+        requestContext.adminApiTokenHeader = "token-1";
+
+        fixture.filter(requestContext.asRequestContext());
+
+        assertEquals(Response.Status.NOT_FOUND.getStatusCode(), requestContext.abortResponse.getStatus());
+    }
+
+    @Test
     void filter_missingConfiguredTokens_abortForbidden() {
         fixture.applicationProperties = new TestApplicationProperties("");
         requestContext.adminApiTokenHeader = "token-1";
@@ -71,9 +81,20 @@ class AppDefinitionAdminApiTokenFilterTests {
 
     private static final class TestApplicationProperties extends ApplicationProperties {
         private final String token;
+        private final boolean enabled;
 
         private TestApplicationProperties(String token) {
+            this(token, true);
+        }
+
+        private TestApplicationProperties(String token, boolean enabled) {
             this.token = token;
+            this.enabled = enabled;
+        }
+
+        @Override
+        public boolean isAdminApiEnabled() {
+            return enabled;
         }
 
         @Override

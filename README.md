@@ -29,6 +29,7 @@ The Theia Cloud service creates, modifies, and deletes the custom resources the 
 #### Scaling admin endpoints
 
 Scaling operations for `AppDefinition` resources are exposed through admin endpoints under `/service/admin/appdefinition`.
+They are off by default and answer with 404 until `theia.cloud.admin.api.enabled` (environment variable `THEIA_CLOUD_ADMIN_API_ENABLED`) is `true`; the chart sets it from `service.adminApiEnabled`.
 Access is restricted to callers presenting the `X-Admin-Api-Token` header with the token from `theia.cloud.admin.api.token`.
 In Helm-based deployments, provide this token through a pre-created Kubernetes Secret referenced by `service.adminApiTokenSecret`.
 

@@ -33,6 +33,7 @@ public class ApplicationProperties {
     private static final String THEIACLOUD_USE_KEYCLOAK = "theia.cloud.use.keycloak";
     private static final String THEIACLOUD_ADMIN_GROUP_NAME = "theia.cloud.auth.admin.group";
     private static final String THEIACLOUD_ADMIN_API_TOKEN = "theia.cloud.admin.api.token";
+    private static final String THEIACLOUD_ADMIN_API_ENABLED = "theia.cloud.admin.api.enabled";
 
     private static final String THEIACLOUD_SESSIONS_PER_USER = "theia.cloud.sessions.per.user";
 
@@ -44,6 +45,7 @@ public class ApplicationProperties {
     private final String serviceAuthToken;
     private final String adminGroupName;
     private final String adminApiToken;
+    private final boolean adminApiEnabled;
     private final int sessionsPerUser;
 
     private final Function<String, String> environment;
@@ -58,6 +60,8 @@ public class ApplicationProperties {
         serviceAuthToken = getServiceAuthTokenWithFallback();
         adminGroupName = System.getProperty(THEIACLOUD_ADMIN_GROUP_NAME, DEFAULT_ADMIN_GROUP_NAME);
         adminApiToken = getAdminApiTokenFromConfig();
+        // Off unless explicitly enabled: nothing calls the admin API today.
+        adminApiEnabled = "true".equalsIgnoreCase(read(THEIACLOUD_ADMIN_API_ENABLED));
         sessionsPerUser = parseSessionsPerUser();
         // Only disable keycloak if the value was explicitly set to exactly "false".
         useKeycloak = !"false".equals(System.getProperty(THEIACLOUD_USE_KEYCLOAK));
@@ -108,6 +112,13 @@ public class ApplicationProperties {
      */
     public String getAdminApiToken() {
         return adminApiToken;
+    }
+
+    /**
+     * @return true if the admin API token protected endpoints are enabled. Defaults to false.
+     */
+    public boolean isAdminApiEnabled() {
+        return adminApiEnabled;
     }
 
     /**

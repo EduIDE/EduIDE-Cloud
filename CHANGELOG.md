@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Security
+
+- [java/operator] CL-14 follow-up: the operator no longer logs environment values of session pods. The rendered resource YAML is no longer written at TRACE level, only the kind and name. The default `log4j2.xml` enables TRACE for the operator, so affected deployments logged tokens by default.
+- [java/service] The admin API token protected endpoints (`/service/admin/appdefinition`) are behind a feature toggle and off by default. Set `THEIA_CLOUD_ADMIN_API_ENABLED=true` (chart: `service.adminApiEnabled`) to use them; off, the service answers them with 404 even when a token is configured.
+
 ### Fixes
 
 - [java/operator] Deliver the environment of a lazy session through the data bridge too. Extensions that read it only through the bridge (the Artemis extension reads `ARTEMIS_URL` and `ARTEMIS_TOKEN` that way and treats `DATA_BRIDGE_ENABLED` other than `1` as "not managed") could not log in in a session without a warm pool. For an app with the data bridge enabled, a lazy session now gets `DATA_BRIDGE_ENABLED=1`, the bridge port and strategy like an eager one, a token Secret of its own (owned by the session, so it is deleted with it) read by the IDE container as `DATA_BRIDGE_TOKEN`, and the operator injects the session environment once the bridge answers. The variables stay in the pod environment as well, which Scorpio falls back to when the bridge delivers nothing in time. Apps without the data bridge are unchanged

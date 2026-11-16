@@ -55,16 +55,15 @@ cd theia && yarn build                 # yarn v1 + lerna
 There is **no `npm run test`**. The Playwright suite is
 `npm run ui-tests -w e2e-tests` and needs a live cluster.
 
-## No CI runs the tests
+## What CI tests
 
-`.github/workflows/` builds and packages, and tests only the monitor (`npm test` in `monitor-vsix.yml`): `build.yml` (three
+`.github/workflows/` builds and packages, and tests the Java modules (`tests.yml`: operator and service, with common installed first) and the monitor (`npm test` in `monitor-vsix.yml`): `build.yml` (three
 images, via the shared org workflow), `monitor-vsix.yml` (the monitor extension),
 `release.yml` (the only way to release: `gh workflow run release.yml -f version=X.Y.Z`, see the `release` skill),
 `tag-format.yml`, `dependency-review.yml`, `docs-check.yml`, `auto-assign.yml`.
-**Nothing runs `mvn test`, `npm run lint` or anything under `theia/`.**
-`dockerfiles/service/Dockerfile` even builds with `-Dmaven.test.skip=true`.
+**Nothing runs `npm run lint` or anything under `theia/`.** The conversion webhook has no tests.
 
-A PR that breaks a Java test goes green. Run the tests yourself:
+Run the service tests locally like this:
 
 ```bash
 cd java/service/org.eclipse.theia.cloud.service && mvn verify

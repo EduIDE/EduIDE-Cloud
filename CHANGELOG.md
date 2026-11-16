@@ -30,6 +30,14 @@ Upgrade notes:
 - Update the Quarkus platform from 3.25.1 to 3.27.6.1 (LTS). The service now ships jackson 2.21.7 (was 2.19.2) and netty 4.1.139.Final (was 4.1.121.Final), which fixes several denial-of-service advisories, for example the HTTP/2 reset flood GHSA-prj3-ccx8-p6x4. The fabric8 Kubernetes client stays at 7.3.1, the version this Quarkus release manages, so `kubernetes-client.version` and the BOM agree. The operator modules have no Quarkus BOM, so they now import the jackson BOM (`jackson.version` 2.21.7 in maven-conf) ahead of fabric8 and exclude the unused Vert.x HTTP client of fabric8 (they build clients with OkHttp), which removes netty from the operator. Quarkus 3.31 and later drop `quarkus-smallrye-metrics`, so the service stays on the 3.27 LTS line until its metrics move to Micrometer. Found by an internal security audit 2026-11-16, DEP-01.
 - Update the Java dependencies: Maven wrapper 3.3.4 (Maven 3.10.0), Sentry 8.63.0, sentry-maven-plugin 0.12.0, flatten-maven-plugin 1.9.0, slf4j 2.0.20 (non-Quarkus modules only; Quarkus manages it for the service and conversion), kubernetes-webhooks-framework-core 3.0.5, log4j 2.25.5, JUnit 5.14.4, Mockito 5.24.0 and the compiler, surefire and assembly plugins. The fabric8 Kubernetes client stays at 7.3.1 and Renovate no longer proposes it on its own, because the service takes fabric8 from Quarkus and a separate bump mixes jar versions. ([#176](https://github.com/EduIDE/EduIDE-Cloud/pull/176))
 
+### Security
+
+Fixes from the internal security audit 2026-11-16 (CL-14, CI-01).
+
+- [dockerfiles] The operator and conversion webhook images run as a non-root user (uid 10001). (CL-14)
+- [node/monitor] Compare the session secret in constant time. (CL-14)
+- [ci] New `tests.yml` runs the operator and service unit tests on every pull request that touches `java/`. (CI-01)
+
 ## [2.0.1] - 2026-11-16
 
 ### Fixes

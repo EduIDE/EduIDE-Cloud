@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Security
+
+- [java/operator] CL-14 follow-up: the operator no longer logs environment values of session pods. The rendered resource YAML is no longer written at TRACE level, only the kind and name. The default `log4j2.xml` enables TRACE for the operator, so affected deployments logged tokens by default.
+
 ## [3.0.0] - 2026-11-16
 
 Security release. It contains the fixes of an internal security audit (CL-01 to CL-14, DB-01, DEP-01, CI-01) and several breaking changes. Read the upgrade notes before you upgrade.

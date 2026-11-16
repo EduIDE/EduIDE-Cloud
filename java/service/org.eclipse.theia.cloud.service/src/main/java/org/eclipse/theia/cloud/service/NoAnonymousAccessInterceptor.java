@@ -61,6 +61,8 @@ public class NoAnonymousAccessInterceptor {
             // However, there is also no possible user account in anonymous mode to achieve
             // this.
             throw new TheiaCloudWebException(Status.FORBIDDEN);
+        } else if (user.isEmailRejected()) {
+            throw TheiaCloudWebException.emailRejected();
         } else if (user.isAnonymous()) {
             // Authentication is used and succeeded but the user is considered anonymous for
             // other reasons such as not having a user identifier

@@ -93,6 +93,10 @@ public class BaseResource {
         // Keycloak is used. User must not be considered anonymous (i.e. have a
         // non-empty identifier) and the request user must match the authenticated user
         // (this might change if the concept of admin users is introduced later)
+        if (theiaCloudUser.isEmailRejected()) {
+            info(correlationId, "The email claim of the authenticated user contains unsupported characters.");
+            throw TheiaCloudWebException.emailRejected();
+        }
         if (theiaCloudUser.isAnonymous()) {
             info(correlationId,
                     "User is unexpectedly considered anonymous and, thus, must not access user scoped resources.");

@@ -471,6 +471,18 @@ class SessionResourceTests {
     // ---
 
     @Test
+    void start_rejectedEmail_throwForbiddenWithReason() {
+        Mockito.when(user.isEmailRejected()).thenReturn(true);
+        Mockito.when(user.isAnonymous()).thenReturn(true);
+
+        TheiaCloudWebException exception = assertThrows(TheiaCloudWebException.class,
+                () -> fixture.start(new SessionStartRequest(APP_ID, TEST_USER, TEST_APP_DEFINITION, 3)));
+
+        assertEquals(Status.FORBIDDEN.getStatusCode(), exception.getResponse().getStatus());
+        assertEquals(true, String.valueOf(exception.getResponse().getEntity()).contains("not supported"));
+    }
+
+    @Test
     void activity_isNotExposed() {
         assertEquals(0, java.util.Arrays.stream(SessionResource.class.getDeclaredMethods())
                 .filter(method -> method.isAnnotationPresent(jakarta.ws.rs.PATCH.class)).count());

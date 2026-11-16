@@ -66,4 +66,11 @@ class UserInputValidatorTests {
         assertTrue(UserInputValidator.isValid("a"));
         assertTrue(UserInputValidator.isValid("a".repeat(UserInputValidator.MAX_USER_LENGTH)));
     }
+
+    @Test
+    void rejectsTemplatePlaceholderNames() {
+        assertFalse(UserInputValidator.isValid("x+placeholder-monitor-port@example.org"));
+        assertFalse(UserInputValidator.isValid("x+PlaceHolder-anything@example.org"));
+        assertTrue(UserInputValidator.isValid("placeholder@example.org"));
+    }
 }

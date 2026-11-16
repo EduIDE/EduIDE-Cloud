@@ -13,7 +13,7 @@ All URIs are relative to *http://localhost*
 
 List app definitions
 
-    List available app definitions.
+    List the names of the available app definitions. Admins read the full configuration through the admin API.
 
 ### Parameters
 
@@ -23,7 +23,7 @@ List app definitions
 
 ### Return type
 
-[**List**](../Models/AppDefinitionSpec.md)
+[**List**](../Models/AppDefinitionSummary.md)
 
 ### Authorization
 

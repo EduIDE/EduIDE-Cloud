@@ -267,8 +267,7 @@ public final class K8sUtil {
 
     /** @return the number of sessions of the user that are not in error state */
     public long countActiveSessions(String user) {
-        return CLIENT.sessions().list().stream() //
-                .filter(s -> Objects.equals(s.getSpec().getUser(), user)) //
+        return CLIENT.sessions().list(user).stream() //
                 .filter(s -> s.getStatus() == null || !s.getStatus().hasError()) //
                 .count();
     }

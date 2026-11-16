@@ -15,6 +15,7 @@
  ********************************************************************************/
 package org.eclipse.theia.cloud.service;
 
+import java.util.Locale;
 import java.util.regex.Pattern;
 
 /**
@@ -37,6 +38,10 @@ public final class UserInputValidator {
     // degenerate inputs such as a lone "." that would otherwise sanitize to an empty/invalid label.
     private static final Pattern VALID_USER = Pattern.compile("^[A-Za-z0-9]([A-Za-z0-9._@+-]*[A-Za-z0-9])?$");
 
+    // The operator fills its templates by text replacement of "placeholder-..." names, so an identifier must not
+    // contain one.
+    private static final String RESERVED_PREFIX = "placeholder-";
+
     private UserInputValidator() {
     }
 
@@ -44,6 +49,7 @@ public final class UserInputValidator {
      * @return {@code true} if the given user identifier is safe to use.
      */
     public static boolean isValid(String user) {
-        return user != null && user.length() <= MAX_USER_LENGTH && VALID_USER.matcher(user).matches();
+        return user != null && user.length() <= MAX_USER_LENGTH && VALID_USER.matcher(user).matches()
+                && !user.toLowerCase(Locale.ROOT).contains(RESERVED_PREFIX);
     }
 }

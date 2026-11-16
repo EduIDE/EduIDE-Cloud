@@ -24,8 +24,12 @@ public class TheiaCloudUser {
 
     public static final TheiaCloudUser ANONYMOUS = new TheiaCloudUser(null, false);
 
+    /** An authenticated caller whose email claim is not accepted as identifier. Anonymous, but with a known reason. */
+    public static final TheiaCloudUser EMAIL_REJECTED = new TheiaCloudUser(null, false, true);
+
     private final String identifier;
     private final boolean admin;
+    private final boolean emailRejected;
 
     /**
      * Creates a non-admin user.
@@ -43,8 +47,21 @@ public class TheiaCloudUser {
      * @param admin      {@code true} if the user is an admin
      */
     public TheiaCloudUser(String identifier, boolean admin) {
+        this(identifier, admin, false);
+    }
+
+    private TheiaCloudUser(String identifier, boolean admin, boolean emailRejected) {
         this.identifier = identifier;
         this.admin = admin;
+        this.emailRejected = emailRejected;
+    }
+
+    /**
+     * @return {@code true} if the caller is authenticated but their email claim contains characters that are not
+     *         accepted
+     */
+    public boolean isEmailRejected() {
+        return emailRejected;
     }
 
     /**
@@ -78,7 +95,7 @@ public class TheiaCloudUser {
 
     @Override
     public int hashCode() {
-        return Objects.hash(identifier, admin);
+        return Objects.hash(identifier, admin, emailRejected);
     }
 
     @Override
@@ -90,7 +107,8 @@ public class TheiaCloudUser {
         if (getClass() != obj.getClass())
             return false;
         TheiaCloudUser other = (TheiaCloudUser) obj;
-        return Objects.equals(identifier, other.identifier) && admin == other.admin;
+        return Objects.equals(identifier, other.identifier) && admin == other.admin
+                && emailRejected == other.emailRejected;
     }
 
     @Override

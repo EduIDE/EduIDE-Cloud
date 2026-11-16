@@ -25,7 +25,7 @@ class HttpEdgeTests {
     public static class CorsProfile implements QuarkusTestProfile {
         @Override
         public Map<String, String> getConfigOverrides() {
-            return Map.of("quarkus.http.cors", "true", "quarkus.http.cors.origins", ALLOWED_ORIGIN);
+            return Map.of("quarkus.http.cors.enabled", "true", "quarkus.http.cors.origins", ALLOWED_ORIGIN);
         }
     }
 

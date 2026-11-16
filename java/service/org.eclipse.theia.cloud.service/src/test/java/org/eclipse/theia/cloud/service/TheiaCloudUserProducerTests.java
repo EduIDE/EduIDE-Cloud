@@ -246,6 +246,7 @@ class TheiaCloudUserProducerTests {
             TheiaCloudUser result = fixture.getTheiaCloudUser();
 
             assertTrue(result.isAnonymous(), email);
+            assertTrue(result.isEmailRejected(), email);
             assertNull(result.getIdentifier());
         }
     }

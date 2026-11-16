@@ -3,11 +3,13 @@ import * as vscode from 'vscode';
 
 import { MonitorModule } from '../monitor-module';
 import { isAuthorized } from '../util/util';
+import { isUserDocument, isUserEdit } from './user-activity';
 
 export const ACTIVITY_TRACKER_PATH = '/activity';
 export const LAST_ACTIVITY_PATH = '/lastActivity';
 export const POST_POPUP = '/popup';
 export const COMMAND_ACTIVITY_REPORT_TITLE = 'theia.cloud.monitor.activity.report';
+export const COMMAND_TIMEOUT_WARNING = 'eduide.session.timeoutWarning';
 
 /**
  * This module tracks the last activity of the user.
@@ -88,9 +90,13 @@ export class ActivityTrackerModule implements MonitorModule {
   protected createPopup(): void {
     if (!this.messageAlreadyDisplayed) {
       const options: vscode.MessageOptions = {
-        detail: 'Pod will be shutdown after some inactivity',
+        detail: 'This session ends soon because nobody used it for a while. Click Yes to keep working.',
         modal: true
       };
+
+      // Lets the EduIDE frontend flag the browser tab, so a student in another tab notices the dialog.
+      // Rejects when no frontend registered the command, which is fine.
+      vscode.commands.executeCommand(COMMAND_TIMEOUT_WARNING).then(undefined, () => undefined);
 
       const yesOption: vscode.MessageItem = { title: 'Yes', isCloseAffordance: true };
 
@@ -108,18 +114,17 @@ export class ActivityTrackerModule implements MonitorModule {
   }
 
   /**
-   * Sets up all VSCode extension API listeners to report activity when triggered
+   * Sets up the VSCode extension API listeners that report activity.
+   * Only events a user causes belong here. Events that extensions or language servers fire on their own
+   * (diagnostics, configuration writes, output channels, documents opened in the background) keep an idle
+   * session alive until its lifetime limit.
    */
   protected setupListeners(): void {
-    vscode.authentication.onDidChangeSessions(() => this.reportActivity('sessionChange'));
     vscode.debug.onDidChangeActiveDebugSession(() => this.reportActivity('changeDebugSession'));
     vscode.debug.onDidChangeBreakpoints(() => this.reportActivity('changeBreakpoints'));
-    vscode.debug.onDidReceiveDebugSessionCustomEvent(() => this.reportActivity('customEvent'));
     vscode.debug.onDidStartDebugSession(() => this.reportActivity('startDebugSession'));
     vscode.debug.onDidTerminateDebugSession(() => this.reportActivity('terminateDebugSession'));
-    vscode.env.onDidChangeTelemetryEnabled(() => this.reportActivity('changeTelemetryEnabled'));
     // vscode.extensions.onDidChange(() => this.reportActivity(`extensionsChanged`));
-    vscode.languages.onDidChangeDiagnostics(() => this.reportActivity('changeDiagnostics'));
     vscode.tasks.onDidEndTask(() => this.reportActivity('taskEnd'));
     vscode.tasks.onDidEndTaskProcess(() => this.reportActivity('taskEndProcess'));
     vscode.tasks.onDidStartTask(() => this.reportActivity('startTask'));
@@ -138,23 +143,20 @@ export class ActivityTrackerModule implements MonitorModule {
     // vscode.window.onDidChangeVisibleNotebookEditors(() => this.reportActivity(`changeVisibleNotebookEditors`));
     vscode.window.onDidChangeVisibleTextEditors(() => this.reportActivity('changeVisibleTextEditors'));
     vscode.window.onDidChangeWindowState(() => this.reportActivity('changeWindowState'));
-    vscode.workspace.onDidChangeConfiguration(() => this.reportActivity('changeConfiguration'));
     // vscode.workspace.onDidChangeNotebookDocument(() => this.reportActivity(`changeNotebookDocument`));
-    vscode.workspace.onDidChangeTextDocument(() => this.reportActivity('changeTextDocument'));
+    vscode.workspace.onDidChangeTextDocument(e => isUserEdit(e) && this.reportActivity('changeTextDocument'));
     vscode.workspace.onDidChangeWorkspaceFolders(() => this.reportActivity('changeWorkspaceFolders'));
     // vscode.workspace.onDidCloseNotebookDocument(() => this.reportActivity(`closeNotebookDocument`));
-    vscode.workspace.onDidCloseTextDocument(() => this.reportActivity('closeTextDocument'));
     vscode.workspace.onDidCreateFiles(() => this.reportActivity('createFiles'));
     vscode.workspace.onDidDeleteFiles(() => this.reportActivity('deleteFiles'));
     vscode.workspace.onDidGrantWorkspaceTrust(() => this.reportActivity('grantWorkspaceTrust'));
     // vscode.workspace.onDidOpenNotebookDocument(() => this.reportActivity(`openNotebookDocument`));
-    vscode.workspace.onDidOpenTextDocument(() => this.reportActivity('openTextDocument'));
     vscode.workspace.onDidRenameFiles(() => this.reportActivity('renameFiles'));
     // vscode.workspace.onDidSaveNotebookDocument(() => this.reportActivity(`saveNotebookDocument`));
-    vscode.workspace.onDidSaveTextDocument(() => this.reportActivity('saveTextDocument'));
+    vscode.workspace.onDidSaveTextDocument(d => isUserDocument(d) && this.reportActivity('saveTextDocument'));
     vscode.workspace.onWillCreateFiles(() => this.reportActivity('willCreateFiles'));
     vscode.workspace.onWillDeleteFiles(() => this.reportActivity('willDeleteFiles'));
     vscode.workspace.onWillRenameFiles(() => this.reportActivity('willRenameFiles'));
-    vscode.workspace.onWillSaveTextDocument(() => this.reportActivity('willSaveTextDocument'));
+    vscode.workspace.onWillSaveTextDocument(e => isUserDocument(e.document) && this.reportActivity('willSaveTextDocument'));
   }
 }

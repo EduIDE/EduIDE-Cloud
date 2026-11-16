@@ -115,7 +115,10 @@ class AsyncDataInjectorTests {
 
         injector.scheduleInjection(null, session, ENV, "cid");
 
-        verify(bridge, timeout(5000).times(2)).injectData(any(Session.class), any(), any(), anyString());
+        // The bridge replaces what it stored, so a retry is safe only if it repeats the same payload and token.
+        verify(bridge, timeout(5000).times(2)).injectData(session,
+                Map.of("GIT_URI", "https://example.org/repo.git", AsyncDataInjector.SESSION_SECRET_ENV, "secret"),
+                "instance-token", "cid");
     }
 
     @Test

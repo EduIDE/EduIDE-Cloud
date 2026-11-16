@@ -54,24 +54,13 @@ This means, that those dependencies will be updated to newer version, once they 
 
 ### Release a new version
 
-New release every three months.
+Releases are manual. Merge a release pull request that moves the `CHANGELOG.md` entries under the new version, then run:
 
-To make a release provide a commit that:
+```sh
+gh workflow run release.yml -f version=X.Y.Z
+```
 
-- removes the next parts from `version` fields across the repo.
-- updates the package-lock files.
-- updates the `node/monitor` .vsix file in `demo/dockerfiles/demo-theia-monitor-vscode`.
-- updates the helm chart versions in `terraform/modules/helm` to the new version.
-
-When this commit is merged it should not result in pushed artifacts.
-Create a `releases/<currentVersion>` branch. This will be used in the future if any backports are necessary. Also it makes versions easier to find.
-Then create a Github release pointing to the commit. This will then publish the artifacts for the specific version and also set the version to latest.
-
-The next commit after a Release should then:
-
-- readd the next parts from `version` fields across the repo.
-- update the package-lock files.
-- update the `node/monitor` .vsix file in `demo/dockerfiles/demo-theia-monitor-vscode`.
+`release.yml` drafts the GitHub Release, builds the three images as `X.Y.Z`, attaches `theia-cloud-monitor-X.Y.Z.vsix`, verifies them and then publishes the release, which creates the `vX.Y.Z` tag. Use `X.Y.Z-rc.N` for a prerelease. The `release` skill (`.claude/skills/release/SKILL.md`) walks through all of it.
 
 ## Building
 

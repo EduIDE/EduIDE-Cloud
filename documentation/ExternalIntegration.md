@@ -113,6 +113,8 @@ The service (`RootResource.launch`) validates the request, then `K8sUtil` writes
 - Lazy path: the operator injects the variables directly into the IDE container's environment in the pod spec (`AddedHandlerUtil.addCustomEnvVarsToDeploymentFromSession`).
 - Eager / prewarmed path: the deployment already exists, so the operator collects the variables (`SessionEnvCollector`) and pushes them asynchronously over HTTP `POST /data` (`AsyncDataInjector`) to the data-bridge extension inside the container.
 
+The data bridge keeps only the keys listed in the EduIDE data bridge README (the ones above plus `GRADLE_PREWARM`, `GRADLE_PREWARM_AUTO_CONFIRM` and the session secret) and ignores everything else on the eager path. Other keys must be added to `DATA_BRIDGE_EXTRA_KEYS` (comma separated) in the IDE container's environment. The lazy path is not affected.
+
 The environment variables are opaque to EduIDE-Cloud itself. The session container image (Scorpio) consumes them to configure git, authenticate with Artemis, and clone `GIT_URI`.
 
 For the broader system context, see [`./Architecture.md`](./Architecture.md).

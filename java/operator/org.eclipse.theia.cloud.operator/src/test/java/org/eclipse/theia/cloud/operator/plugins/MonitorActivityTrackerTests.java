@@ -26,10 +26,13 @@ import java.util.concurrent.TimeUnit;
 
 import org.eclipse.theia.cloud.common.k8s.client.SessionResourceClient;
 import org.eclipse.theia.cloud.common.k8s.client.TheiaCloudClient;
+import org.eclipse.theia.cloud.common.k8s.client.WorkspaceResourceClient;
 import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
 import org.eclipse.theia.cloud.common.k8s.resource.session.SessionSpec;
 import org.eclipse.theia.cloud.common.k8s.resource.session.SessionStatus;
+import org.eclipse.theia.cloud.common.k8s.resource.workspace.Workspace;
 import org.eclipse.theia.cloud.operator.messaging.MonitorMessagingService;
+import org.eclipse.theia.cloud.operator.metrics.SessionEndMetrics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -53,6 +56,7 @@ class MonitorActivityTrackerTests {
 
     private TheiaCloudClient resourceClient;
     private SessionResourceClient sessions;
+    private WorkspaceResourceClient workspaces;
     private MonitorMessagingService messagingService;
     private ITransaction transaction;
     private ISpan span;
@@ -62,7 +66,9 @@ class MonitorActivityTrackerTests {
         resourceClient = Mockito.mock(TheiaCloudClient.class);
         sessions = Mockito.mock(SessionResourceClient.class);
         messagingService = Mockito.mock(MonitorMessagingService.class);
+        workspaces = Mockito.mock(WorkspaceResourceClient.class);
         when(resourceClient.sessions()).thenReturn(sessions);
+        when(resourceClient.workspaces()).thenReturn(workspaces);
         // updateStatus returns the updated resource; without this the tracker would carry on with a null session.
         when(sessions.updateStatus(anyString(), any(Session.class), any()))
                 .thenAnswer(invocation -> invocation.getArgument(1));
@@ -129,7 +135,11 @@ class MonitorActivityTrackerTests {
 
         assertTrue(success);
         verify(messagingService).sendTimeoutMessage(eq(session), anyString());
+        verify(workspaces).recordSessionEnd(anyString(), eq("ws-student"),
+                eq(Workspace.SESSION_END_REASON_INACTIVITY));
         verify(sessions).delete(anyString(), eq(SESSION_NAME));
+        assertTrue(SessionEndMetrics.scrape()
+                .contains("{reason=\"inactivity\",app_definition=\"java-17-latest\"}"));
     }
 
     @Test
@@ -162,6 +172,40 @@ class MonitorActivityTrackerTests {
         poll.recovered = true;
         tracker.pingSession(transaction, "cid", session, "10.0.0.1", PORT, SHUTDOWN_AFTER, NOTIFY_AFTER);
         verify(sessions).delete(anyString(), eq(SESSION_NAME));
+    }
+
+    @Test
+    void pingSession_monitorGoneAfterAnswering_andIdlePastTimeout_stopsTheSession() {
+        // The monitor lives in the IDE's plugin host, which ends when the student closes the tab.
+        Session session = createSession(minutesAgo(1));
+        FlakyPoll poll = new FlakyPoll(minutesAgo(1));
+        poll.recovered = true;
+        MonitorActivityTracker tracker = createTracker(poll);
+        tracker.pingSession(transaction, "cid", session, "10.0.0.1", PORT, SHUTDOWN_AFTER, NOTIFY_AFTER);
+
+        // Time passes with the tab closed: the last activity the monitor reported ages past the timeout.
+        poll.recovered = false;
+        session.getStatus().setLastActivity(minutesAgo(90));
+        boolean success = tracker.pingSession(transaction, "cid", session, "10.0.0.1", PORT, SHUTDOWN_AFTER,
+                NOTIFY_AFTER);
+
+        assertFalse(success);
+        verify(sessions).delete(anyString(), eq(SESSION_NAME));
+    }
+
+    @Test
+    void pingSession_monitorGoneAfterAnswering_butRecentlyActive_leavesTheSessionAlone() {
+        Session session = createSession(minutesAgo(1));
+        FlakyPoll poll = new FlakyPoll(minutesAgo(1));
+        poll.recovered = true;
+        MonitorActivityTracker tracker = createTracker(poll);
+        tracker.pingSession(transaction, "cid", session, "10.0.0.1", PORT, SHUTDOWN_AFTER, NOTIFY_AFTER);
+
+        // A network blip right after the student was active must not end the session.
+        poll.recovered = false;
+        tracker.pingSession(transaction, "cid", session, "10.0.0.1", PORT, SHUTDOWN_AFTER, NOTIFY_AFTER);
+
+        verify(sessions, never()).delete(anyString(), anyString());
     }
 
     // ========== helpers ==========
@@ -206,7 +250,7 @@ class MonitorActivityTrackerTests {
 
     private Session createSession(long lastActivity) {
         Session session = new Session();
-        session.setSpec(new SessionSpec(SESSION_NAME, "java-17-latest", "student@tum.de"));
+        session.setSpec(new SessionSpec(SESSION_NAME, "java-17-latest", "student@tum.de", "ws-student"));
         session.setMetadata(new ObjectMetaBuilder().withName(SESSION_NAME)
                 .withUid("0f6c6f5e-3a1b-4f2c-9c1a-7d2b8e4f1a20").build());
         // getNonNullStatus() returns a fresh throwaway when no status is set, so attach a real one.

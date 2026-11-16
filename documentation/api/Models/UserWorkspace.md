@@ -8,6 +8,8 @@
 | **appDefinition** | **String** | The app this workspace was used with. | [optional] [default to null] |
 | **user** | **String** | The user identification, usually the email address. | [default to null] |
 | **active** | **Boolean** | Whether the workspace is in use at the moment. | [default to null] |
+| **lastSessionEndReason** | **String** | Why the operator last stopped a session on this workspace: 'inactivity' or 'lifetime'. Sessions stopped any other way leave it unchanged, so compare lastSessionEndTime with the start of the session in question. | [optional] [default to null] |
+| **lastSessionEndTime** | **String** | When the operator last stopped a session on this workspace, as an ISO-8601 instant. | [optional] [default to null] |
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

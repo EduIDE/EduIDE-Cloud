@@ -36,6 +36,7 @@
     "webpack": "webpack --mode development",
     "webpack-dev": "webpack --mode development --watch",
     "lint": "eslint -c ../.eslintrc.js --ext .ts ./src",
+    "test": "rm -rf out-test && tsc src/modules/user-activity.test.ts --outDir out-test --module commonjs --target es2020 --types node --strict && node --test out-test/user-activity.test.js",
     "build:vsix": "npm install && vsce package --allow-star-activation --skip-license",
     "update:demo:monitor": "npm run build:vsix && rm ../../demo/dockerfiles/demo-theia-monitor-vscode/*vsix && mv *.vsix ../../demo/dockerfiles/demo-theia-monitor-vscode"
   },

@@ -13,7 +13,7 @@
 
 ### Security
 
-Fixes from the internal security audit 2026-11-16 (CL-04 to CL-10, CL-14).
+Fixes from the internal security audit 2026-11-16 (CL-04 to CL-10, CL-14, CI-01).
 
 - [java/service] Remove the unauthenticated `PATCH /service/session` activity endpoint. The operator already polls the monitor in the session pod; nothing called it. The generated TypeScript client and the API documentation no longer contain it (`TheiaCloud.Session.reportSessionActivity` is removed from `@eclipse-theiacloud/common`). (CL-04)
 - [java/service] Stop writing configuration values to the log at startup. Only the names of the configuration sources are logged. Rotate the admin API token and the OIDC client secret in every environment that ran an earlier version. (CL-05)
@@ -23,6 +23,9 @@ Fixes from the internal security audit 2026-11-16 (CL-04 to CL-10, CL-14).
 - [java/service] In Keycloak mode the email claim must pass the same character check as an anonymous `user`, which now also rejects identifiers containing `placeholder-` (the operator fills its templates by text replacement). A caller with another email gets 403 with an explanation. The operator side (replacing all placeholders in one pass) is a separate change. (CL-09)
 - [java/service] The AppDefinition is checked before the startup-time metric tag is created, so callers cannot add metric series. New `SESSIONS_PER_USER` limits the active sessions per user on all launch paths (0, the default, means no limit). (CL-10)
 - [java/service] Launch request logging, and so Sentry events, no longer contain the values of `env.fromMap`. The service refuses to start without a service auth token instead of falling back to a built-in default. The image reads the secrets from environment variables instead of `-D` arguments, drops the default `APPID` and runs as a non-root user. (CL-14)
+- [dockerfiles] The operator and conversion webhook images run as a non-root user (uid 10001). (CL-14)
+- [node/monitor] Compare the session secret in constant time. (CL-14)
+- [ci] New `tests.yml` runs the operator and service unit tests on every pull request that touches `java/`. (CI-01)
 
 ## [2.0.1] - 2026-11-16
 

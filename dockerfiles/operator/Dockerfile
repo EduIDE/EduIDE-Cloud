@@ -73,5 +73,8 @@ exec java $JAVA_OPTS \
   "$@"
 EOF_ENTRYPOINT
 
+RUN addgroup -S -g 10001 operator && adduser -S -u 10001 -G operator operator
+USER 10001
+
 # to get more debug information from the kubernetes client itself, add -Dorg.slf4j.simpleLogger.defaultLogLevel=DEBUG below
 ENTRYPOINT ["/entrypoint.sh"]

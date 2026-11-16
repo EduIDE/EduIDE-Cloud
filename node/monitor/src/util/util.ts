@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 
 import { getFromEnv, THEIACLOUD_SESSION_SECRET } from '../env-variables';
+import { secretsMatch } from './secret-compare';
 
 /**
  * A prewarmed pod starts before its session exists, so the operator delivers the secret through the data bridge.
@@ -29,7 +30,7 @@ export async function isAuthorized(req: any): Promise<boolean> {
       const bearerToken = splitBearer[1];
       const sessionSecret = await getSessionSecret();
       // An unclaimed pod has no secret, and an empty token must not match that.
-      if (bearerToken && bearerToken === sessionSecret) {
+      if (secretsMatch(bearerToken, sessionSecret)) {
         return true;
       } else {
         console.debug('unauthorized');

@@ -5,6 +5,7 @@
 ### Security
 
 - [java/operator] CL-14 follow-up: the operator no longer logs environment values of session pods. The rendered resource YAML is no longer written at TRACE level, only the kind and name. The default `log4j2.xml` enables TRACE for the operator, so affected deployments logged tokens by default.
+- [java/service] The admin API token protected endpoints (`/service/admin/appdefinition`) are behind a feature toggle and off by default. Set `THEIA_CLOUD_ADMIN_API_ENABLED=true` (chart: `service.adminApiEnabled`) to use them; off, the service answers them with 404 even when a token is configured.
 
 ## [3.0.0] - 2026-11-16
 

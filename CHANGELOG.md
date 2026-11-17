@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- [java/operator] A session whose IDE tab was closed is now ended by inactivity after an operator restart too. Whether the monitor answered is kept in the `theia-cloud.io/monitor-answered` Session annotation instead of in memory.
+- [java/operator] A replaced session pod (eviction, node drain, manual delete) gets its data bridge injection again. The operator checks the pod of every handled bridge session once a minute and schedules an injection when it changed.
+
 ## [3.0.1] - 2026-11-16
 
 ### Upgrade notes

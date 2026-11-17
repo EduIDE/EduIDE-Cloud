@@ -104,6 +104,12 @@ public interface TheiaCloudClient extends NamespacedKubernetesClient {
         return selectSessionServiceIP(sessionServices(name), name, session.getMetadata().getUid(), false);
     }
 
+    /** The IDE Service of the session, the way {@link #getClusterIPFromSession(Session)} selects it. */
+    default Optional<Service> getServiceFromSession(Session session) {
+        String name = session.getSpec().getName();
+        return selectSessionService(sessionServices(name), name, session.getMetadata().getUid(), false);
+    }
+
     default Optional<String> getInternalClusterIPFromSession(Session session) {
         String name = session.getSpec().getName();
         return selectSessionServiceIP(sessionServices(name), name, session.getMetadata().getUid(), true);
@@ -128,6 +134,12 @@ public interface TheiaCloudClient extends NamespacedKubernetesClient {
      */
     static Optional<String> selectSessionServiceIP(java.util.List<Service> services, String sessionName,
             String sessionUid, boolean internal) {
+        return selectSessionService(services, sessionName, sessionUid, internal)
+                .map(svc -> svc.getSpec().getClusterIP());
+    }
+
+    static Optional<Service> selectSessionService(java.util.List<Service> services, String sessionName,
+            String sessionUid, boolean internal) {
         for (Service svc : services) {
             if (svc.getMetadata().getName().endsWith("-int") != internal) {
                 continue;
@@ -138,7 +150,7 @@ public interface TheiaCloudClient extends NamespacedKubernetesClient {
             for (OwnerReference ownerReference : svc.getMetadata().getOwnerReferences()) {
                 if (sessionName.equals(ownerReference.getName()) && "Session".equals(ownerReference.getKind())
                         && (sessionUid == null || sessionUid.equals(ownerReference.getUid()))) {
-                    return Optional.of(svc.getSpec().getClusterIP());
+                    return Optional.of(svc);
                 }
             }
         }

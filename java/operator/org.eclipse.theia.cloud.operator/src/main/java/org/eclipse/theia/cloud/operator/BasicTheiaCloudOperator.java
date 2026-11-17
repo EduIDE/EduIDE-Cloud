@@ -115,6 +115,8 @@ public class BasicTheiaCloudOperator implements TheiaCloudOperator {
         injectionResumer.resume(TheiaCloudOperatorLauncher.COR_ID_INIT);
 
         STOP_EXECUTOR.scheduleWithFixedDelay(this::stopTimedOutSessions, 1, 1, TimeUnit.MINUTES);
+        STOP_EXECUTOR.scheduleWithFixedDelay(() -> injectionResumer.reinjectReplacedPods(generateCorrelationId()), 1, 1,
+                TimeUnit.MINUTES);
         WATCH_EXECUTOR.scheduleWithFixedDelay(this::lookForIdleWatches, 1, 1, TimeUnit.MINUTES);
     }
 

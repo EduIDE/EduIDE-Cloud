@@ -40,7 +40,7 @@ ARG TARGETARCH
 ARG JDK_VERSION=27.0.1.1
 ARG JDK_SHA256_AMD64=82172b79a4e4a8546e2538c525b63e020f419922a5d30f9873bbb832ce95637b
 ARG JDK_SHA256_ARM64=7b851f4cdf55ce48dc33584349177aa271df0bbd0ff5711a6e7fcd812ef5a90a
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip && rm -rf /var/lib/apt/lists/* && \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl p11-kit unzip && rm -rf /var/lib/apt/lists/* && \
     case "$TARGETARCH" in \
       amd64) JDK_ARCH=x64; JDK_SHA256="$JDK_SHA256_AMD64" ;; \
       arm64) JDK_ARCH=aarch64; JDK_SHA256="$JDK_SHA256_ARM64" ;; \
@@ -49,14 +49,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     curl -fsSL -o /tmp/jdk.tar.gz "https://download.java.net/java/GA/jdk${JDK_VERSION}/c3a705caf5044be8aa0b09e62be69b20/4/GPL/openjdk-${JDK_VERSION}_linux-${JDK_ARCH}_bin.tar.gz" && \
     echo "${JDK_SHA256}  /tmp/jdk.tar.gz" | sha256sum -c - && \
     mkdir -p /opt/java && tar -xzf /tmp/jdk.tar.gz -C /opt/java --strip-components=1 && \
-    rm -rf /tmp/jdk.tar.gz /opt/java/jmods /opt/java/lib/src.zip /opt/java/include /opt/java/man
+    rm -rf /tmp/jdk.tar.gz /opt/java/jmods /opt/java/lib/src.zip /opt/java/include /opt/java/man && \
+    trust extract --format=java-cacerts --filter=ca-anchors --purpose=server-auth --overwrite /opt/java/lib/security/cacerts
 ENV JAVA_HOME=/opt/java
 ENV PATH=/opt/java/bin:$PATH
 ARG APP_VERSION=1.2.0-SNAPSHOT
 WORKDIR /service
 RUN curl -fsSL -o sentry-agent.zip https://github.com/getsentry/sentry-java/releases/download/8.63.0/sentry-opentelemetry-agent-8.63.0.zip && \
     unzip -j sentry-agent.zip -d . && \
-    rm sentry-agent.zip
+    rm sentry-agent.zip && \
+    apt-get purge -y --auto-remove curl unzip p11-kit
 COPY --from=builder /service/service/org.eclipse.theia.cloud.service/target/service-${APP_VERSION}-runner.jar ./service.jar
 COPY --from=builder /service/service/org.eclipse.theia.cloud.service/sentry.properties ./sentry.properties
 
@@ -133,7 +135,7 @@ exec java $JAVA_OPTS \
 EOF_ENTRYPOINT
 
 EXPOSE 8081 9000
-RUN groupadd -g 10001 service && useradd -r -u 10001 -g service -M -s /usr/sbin/nologin service
+RUN groupadd -g 10001 service && useradd -r -m -u 10001 -g service -s /usr/sbin/nologin service
 USER 10001
 
 ENTRYPOINT ["/entrypoint.sh"]

@@ -95,6 +95,7 @@ class PoolClaimTests {
     private RollableScalableResource<Deployment> deploymentResource = mock(RollableScalableResource.class);
     private PrewarmedResourcePool pool;
     private SidecarManager sidecarManager;
+    private NonNamespaceOperation<Pod, PodList, PodResource> namespacedPods;
     private K8sResourceFactory resourceFactory;
     private Service external;
     private Service internal;
@@ -129,7 +130,7 @@ class PoolClaimTests {
         when(namespacedDeployments.withName(anyString())).thenReturn(deploymentResource);
         when(deploymentResource.get()).thenReturn(
                 new DeploymentBuilder().withNewStatus().withReadyReplicas(1).endStatus().build());
-        when(namespacedDeployments.list()).thenReturn(new DeploymentList());
+        listDeployments(ideDeployment(1, true, true));
 
         MixedOperation<ConfigMap, ConfigMapList, Resource<ConfigMap>> configMaps = mock(MixedOperation.class);
         NonNamespaceOperation<ConfigMap, ConfigMapList, Resource<ConfigMap>> namespacedConfigMaps = mock(
@@ -154,6 +155,10 @@ class PoolClaimTests {
         setField(pool, "sidecarManager", sidecarManager);
         resourceFactory = mock(K8sResourceFactory.class);
         setField(pool, "resourceFactory", resourceFactory);
+    }
+
+    private void listDeployments(Deployment... existing) {
+        when(namespacedDeployments.list()).thenReturn(new DeploymentList(null, List.of(existing), null, null));
     }
 
     private Service service(String name, String claimedBy) {
@@ -221,7 +226,7 @@ class PoolClaimTests {
 
     @Test
     void reserveInstance_skipsAnInstanceWithoutDeployment() {
-        when(deploymentResource.get()).thenReturn(null);
+        listDeployments();
 
         var result = pool.reserveInstance(session(SESSION_UID, null), appDefinition, "cid");
 
@@ -230,24 +235,24 @@ class PoolClaimTests {
 
     private void podsOfDeployment(String waitingReason) {
         MixedOperation<Pod, PodList, PodResource> pods = mock(MixedOperation.class);
-        NonNamespaceOperation<Pod, PodList, PodResource> namespacedPods = mock(NonNamespaceOperation.class);
-        FilterWatchListDeletable<Pod, PodList, PodResource> selected = mock(FilterWatchListDeletable.class);
+        namespacedPods = mock(NonNamespaceOperation.class);
         when(client.pods()).thenReturn(pods);
         when(pods.inNamespace(any())).thenReturn(namespacedPods);
-        when(namespacedPods.withLabelSelector(anyString())).thenReturn(selected);
-        Pod pod = new PodBuilder().withNewStatus().addNewContainerStatus().withNewState().withNewWaiting()
+        Pod pod = new PodBuilder().withNewMetadata().addToLabels("app", "x").endMetadata().withNewStatus().addNewContainerStatus().withNewState().withNewWaiting()
                 .withReason(waitingReason).endWaiting().endState().endContainerStatus().endStatus().build();
-        when(selected.list()).thenReturn(new PodListBuilder().withItems(pod).build());
+        when(namespacedPods.list()).thenReturn(new PodListBuilder().withItems(pod).build());
     }
 
-    private Deployment notReadyDeployment() {
-        return new DeploymentBuilder().withNewSpec().withNewSelector().addToMatchLabels("app", "x").endSelector()
-                .endSpec().withNewStatus().withReadyReplicas(0).endStatus().build();
+    private Deployment notReadyDeployment(int id) {
+        Deployment deployment = ideDeployment(id, true, false);
+        deployment.getSpec().setSelector(new io.fabric8.kubernetes.api.model.LabelSelectorBuilder()
+                .addToMatchLabels("app", "x").build());
+        return deployment;
     }
 
     @Test
     void reserveInstance_skipsAnInstanceWhoseImageCannotBePulled() {
-        when(deploymentResource.get()).thenReturn(notReadyDeployment());
+        listDeployments(notReadyDeployment(1));
         podsOfDeployment("ImagePullBackOff");
 
         var result = pool.reserveInstance(session(SESSION_UID, null), appDefinition, "cid");
@@ -257,8 +262,35 @@ class PoolClaimTests {
     }
 
     @Test
+    void reserveInstance_skipsAnInstanceWhoseInitContainerCannotStart() {
+        listDeployments(notReadyDeployment(1));
+        podsOfDeployment("ErrImagePull");
+        Pod pod = namespacedPods.list().getItems().get(0);
+        pod.getStatus().setInitContainerStatuses(pod.getStatus().getContainerStatuses());
+        pod.getStatus().setContainerStatuses(null);
+
+        var result = pool.reserveInstance(session(SESSION_UID, null), appDefinition, "cid");
+
+        assertEquals(PrewarmedResourcePool.ReservationOutcome.NO_CAPACITY, result.getOutcome());
+    }
+
+    @Test
+    void reserveInstance_listsDeploymentsAndPodsOnceForAllInstances() {
+        Service external2 = service(TheiaCloudServiceUtil.getServiceName(appDefinition, 2), null);
+        Service internal2 = service(TheiaCloudServiceUtil.getInternalServiceName(appDefinition, 2), null);
+        listServices(external, internal, external2, internal2);
+        listDeployments(notReadyDeployment(1), notReadyDeployment(2));
+        podsOfDeployment("ImagePullBackOff");
+
+        pool.reserveInstance(session(SESSION_UID, null), appDefinition, "cid");
+
+        verify(namespacedDeployments, Mockito.times(1)).list();
+        verify(namespacedPods, Mockito.times(1)).list();
+    }
+
+    @Test
     void reserveInstance_usesAnInstanceThatIsStillStarting() {
-        when(deploymentResource.get()).thenReturn(notReadyDeployment());
+        listDeployments(notReadyDeployment(1));
         podsOfDeployment("ContainerCreating");
 
         var result = pool.reserveInstance(session(SESSION_UID, null), appDefinition, "cid");
@@ -271,10 +303,7 @@ class PoolClaimTests {
         Service external2 = service(TheiaCloudServiceUtil.getServiceName(appDefinition, 2), null);
         Service internal2 = service(TheiaCloudServiceUtil.getInternalServiceName(appDefinition, 2), null);
         listServices(external, internal, external2, internal2);
-        RollableScalableResource<Deployment> startingDeployment = mock(RollableScalableResource.class);
-        when(startingDeployment.get()).thenReturn(notReadyDeployment());
-        when(namespacedDeployments.withName(TheiaCloudDeploymentUtil.getDeploymentName(appDefinition, 1)))
-                .thenReturn(startingDeployment);
+        listDeployments(notReadyDeployment(1), ideDeployment(2, true, true));
         podsOfDeployment("ContainerCreating");
 
         var result = pool.reserveInstance(session(SESSION_UID, null), appDefinition, "cid");
@@ -401,6 +430,18 @@ class PoolClaimTests {
     }
 
     @Test
+    void resetOrphanedClaims_restartsTheSidecarPods() {
+        listServices(service(external.getMetadata().getName(), "deleted-session"),
+                service(internal.getMetadata().getName(), "deleted-session"));
+        Mockito.doNothing().when(pool).resetPod(any(), anyInt(), anyString(), anyString());
+        Mockito.doReturn(false).when(pool).needsRecreation(any(), anyInt());
+
+        pool.resetOrphanedClaims(appDefinition, "cid");
+
+        verify(sidecarManager).restartPrewarmedSidecarPods(any(), Mockito.eq(1), anyString());
+    }
+
+    @Test
     void resetOrphanedClaims_withConfirmationResetsOnlyOnTheSecondRun() {
         listServices(service(external.getMetadata().getName(), "deleted-session"),
                 service(internal.getMetadata().getName(), "deleted-session"));
@@ -456,6 +497,10 @@ class PoolClaimTests {
     }
 
     private Deployment ideDeployment(int id, boolean current) {
+        return ideDeployment(id, current, false);
+    }
+
+    private Deployment ideDeployment(int id, boolean current, boolean ready) {
         ObjectMetaBuilder meta = new ObjectMetaBuilder()
                 .withName(TheiaCloudDeploymentUtil.getDeploymentName(appDefinition, id))
                 .withOwnerReferences(new OwnerReferenceBuilder().withName(APP_DEFINITION)
@@ -468,7 +513,8 @@ class PoolClaimTests {
                         org.eclipse.theia.cloud.common.util.LabelsUtil.LABEL_VALUE_SESSION)
                 .addToLabels(org.eclipse.theia.cloud.common.util.LabelsUtil.LABEL_KEY_THEIACLOUD,
                         org.eclipse.theia.cloud.common.util.LabelsUtil.LABEL_VALUE_THEIACLOUD)
-                .endMetadata().withNewSpec().endSpec().endTemplate().endSpec().build();
+                .endMetadata().withNewSpec().endSpec().endTemplate().endSpec()
+                .withNewStatus().withReadyReplicas(ready ? 1 : 0).endStatus().build();
     }
 
     private void reconcileWithDeployments(Deployment... existing) {

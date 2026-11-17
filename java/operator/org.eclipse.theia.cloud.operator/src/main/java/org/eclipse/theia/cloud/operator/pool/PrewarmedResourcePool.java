@@ -22,6 +22,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -57,6 +58,7 @@ import com.google.inject.Singleton;
 
 import io.fabric8.kubernetes.api.model.ConfigMap;
 import io.fabric8.kubernetes.api.model.HasMetadata;
+import io.fabric8.kubernetes.api.model.ContainerStatus;
 import io.fabric8.kubernetes.api.model.Pod;
 import io.fabric8.kubernetes.api.model.Service;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
@@ -1214,12 +1216,17 @@ public class PrewarmedResourcePool {
                     }).map(Map.Entry::getKey).sorted(Comparator.naturalOrder()).collect(Collectors.toList());
             // Prefer an instance that is ready. One that is still starting is better than none, but one whose pod
             // cannot start (image pull, crash loop) is not handed out: the session launches lazily instead.
+            Map<Integer, Deployment> deploymentsById = new HashMap<>();
+            for (Deployment d : K8sUtil.getExistingIdeDeployments(client.kubernetes(), client.namespace(),
+                    appDefOwnerName, appDefOwnerUID)) {
+                deploymentsById.put(parseDeploymentInstanceIdOrDefault(appDef, d, -1), d);
+            }
+            List<Pod> pods = null; // listed once, and only when an instance is not ready
             Integer ready = null;
             Integer starting = null;
             int broken = 0;
             for (Integer id : availableIds) {
-                Deployment deployment = client.kubernetes().apps().deployments().inNamespace(client.namespace())
-                        .withName(TheiaCloudDeploymentUtil.getDeploymentName(appDef, id)).get();
+                Deployment deployment = deploymentsById.get(id);
                 if (deployment == null) {
                     continue;
                 }
@@ -1227,7 +1234,10 @@ public class PrewarmedResourcePool {
                     ready = id;
                     break;
                 }
-                if (hasBrokenPod(deployment)) {
+                if (pods == null) {
+                    pods = client.kubernetes().pods().inNamespace(client.namespace()).list().getItems();
+                }
+                if (hasBrokenPod(deployment, pods)) {
                     broken++;
                     LOGGER.warn(formatLogMessage(correlationId,
                             "Instance " + id + " of " + appDefName + " has a pod that cannot start, not using it"));
@@ -1449,11 +1459,6 @@ public class PrewarmedResourcePool {
                 return true;
             }
 
-            // A shared workspace volume means the instance is recreated below, which replaces the sidecar pods.
-            // Done here, after the checks above, so it never hits the instance of another session.
-            if (!SidecarConfig.requiresSharedWorkspace(appDef)) {
-                sidecarManager.restartPrewarmedSidecarPods(appDef, instanceId, correlationId);
-            }
             boolean success = resetClaimedInstance(appDef, instanceId, externalService, internalService,
                     correlationId);
 
@@ -1495,6 +1500,10 @@ public class PrewarmedResourcePool {
             discardInstance(appDef, instanceId, externalService, internalService, deploymentName, correlationId);
             return success;
         }
+
+        // The sidecar pods held the data of the last user too. Here, not in the release, so that an orphaned claim
+        // is covered as well. A shared workspace volume means the instance was discarded above with its sidecars.
+        sidecarManager.restartPrewarmedSidecarPods(appDef, instanceId, correlationId);
 
         // Replace the pod and rotate the data bridge token
         resetPod(appDef, instanceId, deploymentName, correlationId);
@@ -1886,16 +1895,21 @@ public class PrewarmedResourcePool {
                 && deployment.getStatus().getReadyReplicas() > 0;
     }
 
-    private boolean hasBrokenPod(Deployment deployment) {
+    private static boolean hasBrokenPod(Deployment deployment, List<Pod> pods) {
         if (deployment.getSpec() == null || deployment.getSpec().getSelector() == null
                 || deployment.getSpec().getSelector().getMatchLabels() == null) {
             return false;
         }
-        String selector = deployment.getSpec().getSelector().getMatchLabels().entrySet().stream()
-                .map(e -> e.getKey() + "=" + e.getValue()).collect(Collectors.joining(","));
-        return client.kubernetes().pods().inNamespace(client.namespace()).withLabelSelector(selector).list().getItems()
-                .stream().filter(pod -> pod.getStatus() != null && pod.getStatus().getContainerStatuses() != null)
-                .flatMap(pod -> pod.getStatus().getContainerStatuses().stream())
+        Map<String, String> selector = deployment.getSpec().getSelector().getMatchLabels();
+        return pods.stream()
+                .filter(pod -> pod.getMetadata() != null && pod.getMetadata().getLabels() != null
+                        && pod.getMetadata().getLabels().entrySet().containsAll(selector.entrySet()))
+                .filter(pod -> pod.getStatus() != null)
+                .flatMap(pod -> Stream.concat(
+                        pod.getStatus().getContainerStatuses() == null ? Stream.<ContainerStatus> empty()
+                                : pod.getStatus().getContainerStatuses().stream(),
+                        pod.getStatus().getInitContainerStatuses() == null ? Stream.<ContainerStatus> empty()
+                                : pod.getStatus().getInitContainerStatuses().stream()))
                 .anyMatch(status -> status.getState() != null && status.getState().getWaiting() != null
                         && BROKEN_POD_REASONS.contains(status.getState().getWaiting().getReason()));
     }

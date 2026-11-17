@@ -208,6 +208,65 @@ class MonitorActivityTrackerTests {
         verify(sessions, never()).delete(anyString(), anyString());
     }
 
+    @Test
+    void pingSession_firstAnswer_isPersistedOnTheSession() {
+        Session session = createSession(minutesAgo(1));
+        MonitorActivityTracker tracker = createTracker(() -> Optional.of(minutesAgo(1)));
+        // Apply the edit to the session, as the next fresh listing would show it.
+        when(sessions.edit(anyString(), eq(SESSION_NAME), any())).thenAnswer(invocation -> {
+            invocation.<java.util.function.Consumer<Session>>getArgument(2).accept(session);
+            return session;
+        });
+
+        tracker.pingSession(transaction, "cid", session, "10.0.0.1", PORT, SHUTDOWN_AFTER, NOTIFY_AFTER);
+        tracker.pingSession(transaction, "cid", session, "10.0.0.1", PORT, SHUTDOWN_AFTER, NOTIFY_AFTER);
+
+        // Once, not on every poll.
+        verify(sessions, Mockito.times(1)).edit(anyString(), eq(SESSION_NAME), any());
+    }
+
+    @Test
+    void pingSession_failedAnnotationWrite_isRetriedOnTheNextPoll() {
+        Session session = createSession(minutesAgo(1));
+        MonitorActivityTracker tracker = createTracker(() -> Optional.of(minutesAgo(1)));
+        when(sessions.edit(anyString(), eq(SESSION_NAME), any())).thenThrow(new RuntimeException("conflict"))
+                .thenReturn(session);
+
+        tracker.pingSession(transaction, "cid", session, "10.0.0.1", PORT, SHUTDOWN_AFTER, NOTIFY_AFTER);
+        tracker.pingSession(transaction, "cid", session, "10.0.0.1", PORT, SHUTDOWN_AFTER, NOTIFY_AFTER);
+
+        verify(sessions, Mockito.times(2)).edit(anyString(), eq(SESSION_NAME), any());
+    }
+
+    @Test
+    void pingSession_answeredBeforeOperatorRestart_andTabClosed_stopsTheSession() {
+        // A fresh tracker has an empty in-memory set, as after a restart. Only the annotation remembers the answer.
+        Session session = createSession(minutesAgo(90));
+        session.getMetadata().setAnnotations(
+                java.util.Map.of(MonitorActivityTracker.MONITOR_ANSWERED_ANNOTATION, "true"));
+        MonitorActivityTracker tracker = createTracker(() -> {
+            throw new IOException("connection refused");
+        });
+
+        boolean success = tracker.pingSession(transaction, "cid", session, "10.0.0.1", PORT, SHUTDOWN_AFTER,
+                NOTIFY_AFTER);
+
+        assertFalse(success);
+        verify(sessions).delete(anyString(), eq(SESSION_NAME));
+    }
+
+    @Test
+    void pingSession_neverAnswered_evenAfterRestart_isNotStopped() {
+        Session session = createSession(minutesAgo(90));
+        MonitorActivityTracker tracker = createTracker(() -> {
+            throw new IOException("connection refused");
+        });
+
+        tracker.pingSession(transaction, "cid", session, "10.0.0.1", PORT, SHUTDOWN_AFTER, NOTIFY_AFTER);
+
+        verify(sessions, never()).delete(anyString(), anyString());
+    }
+
     // ========== helpers ==========
 
     @FunctionalInterface

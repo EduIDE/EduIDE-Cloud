@@ -23,6 +23,7 @@ import java.text.SimpleDateFormat;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -72,6 +73,8 @@ public class MonitorActivityTracker implements OperatorPlugin {
     private static final String ACTIVITY_TRACKER_BASE_PATH = "/activity";
     private static final String GET_ACTIVITY = "/lastActivity";
     private static final String POST_POPUP = "/popup";
+    /** Set on the Session once its monitor answered, so that an operator restart does not forget it. */
+    static final String MONITOR_ANSWERED_ANNOTATION = "theia-cloud.io/monitor-answered";
     private static final String COR_ID_NOACTIVITYPREFIX = "no-activity-";
 
     /**
@@ -96,7 +99,8 @@ public class MonitorActivityTracker implements OperatorPlugin {
     private final Map<String, Integer> consecutivePollFailures = new ConcurrentHashMap<>();
 
     /**
-     * Sessions whose monitor answered at least once since the operator started. The monitor lives in the IDE's plugin
+     * Cache of the sessions whose monitor answered at least once, backed by {@link #MONITOR_ANSWERED_ANNOTATION} so it
+     * survives an operator restart. The monitor lives in the IDE's plugin
      * host, which ends when the user closes the last tab, so for these an unanswered poll means "tab closed", not
      * "monitor broken".
      */
@@ -198,6 +202,7 @@ public class MonitorActivityTracker implements OperatorPlugin {
                 }
 
                 session = updateLastActivity(correlationId, session, lastReportedMilliseconds.get());
+                markAnswered(correlationId, session);
                 recordPollSuccess(sessionName);
             } catch (IOException | RuntimeException e) {
                 recordPollFailure(sessionSpan, sessionName, "GET " + getActivityURL + " failed: " + e);
@@ -297,7 +302,7 @@ public class MonitorActivityTracker implements OperatorPlugin {
     protected void stopIfGoneSinceTimeout(ISpan sessionSpan, String correlationId, Session session,
             int shutdownAfter) {
         String sessionName = session.getSpec().getName();
-        if (!answeredSessions.contains(sessionName)) {
+        if (!answeredSessions.contains(sessionName) && !hasAnsweredAnnotation(session)) {
             return;
         }
         long minutesPassed = getMinutesPassed(new Date(session.getNonNullStatus().getLastActivity()),
@@ -307,6 +312,29 @@ public class MonitorActivityTracker implements OperatorPlugin {
                     + minutesPassed + " minutes ago.");
             sessionSpan.setData("action", "timeout_shutdown_unreachable");
             stopNonActiveSession(sessionSpan, correlationId, session, shutdownAfter);
+        }
+    }
+
+    private static boolean hasAnsweredAnnotation(Session session) {
+        Map<String, String> annotations = session.getMetadata().getAnnotations();
+        return annotations != null && annotations.containsKey(MONITOR_ANSWERED_ANNOTATION);
+    }
+
+    /** Persists the first answer. A failed write only means the next poll tries again. */
+    private void markAnswered(String correlationId, Session session) {
+        // Guarded by the annotation only: the session is listed fresh every poll, so a failed write is retried.
+        if (hasAnsweredAnnotation(session)) {
+            return;
+        }
+        try {
+            resourceClient.sessions().edit(correlationId, session.getSpec().getName(), edited -> {
+                if (edited.getMetadata().getAnnotations() == null) {
+                    edited.getMetadata().setAnnotations(new HashMap<>());
+                }
+                edited.getMetadata().getAnnotations().put(MONITOR_ANSWERED_ANNOTATION, "true");
+            });
+        } catch (RuntimeException e) {
+            logWarn(session.getSpec().getName(), "Could not record that the monitor answered: " + e);
         }
     }
 

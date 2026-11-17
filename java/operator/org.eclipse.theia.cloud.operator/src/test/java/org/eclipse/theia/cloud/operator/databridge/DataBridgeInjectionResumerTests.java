@@ -42,6 +42,16 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import io.fabric8.kubernetes.api.model.ObjectMetaBuilder;
+import io.fabric8.kubernetes.api.model.Pod;
+import io.fabric8.kubernetes.api.model.PodBuilder;
+import io.fabric8.kubernetes.api.model.PodList;
+import io.fabric8.kubernetes.api.model.Service;
+import io.fabric8.kubernetes.api.model.ServiceBuilder;
+import io.fabric8.kubernetes.client.NamespacedKubernetesClient;
+import io.fabric8.kubernetes.client.dsl.FilterWatchListDeletable;
+import io.fabric8.kubernetes.client.dsl.MixedOperation;
+import io.fabric8.kubernetes.client.dsl.NonNamespaceOperation;
+import io.fabric8.kubernetes.client.dsl.PodResource;
 
 class DataBridgeInjectionResumerTests {
 
@@ -49,11 +59,12 @@ class DataBridgeInjectionResumerTests {
     private final SessionEnvCollector collector = mock(SessionEnvCollector.class);
     private final SessionResourceClient sessions = mock(SessionResourceClient.class);
     private final AppDefinitionResourceClient appDefinitions = mock(AppDefinitionResourceClient.class);
+    private final TheiaCloudClient client = mock(TheiaCloudClient.class);
+    private final NamespacedKubernetesClient kubernetes = mock(NamespacedKubernetesClient.class);
     private final DataBridgeInjectionResumer resumer = new DataBridgeInjectionResumer();
 
     @BeforeEach
     void wire() throws Exception {
-        TheiaCloudClient client = mock(TheiaCloudClient.class);
         when(client.sessions()).thenReturn(sessions);
         when(client.appDefinitions()).thenReturn(appDefinitions);
         set("client", client);
@@ -105,6 +116,77 @@ class DataBridgeInjectionResumerTests {
         when(sessions.list()).thenThrow(new RuntimeException("api down"));
 
         resumer.resume("cid");
+
+        verify(injector, never()).scheduleInjection(any(), any(), any(), anyString());
+    }
+
+    private Session sessionWithPod(String name, String podUid) {
+        Session session = session(name, "bridge-app", OperatorStatus.HANDLED);
+        Service service = new ServiceBuilder().withNewMetadata().withName(name).endMetadata().withNewSpec()
+                .addToSelector("app", name).endSpec().build();
+        when(client.getServiceFromSession(session)).thenReturn(Optional.of(service));
+        MixedOperation<Pod, PodList, PodResource> pods = mock(MixedOperation.class);
+        NonNamespaceOperation<Pod, PodList, PodResource> inNamespace = mock(NonNamespaceOperation.class);
+        FilterWatchListDeletable<Pod, PodList, PodResource> filtered = mock(FilterWatchListDeletable.class);
+        when(client.kubernetes()).thenReturn(kubernetes);
+        when(kubernetes.pods()).thenReturn(pods);
+        when(client.namespace()).thenReturn("ns");
+        when(pods.inNamespace("ns")).thenReturn(inNamespace);
+        when(inNamespace.withLabels(Map.of("app", name))).thenReturn(filtered);
+        Pod pod = new PodBuilder().withNewMetadata().withUid(podUid).withCreationTimestamp("2026-11-17T10:00:00Z")
+                .endMetadata().build();
+        PodList list = new PodList();
+        list.setItems(List.of(pod));
+        when(filtered.list()).thenReturn(list);
+        return session;
+    }
+
+    @Test
+    void reinjectReplacedPods_injectsOnlyWhenThePodChanged() throws Exception {
+        app("bridge-app", true);
+        Session first = sessionWithPod("a", "pod-1");
+        when(sessions.list()).thenReturn(List.of(first));
+
+        resumer.reinjectReplacedPods("cid");
+        verify(injector, never()).scheduleInjection(any(), any(), any(), anyString());
+
+        resumer.reinjectReplacedPods("cid");
+        verify(injector, never()).scheduleInjection(any(), any(), any(), anyString());
+
+        Session replaced = sessionWithPod("a", "pod-2");
+        when(sessions.list()).thenReturn(List.of(replaced));
+        resumer.reinjectReplacedPods("cid");
+
+        verify(injector).scheduleInjection(null, replaced, Map.of("ARTEMIS_URL", "https://artemis.example"), "cid");
+    }
+
+    @Test
+    void reinjectReplacedPods_oneFailingSessionDoesNotStopTheNext() throws Exception {
+        app("bridge-app", true);
+        Session broken = sessionWithPod("a", "pod-1");
+        Session fine = sessionWithPod("b", "pod-1");
+        when(sessions.list()).thenReturn(List.of(broken, fine));
+        resumer.reinjectReplacedPods("cid");
+
+        Session brokenAfter = sessionWithPod("a", "pod-2");
+        when(client.getServiceFromSession(brokenAfter)).thenThrow(new RuntimeException("api down"));
+        Session fineAfter = sessionWithPod("b", "pod-2");
+        when(sessions.list()).thenReturn(List.of(brokenAfter, fineAfter));
+        resumer.reinjectReplacedPods("cid");
+
+        verify(injector).scheduleInjection(null, fineAfter, Map.of("ARTEMIS_URL", "https://artemis.example"), "cid");
+    }
+
+    @Test
+    void reinjectReplacedPods_skipsSessionsOfAppsWithoutBridge() throws Exception {
+        app("bridge-app", false);
+        Session plain = sessionWithPod("a", "pod-1");
+        when(sessions.list()).thenReturn(List.of(plain));
+        resumer.reinjectReplacedPods("cid");
+
+        Session replaced = sessionWithPod("a", "pod-2");
+        when(sessions.list()).thenReturn(List.of(replaced));
+        resumer.reinjectReplacedPods("cid");
 
         verify(injector, never()).scheduleInjection(any(), any(), any(), anyString());
     }

@@ -12,6 +12,7 @@ package org.eclipse.theia.cloud.operator.databridge;
 import static org.eclipse.theia.cloud.common.util.LogMessageUtil.formatLogMessage;
 
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
@@ -59,12 +60,18 @@ public class DataBridgeInjectionResumer {
     private final Map<String, String> seenPods = new ConcurrentHashMap<>();
 
     private boolean isBridgeSession(Session session) {
+        return isBridgeSession(session, new HashMap<>());
+    }
+
+    private boolean isBridgeSession(Session session, Map<String, Boolean> bridgeApps) {
         if (!OperatorStatus.HANDLED.equals(session.getNonNullStatus().getOperatorStatus())
                 || session.getMetadata().getDeletionTimestamp() != null) {
             return false;
         }
-        Optional<AppDefinition> appDef = client.appDefinitions().get(session.getSpec().getAppDefinition());
-        return appDef.isPresent() && DataBridgeUtil.isDataBridgeEnabled(appDef.get().getSpec());
+        return bridgeApps.computeIfAbsent(session.getSpec().getAppDefinition(), name -> {
+            Optional<AppDefinition> appDef = client.appDefinitions().get(name);
+            return appDef.isPresent() && DataBridgeUtil.isDataBridgeEnabled(appDef.get().getSpec());
+        });
     }
 
     /**
@@ -74,22 +81,32 @@ public class DataBridgeInjectionResumer {
     public void reinjectReplacedPods(String correlationId) {
         try {
             Set<String> live = new HashSet<>();
+            Map<String, Boolean> bridgeApps = new HashMap<>();
             for (Session session : client.sessions().list()) {
-                if (!isBridgeSession(session)) {
-                    continue;
-                }
-                String sessionUid = session.getMetadata().getUid();
-                live.add(sessionUid);
-                Optional<String> podUid = currentPodUid(session);
-                if (podUid.isEmpty()) {
-                    continue;
-                }
-                String previous = seenPods.put(sessionUid, podUid.get());
-                if (previous != null && !previous.equals(podUid.get())) {
-                    LOGGER.info(formatLogMessage(correlationId, "Pod of session " + session.getSpec().getName()
-                            + " was replaced, scheduling data bridge injection"));
-                    asyncDataInjector.scheduleInjection(null, session,
-                            sessionEnvCollector.collect(session, correlationId), correlationId);
+                try {
+                    if (!isBridgeSession(session, bridgeApps)) {
+                        continue;
+                    }
+                    String sessionUid = session.getMetadata().getUid();
+                    live.add(sessionUid);
+                    Optional<String> podUid = currentPodUid(session);
+                    if (podUid.isEmpty()) {
+                        continue;
+                    }
+                    String previous = seenPods.put(sessionUid, podUid.get());
+                    if (previous != null && !previous.equals(podUid.get())) {
+                        LOGGER.info(formatLogMessage(correlationId, "Pod of session " + session.getSpec().getName()
+                                + " was replaced, scheduling data bridge injection"));
+                        asyncDataInjector.scheduleInjection(null, session,
+                                sessionEnvCollector.collect(session, correlationId), correlationId);
+                    }
+                } catch (RuntimeException e) {
+                    LOGGER.warn(formatLogMessage(correlationId,
+                            "Could not check the pod of session " + session.getSpec().getName()), e);
+                    // Keep the old record, so the next run still sees the change.
+                    if (session.getMetadata().getUid() != null) {
+                        live.add(session.getMetadata().getUid());
+                    }
                 }
             }
             seenPods.keySet().retainAll(live);

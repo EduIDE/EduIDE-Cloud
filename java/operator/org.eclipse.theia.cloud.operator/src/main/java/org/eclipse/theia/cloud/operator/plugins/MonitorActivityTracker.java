@@ -322,7 +322,8 @@ public class MonitorActivityTracker implements OperatorPlugin {
 
     /** Persists the first answer. A failed write only means the next poll tries again. */
     private void markAnswered(String correlationId, Session session) {
-        if (answeredSessions.contains(session.getSpec().getName()) || hasAnsweredAnnotation(session)) {
+        // Guarded by the annotation only: the session is listed fresh every poll, so a failed write is retried.
+        if (hasAnsweredAnnotation(session)) {
             return;
         }
         try {

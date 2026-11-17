@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Upgrade notes
+
+- Sessions that are already running at rollout and whose IDE tab is already closed never get the `theia-cloud.io/monitor-answered` annotation, so they still end only by lifetime. This is one-off. New answers are recorded from the rollout on.
+
 ### Fixed
 
 - [java/operator] A session whose IDE tab was closed is now ended by inactivity after an operator restart too. Whether the monitor answered is kept in the `theia-cloud.io/monitor-answered` Session annotation instead of in memory.

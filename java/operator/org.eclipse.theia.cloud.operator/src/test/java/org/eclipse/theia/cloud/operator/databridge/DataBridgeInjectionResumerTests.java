@@ -161,6 +161,23 @@ class DataBridgeInjectionResumerTests {
     }
 
     @Test
+    void reinjectReplacedPods_oneFailingSessionDoesNotStopTheNext() throws Exception {
+        app("bridge-app", true);
+        Session broken = sessionWithPod("a", "pod-1");
+        Session fine = sessionWithPod("b", "pod-1");
+        when(sessions.list()).thenReturn(List.of(broken, fine));
+        resumer.reinjectReplacedPods("cid");
+
+        Session brokenAfter = sessionWithPod("a", "pod-2");
+        when(client.getServiceFromSession(brokenAfter)).thenThrow(new RuntimeException("api down"));
+        Session fineAfter = sessionWithPod("b", "pod-2");
+        when(sessions.list()).thenReturn(List.of(brokenAfter, fineAfter));
+        resumer.reinjectReplacedPods("cid");
+
+        verify(injector).scheduleInjection(null, fineAfter, Map.of("ARTEMIS_URL", "https://artemis.example"), "cid");
+    }
+
+    @Test
     void reinjectReplacedPods_skipsSessionsOfAppsWithoutBridge() throws Exception {
         app("bridge-app", false);
         Session plain = sessionWithPod("a", "pod-1");

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixes
+
+- [java/service] The service no longer writes bearer tokens to its log. Quarkus logged the complete token at WARN when its verification failed, so any caller could put arbitrary text into the log and a real expired or wrong-audience token ended up there. The `OidcProvider` logger now only logs errors. A token that fails local verification is no longer sent to the introspection endpoint, which removed the ERROR line `status: 403 ... Client not allowed` per invalid token.
+
 ## [3.0.3] - 2026-11-17
 
 ### Fixes

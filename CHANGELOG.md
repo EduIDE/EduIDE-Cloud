@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixes
+
+- [images] The operator, service and conversion webhook images run on OpenJDK 27.0.1.1 (jdk.java.net, GPL) on Debian 13 instead of Temurin 21 on Alpine, to fix Java4Shell (CVE-2026-114938), a pre-auth RCE in the JDK itself. Only this build ships the fix, and it has no musl variant, hence the glibc base. The tarball is checked against a pinned sha256. Switch back to a vendor LTS build once one ships the fix. The images are about 140 MB larger. The JVM trust store is now Debian's Mozilla CA bundle (148 roots, including HARICA and D-TRUST) instead of the 106 roots of the OpenJDK tarball, and the JDK's distrust list is unchanged. The service and webhook logs show `sun.misc.Unsafe` deprecation warnings from Netty on JDK 27, which are harmless. The container user is still uid/gid 10001, the operator user is now named `theia-operator`.
+
 ## [3.0.2] - 2026-11-17
 
 ### Upgrade notes

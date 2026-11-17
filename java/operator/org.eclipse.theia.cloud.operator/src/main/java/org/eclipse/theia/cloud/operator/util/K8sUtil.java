@@ -97,6 +97,25 @@ public final class K8sUtil {
                 client.apps().deployments().inNamespace(namespace).list().getItems());
     }
 
+    /** Like {@link #getExistingServices}, without the services of sidecars, which are not IDE instances. */
+    public static List<Service> getExistingIdeServices(NamespacedKubernetesClient client, String namespace,
+            String ownerName, String ownerUid) {
+        return getExistingServices(client, namespace, ownerName, ownerUid).stream().filter(s -> !isSidecar(s))
+                .collect(Collectors.toList());
+    }
+
+    /** Like {@link #getExistingDeployments}, without the deployments of sidecars, which are not IDE instances. */
+    public static List<Deployment> getExistingIdeDeployments(NamespacedKubernetesClient client, String namespace,
+            String ownerName, String ownerUid) {
+        return getExistingDeployments(client, namespace, ownerName, ownerUid).stream().filter(d -> !isSidecar(d))
+                .collect(Collectors.toList());
+    }
+
+    private static boolean isSidecar(HasMetadata resource) {
+        return resource.getMetadata().getLabels() != null
+                && resource.getMetadata().getLabels().containsKey("theia-cloud.io/sidecar");
+    }
+
     public static List<ConfigMap> getExistingConfigMaps(NamespacedKubernetesClient client, String namespace,
             String ownerName, String ownerUid) {
         return getExistingTypes(client, namespace, ownerName, ownerUid,

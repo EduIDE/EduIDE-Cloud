@@ -125,7 +125,8 @@ class PoolClaimTests {
         when(deployments.inNamespace(any())).thenReturn(namespacedDeployments);
         when(deployments.withName(anyString())).thenReturn(deploymentResource);
         when(namespacedDeployments.withName(anyString())).thenReturn(deploymentResource);
-        when(deploymentResource.get()).thenReturn(new DeploymentBuilder().build());
+        when(deploymentResource.get()).thenReturn(
+                new DeploymentBuilder().withNewStatus().withReadyReplicas(1).endStatus().build());
         when(namespacedDeployments.list()).thenReturn(new DeploymentList());
 
         MixedOperation<ConfigMap, ConfigMapList, Resource<ConfigMap>> configMaps = mock(MixedOperation.class);
@@ -224,6 +225,31 @@ class PoolClaimTests {
     }
 
     @Test
+    void reserveInstance_skipsAnInstanceWhoseDeploymentIsNotReady() {
+        // e.g. ImagePullBackOff: the deployment exists but no replica is ready
+        when(deploymentResource.get()).thenReturn(new DeploymentBuilder().withNewStatus().withReadyReplicas(0)
+                .endStatus().build());
+
+        var result = pool.reserveInstance(session(SESSION_UID, null), appDefinition, "cid");
+
+        assertEquals(PrewarmedResourcePool.ReservationOutcome.NO_CAPACITY, result.getOutcome());
+        verify(namespacedServices, never()).withName(external.getMetadata().getName());
+    }
+
+    @Test
+    void reserveInstance_ignoresTheServiceOfASidecar() {
+        Service sidecar = service("instance-1-lsp-" + APP_DEFINITION, null);
+        sidecar.getMetadata().getLabels().put("theia-cloud.io/sidecar", "lsp");
+        listServices(sidecar, external, internal);
+
+        var result = pool.reserveInstance(session(SESSION_UID, null), appDefinition, "cid");
+
+        assertEquals(PrewarmedResourcePool.ReservationOutcome.SUCCESS, result.getOutcome());
+        assertEquals(external.getMetadata().getName(), result.getInstance().get().getExternalService().getMetadata().getName());
+        assertFalse(serviceResources.containsKey(sidecar.getMetadata().getName()));
+    }
+
+    @Test
     void releaseInstance_removesTheClaimLabelLast() throws Exception {
         listServices(service(external.getMetadata().getName(), SESSION_UID),
                 service(internal.getMetadata().getName(), SESSION_UID));
@@ -246,6 +272,8 @@ class PoolClaimTests {
         Service otherExternal = service(TheiaCloudServiceUtil.getServiceName(appDefinition, 2), SESSION_UID);
         Service otherInternal = service(TheiaCloudServiceUtil.getInternalServiceName(appDefinition, 2), SESSION_UID);
         listServices(external, internal, otherExternal, otherInternal);
+        // the session is still there while it is being deleted, so the sweep after the release leaves it alone
+        when(client.sessions().list()).thenReturn(List.of(session(SESSION_UID, "2")));
         Mockito.doNothing().when(pool).resetPod(any(), anyInt(), anyString(), anyString());
         Mockito.doReturn(false).when(pool).needsRecreation(any(), anyInt());
 
@@ -270,6 +298,7 @@ class PoolClaimTests {
         listServices(service(external.getMetadata().getName(), SESSION_UID),
                 service(internal.getMetadata().getName(), SESSION_UID));
         Mockito.doReturn(true).when(pool).needsRecreation(any(), anyInt());
+        when(client.sessions().list()).thenReturn(List.of(session(SESSION_UID, "1")));
 
         assertTrue(pool.releaseInstance(session(SESSION_UID, "1"), appDefinition, "cid"));
 
@@ -295,6 +324,18 @@ class PoolClaimTests {
         Service freed = applyLastEdit(external.getMetadata().getName(),
                 service(external.getMetadata().getName(), "deleted-session"));
         assertFalse(freed.getMetadata().getLabels().containsKey(PrewarmedResourcePool.CLAIM_LABEL));
+    }
+
+    @Test
+    void resetOrphanedClaims_leavesTheSidecarOfAnInstanceAlone() {
+        Service sidecar = service("instance-1-lsp-" + APP_DEFINITION, "deleted-session");
+        sidecar.getMetadata().getLabels().put("theia-cloud.io/sidecar", "lsp");
+        listServices(sidecar, external, internal);
+
+        pool.resetOrphanedClaims(appDefinition, "cid");
+
+        verify(pool, never()).resetPod(any(), anyInt(), anyString(), anyString());
+        assertTrue(serviceResources.isEmpty());
     }
 
     @Test

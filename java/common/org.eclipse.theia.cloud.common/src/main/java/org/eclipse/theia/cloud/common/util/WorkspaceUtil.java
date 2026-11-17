@@ -32,7 +32,8 @@ public final class WorkspaceUtil {
     private static final String EPHEMERAL_PREFIX = "eph-";
     private static final int EPHEMERAL_HASH_LENGTH = 16;
     private static final int WORKSPACE_NAME_LIMIT = NamingUtil.VALID_NAME_LIMIT - SESSION_SUFFIX.length();
-    private static final int DISCRIMINATOR_HASH_LENGTH = 10;
+    // 64 bits, so nobody can search for a discriminator whose name collides with another user's session.
+    private static final int DISCRIMINATOR_HASH_LENGTH = 16;
 
     private WorkspaceUtil() {
         // util

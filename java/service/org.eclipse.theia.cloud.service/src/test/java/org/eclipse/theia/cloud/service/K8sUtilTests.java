@@ -122,6 +122,28 @@ class K8sUtilTests {
     }
 
     @Test
+    void launchEphemeralSession_unparsableUriIgnoresCredentials() throws Exception {
+        for (String uri : new String[] { "https://stud:%s@my_git.example/x.git", "https://stud:%s@git.example/my repo.git" }) {
+            String withToken = launchedSessionName(env(uri.formatted("tok-1")));
+            String rotated = launchedSessionName(env(uri.formatted("tok-2")));
+
+            assertEquals(withToken, rotated, uri);
+            assertFalse(K8sUtil.repositoryOf(env(uri.formatted("tok-1"))).contains("tok"), uri);
+        }
+    }
+
+    @Test
+    void launchEphemeralSession_namesTheSessionAfterTheSource() throws Exception {
+        String uri = "https://git.example/org/repo.git";
+        String artemis = launchedSessionName(envOf(Map.of("GIT_URI", uri, "GIT_SOURCE", "artemis")));
+        String external = launchedSessionName(envOf(Map.of("GIT_URI", uri, "GIT_SOURCE", "external")));
+        String externalAgain = launchedSessionName(envOf(Map.of("GIT_URI", uri, "GIT_SOURCE", " External ")));
+
+        assertNotEquals(artemis, external, "an external launch must not reopen the Artemis session of the same repository");
+        assertEquals(external, externalAgain);
+    }
+
+    @Test
     void launchEphemeralSession_withoutRepositoryKeepsTheUserAndAppName() throws Exception {
         assertEquals(WorkspaceUtil.getSessionName("alice", "test-app", false), launchedSessionName(null));
         assertEquals(WorkspaceUtil.getSessionName("alice", "test-app", false),

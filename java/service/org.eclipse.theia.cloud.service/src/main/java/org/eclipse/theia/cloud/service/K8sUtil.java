@@ -65,6 +65,8 @@ public final class K8sUtil {
     static final String GIT_URI_ENV = "GIT_URI";
     /** Session environment variable with the branch, tag or commit Scorpio checks out after the clone. */
     static final String GIT_REF_ENV = "GIT_REF";
+    /** Session environment variable that says whether the repository comes from Artemis (set by the landing page). */
+    static final String GIT_SOURCE_ENV = "GIT_SOURCE";
 
     private NamespacedKubernetesClient KUBERNETES = CustomResourceUtil.createClient();
     public TheiaCloudClient CLIENT = new DefaultTheiaCloudClient(KUBERNETES);
@@ -174,8 +176,10 @@ public final class K8sUtil {
      * Returns the repository a session clones, normalized so that every launch of the same repository maps to the same
      * session: credentials are dropped (Artemis embeds a token in {@value #GIT_URI_ENV} that may change between
      * launches), scheme and host are lowercased, a default port is dropped, and a trailing ".git" or "/" is ignored.
-     * A {@value #GIT_REF_ENV} is appended after a line break, which no URI contains: Scorpio checks it out only after a fresh clone, so another ref
-     * of the same repository needs a session of its own.
+     * A {@value #GIT_REF_ENV} and a {@value #GIT_SOURCE_ENV} are appended after line breaks, which no URI contains:
+     * Scorpio checks a ref out only after a fresh clone, so another ref of the same repository needs a session of its
+     * own, and an external launch must not reopen the Artemis session of the same repository, which Scorpio set up
+     * differently.
      *
      * @param env the launch environment, may be <code>null</code>
      * @return the normalized repository and ref, or <code>null</code> if the environment names no repository
@@ -193,15 +197,22 @@ public final class K8sUtil {
             return null;
         }
         String ref = env.get(GIT_REF_ENV);
+        String source = env.get(GIT_SOURCE_ENV);
         String repository = normalizedRepository(gitUri.strip());
-        return ref == null || ref.isBlank() ? repository : repository + "\n" + ref.strip();
+        if (ref != null && !ref.isBlank()) {
+            repository += "\nref:" + ref.strip();
+        }
+        if (source != null && !source.isBlank()) {
+            repository += "\nsource:" + source.strip().toLowerCase(Locale.ROOT);
+        }
+        return repository;
     }
 
     private static String normalizedRepository(String gitUri) {
         try {
             URI uri = new URI(gitUri);
             if (uri.getScheme() == null || uri.getHost() == null) {
-                return gitUri;
+                return withoutUserInfo(gitUri);
             }
             String scheme = uri.getScheme().toLowerCase(Locale.ROOT);
             int port = uri.getPort();
@@ -213,9 +224,24 @@ public final class K8sUtil {
             }
             return scheme + "://" + uri.getHost().toLowerCase(Locale.ROOT) + (defaultPort ? "" : ":" + port) + path;
         } catch (URISyntaxException e) {
-            // e.g. scp-style "git@host:owner/repo.git", which carries no secret
+            // e.g. scp-style "git@host:owner/repo.git", which carries no secret, or a host or path java.net.URI rejects
+            return withoutUserInfo(gitUri);
+        }
+    }
+
+    /** Drops "user:token@" from a URI that java.net.URI cannot take apart, so a rotated token keeps the name. */
+    private static String withoutUserInfo(String gitUri) {
+        int schemeEnd = gitUri.indexOf("://");
+        if (schemeEnd < 0) {
             return gitUri;
         }
+        int authorityStart = schemeEnd + 3;
+        int authorityEnd = gitUri.indexOf('/', authorityStart);
+        if (authorityEnd < 0) {
+            authorityEnd = gitUri.length();
+        }
+        int at = gitUri.lastIndexOf('@', authorityEnd - 1);
+        return at < authorityStart ? gitUri : gitUri.substring(0, authorityStart) + gitUri.substring(at + 1);
     }
 
     // A loop rather than a regex: GIT_URI is caller-supplied, and "/*$" backtracks quadratically on a run of slashes.

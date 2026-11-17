@@ -23,8 +23,10 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 
+import java.util.Map;
 import java.util.Optional;
 
+import org.eclipse.theia.cloud.common.k8s.resource.session.Session;
 import org.eclipse.theia.cloud.common.k8s.resource.workspace.Workspace;
 import org.eclipse.theia.cloud.common.k8s.resource.workspace.WorkspaceSpec;
 import org.eclipse.theia.cloud.common.k8s.resource.workspace.WorkspaceStatus;
@@ -224,6 +226,44 @@ class RootResourceTests {
 
         assertEquals(TheiaCloudError.SESSION_USER_LIMIT_REACHED.getCode(), exception.getResponse().getStatus());
         Mockito.verify(k8sUtil, never()).launchWorkspaceSession(anyString(), any(), anyInt(), any());
+    }
+
+    @Test
+    void launch_ephemeral_userLimitChecksTheSessionOfTheRepository() {
+        mockUser(false, TEST_USER);
+        mockAppDefinition();
+        Mockito.when(applicationProperties.getSessionsPerUser()).thenReturn(1);
+        Mockito.when(k8sUtil.countActiveSessions(TEST_USER)).thenReturn(1L);
+        LaunchRequest request = launchRequest(TEST_USER);
+        request.ephemeral = true;
+        request.env = new EnvironmentVars();
+        request.env.fromMap = Map.of("GIT_URI", "https://github.com/octocat/Spoon-Knife.git");
+        String repoSession = "eph-test-app-user-0123456789abcdef-session";
+        Mockito.when(k8sUtil.ephemeralSessionName(TEST_USER, APP_DEFINITION, request.env)).thenReturn(repoSession);
+        Mockito.when(k8sUtil.findSession(anyString())).thenReturn(Optional.empty());
+
+        TheiaCloudWebException exception = assertThrows(TheiaCloudWebException.class, () -> fixture.launch(request));
+
+        assertEquals(TheiaCloudError.SESSION_USER_LIMIT_REACHED.getCode(), exception.getResponse().getStatus());
+        Mockito.verify(k8sUtil).findSession(repoSession);
+        Mockito.verify(k8sUtil, never()).launchEphemeralSession(anyString(), anyString(), anyString(), anyInt(), any());
+    }
+
+    @Test
+    void launch_ephemeral_userLimitReachedButTheRepositorysSessionExists_launchesIt() {
+        mockUser(false, TEST_USER);
+        mockAppDefinition();
+        Mockito.when(applicationProperties.getSessionsPerUser()).thenReturn(1);
+        Mockito.when(k8sUtil.countActiveSessions(TEST_USER)).thenReturn(1L);
+        LaunchRequest request = launchRequest(TEST_USER);
+        request.ephemeral = true;
+        String repoSession = "eph-test-app-user-0123456789abcdef-session";
+        Mockito.when(k8sUtil.ephemeralSessionName(eq(TEST_USER), eq(APP_DEFINITION), any())).thenReturn(repoSession);
+        Mockito.when(k8sUtil.findSession(repoSession)).thenReturn(Optional.of(new Session()));
+        Mockito.when(k8sUtil.launchEphemeralSession(anyString(), anyString(), anyString(), anyInt(), any()))
+                .thenReturn(SESSION_URL);
+
+        assertEquals(SESSION_URL, fixture.launch(request));
     }
 
     private void mockAppDefinition() {

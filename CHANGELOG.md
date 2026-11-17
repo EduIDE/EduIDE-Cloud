@@ -2,8 +2,13 @@
 
 ## [Unreleased]
 
+### Upgrade notes
+
+- With the default `--sessionsPerUser=1`, a student whose ephemeral session for one repository still runs and who opens another repository (another Artemis exercise) of the same app definition now gets `SESSION_USER_LIMIT_REACHED` (553). Before, the second launch silently reopened the first session, with the first repository. Raise `sessionsPerUser`, or the student ends the first session. The landing page currently answers 553 with "Your previous session is still shutting down", which does not fit this case.
+
 ### Fixes
 
+- [java/service,java/common] Give each repository its own ephemeral session. The session name now includes a hash of the launch's normalized `GIT_URI` (credentials dropped, scheme and host lowercased, default port and trailing `.git` or `/` ignored), its `GIT_REF` and its `GIT_SOURCE`, so opening a second repository in the same app definition no longer reopens the first repository's session. Another branch, tag or commit of the same repository gets its own session too, matching the landing page's workspace per ref, and an external launch never reopens the Artemis session of the same repository. The hash has 16 hex characters. Launches without `GIT_URI` and workspace-backed launches keep their names. A session started under an earlier name keeps it until it ends and is reused for a launch of the same repository only. A user can now hold one ephemeral session per repository, still capped by `--sessionsPerUser` (see the upgrade notes). ([#147](https://github.com/EduIDE/EduIDE-Cloud/pull/147))
 - [java/service] The service no longer writes bearer tokens to its log. Quarkus logged the complete token at WARN when its verification failed, so any caller could put arbitrary text into the log and a real expired or wrong-audience token ended up there. The `OidcProvider` logger now only logs errors. A token that fails local verification is no longer sent to the introspection endpoint, which removed the ERROR line `status: 403 ... Client not allowed` per invalid token.
 
 ## [3.0.3] - 2026-11-17
@@ -41,10 +46,6 @@
 
 - [java/operator] Deliver the environment of a lazy session through the data bridge too. For an app with the data bridge enabled, a lazy session now gets `DATA_BRIDGE_ENABLED=1`, the bridge port and strategy like an eager one, and a token Secret of its own (owned by the session, deleted with it) that the IDE container reads as `DATA_BRIDGE_TOKEN`. The operator injects the session environment once the bridge answers. The variables stay in the pod environment as well. Apps without the data bridge are unchanged. The injection carries `THEIA=1`, and the operator schedules the injection again for every handled session of a bridge app when it starts, so a restart does not lose a pending one. ([#184](https://github.com/EduIDE/EduIDE-Cloud/pull/184))
 - [java/common] Resolve the cluster IP of a session from its IDE Service only, owned by that session (UID), skipping the Services of its sidecars. A data bridge injection no longer goes to a sidecar such as a language server. ([#184](https://github.com/EduIDE/EduIDE-Cloud/pull/184))
-
-### Fixes
-
-- [java/service,java/common] Give each repository its own ephemeral session. The session name now includes a hash of the launch's normalized `GIT_URI` (credentials dropped, scheme and host lowercased, default port and trailing `.git` or `/` ignored), so opening a second repository in the same app definition no longer reopens the first repository's session. A `GIT_REF` joins the hash, so another branch, tag or commit of the same repository gets its own session too, matching the landing page's workspace per ref. Launches without `GIT_URI` and workspace-backed launches keep their names. A session started under an earlier name keeps it until it ends and is reused for a launch of the same repository only. A user can now hold one ephemeral session per repository, still capped by `--sessionsPerUser`.
 
 ## [3.0.0] - 2026-11-16
 

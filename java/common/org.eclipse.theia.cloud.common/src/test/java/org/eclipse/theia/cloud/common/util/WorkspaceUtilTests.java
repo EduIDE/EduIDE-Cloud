@@ -52,7 +52,7 @@ class WorkspaceUtilTests {
     void getSessionName_DiscriminatorAddsAHash() {
         String result = WorkspaceUtil.getSessionName(USER, APP, REPO_A);
 
-        assertTrue(result.matches("eph-java-17-latest-alice-example-org-[0-9a-f]{10}-session"), result);
+        assertTrue(result.matches("eph-java-17-latest-alice-example-org-[0-9a-f]{16}-session"), result);
     }
 
     @Test
@@ -89,7 +89,9 @@ class WorkspaceUtilTests {
         assertNotEquals(a, b);
         for (String name : new String[] { a, b }) {
             assertTrue(name.length() <= NamingUtil.VALID_NAME_LIMIT, name);
-            assertTrue(name.matches("eph-[a-z0-9-]+-[0-9a-f]{10}-session"), name);
+            assertTrue(name.matches("eph-[a-z0-9-]+-[0-9a-f]{16}-session"), name);
+            // DNS-1123 label: lowercase alphanumerics and '-', starting and ending with an alphanumeric
+            assertTrue(name.matches("[a-z0-9]([-a-z0-9]*[a-z0-9])?"), name);
             assertEquals(name, NamingUtil.asValidName(name), "already a valid Kubernetes name");
         }
     }

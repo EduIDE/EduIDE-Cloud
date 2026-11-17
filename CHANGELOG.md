@@ -11,6 +11,12 @@
 - [java/operator] A session whose IDE tab was closed is now ended by inactivity after an operator restart too. Whether the monitor answered is kept in the `theia-cloud.io/monitor-answered` Session annotation instead of in memory.
 - [java/operator] A replaced session pod (eviction, node drain, manual delete) gets its data bridge injection again. The operator checks the pod of every handled bridge session once a minute and schedules an injection when it changed.
 
+### Fixes
+
+- [java/operator] The warm pool no longer treats the Deployment and Service of a sidecar of a pool instance as an IDE instance. Before, every full pool reconcile deleted and recreated them, so pool instances ran without their sidecar. Scaling the pool down now removes the sidecars of the removed instances, and an outdated instance is recreated together with its sidecars. ([#188](https://github.com/EduIDE/EduIDE-Cloud/pull/188))
+- [java/operator] A session no longer gets a pool instance whose pod cannot start (image pull error, crash loop, config error). A ready instance is preferred, one that is still starting is used, and without a usable one the session launches lazily. ([#188](https://github.com/EduIDE/EduIDE-Cloud/pull/188))
+- [java/operator] Orphaned claims (a claimed instance without a live session) are reset by a timer every 5 minutes, when they were orphaned in two runs in a row, and no longer only in a full pool reconcile. A session whose setup is still running keeps its claim, and the setup stops when its instance was released meanwhile. Sidecar pods are restarted only when the session really releases the instance. ([#188](https://github.com/EduIDE/EduIDE-Cloud/pull/188))
+
 ## [3.0.1] - 2026-11-16
 
 ### Upgrade notes

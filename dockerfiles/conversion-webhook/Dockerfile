@@ -24,14 +24,31 @@ RUN --mount=type=cache,target=/root/.m2 \
     cd /conversion/conversion/org.eclipse.theia.cloud.conversion && \
     mvn clean package -Drevision=${APP_VERSION} -Dmaven.test.skip=true -Dquarkus.package.type=uber-jar --no-transfer-progress
 
-FROM eclipse-temurin:21-jre-alpine
+# Java4Shell (CVE-2026-114938): run on OpenJDK 27.0.1.1 (glibc, no Alpine build exists). Switch back to a vendor LTS build once one ships the fix.
+FROM debian:13.7-slim
+ARG TARGETARCH
+ARG JDK_VERSION=27.0.1.1
+ARG JDK_SHA256_AMD64=82172b79a4e4a8546e2538c525b63e020f419922a5d30f9873bbb832ce95637b
+ARG JDK_SHA256_ARM64=7b851f4cdf55ce48dc33584349177aa271df0bbd0ff5711a6e7fcd812ef5a90a
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip && rm -rf /var/lib/apt/lists/* && \
+    case "$TARGETARCH" in \
+      amd64) JDK_ARCH=x64; JDK_SHA256="$JDK_SHA256_AMD64" ;; \
+      arm64) JDK_ARCH=aarch64; JDK_SHA256="$JDK_SHA256_ARM64" ;; \
+      *) echo "Unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
+    esac && \
+    curl -fsSL -o /tmp/jdk.tar.gz "https://download.java.net/java/GA/jdk${JDK_VERSION}/c3a705caf5044be8aa0b09e62be69b20/4/GPL/openjdk-${JDK_VERSION}_linux-${JDK_ARCH}_bin.tar.gz" && \
+    echo "${JDK_SHA256}  /tmp/jdk.tar.gz" | sha256sum -c - && \
+    mkdir -p /opt/java && tar -xzf /tmp/jdk.tar.gz -C /opt/java --strip-components=1 && \
+    rm -rf /tmp/jdk.tar.gz /opt/java/jmods /opt/java/lib/src.zip /opt/java/include /opt/java/man
+ENV JAVA_HOME=/opt/java
+ENV PATH=/opt/java/bin:$PATH
 ARG APP_VERSION=1.2.0-SNAPSHOT
 WORKDIR /conversion
 COPY --from=builder /conversion/conversion/org.eclipse.theia.cloud.conversion/target/conversion-webhook-${APP_VERSION}-runner.jar ./conversion-webhook.jar
 
 ENV CERT_RELOAD_PERIOD=604800
 
-RUN addgroup -S -g 10001 webhook && adduser -S -u 10001 -G webhook webhook
+RUN groupadd -g 10001 webhook && useradd -r -u 10001 -g webhook -M -s /usr/sbin/nologin webhook
 USER 10001
 
 ENTRYPOINT ["java", "-Dquarkus.http.ssl.certificate.reload-period=${CERT_RELOAD_PERIOD}", "-jar", "./conversion-webhook.jar"]

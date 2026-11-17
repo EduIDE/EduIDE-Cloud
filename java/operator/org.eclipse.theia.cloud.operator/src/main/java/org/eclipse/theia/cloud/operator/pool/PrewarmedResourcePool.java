@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -91,6 +92,11 @@ public class PrewarmedResourcePool {
     private static final long ORPHAN_CHECK_MINUTES = 5;
     private final Set<String> pendingReconciles = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean orphanTimerStarted = new AtomicBoolean();
+    // Sessions between their reservation and the end of their added handler. Their claim is not an orphan, even when
+    // the session is already deleted and its deletion is still queued.
+    private final Set<String> sessionsInFlight = ConcurrentHashMap.newKeySet();
+    // Claims that looked orphaned in the last timer run: only a claim that still does is reset
+    private final Set<String> orphanSuspects = ConcurrentHashMap.newKeySet();
 
     /**
      * Claimed by the claim label, or by the session labels an older operator put on the services of a claimed instance.
@@ -584,7 +590,10 @@ public class PrewarmedResourcePool {
                             .recreateResource(d -> {
                                 Integer id = TheiaCloudDeploymentUtil.getId(correlationId, appDef, d);
                                 if (id != null) {
+                                    // Sidecars carry no generation label, so they are replaced with their instance
+                                    sidecarManager.deletePrewarmedSidecars(appDef, id, correlationId);
                                     Optional<String> pvcName = createInstancePvc(appDef, id, correlationId);
+                                    sidecarManager.createPrewarmedSidecars(appDef, id, pvcName, labels, correlationId);
                                     resourceFactory.createDeploymentForEagerInstance(appDef, id, pvcName, labels, correlationId);
                                 }
                             }).build());
@@ -593,6 +602,7 @@ public class PrewarmedResourcePool {
                 Integer id = TheiaCloudDeploymentUtil.getId(correlationId, appDef, d);
                 if (id != null && id > targetInstances && OwnershipManager.isOwnedSolelyBy(d, owner)) {
                     deleteDataBridgeToken(appDef, id, correlationId);
+                    sidecarManager.deletePrewarmedSidecars(appDef, id, correlationId);
                 }
             }
 
@@ -1128,6 +1138,7 @@ public class PrewarmedResourcePool {
             String appDefOwnerName = appDef.getMetadata().getName();
             String appDefOwnerUID = appDef.getMetadata().getUid();
             String sessionUID = session.getMetadata().getUid();
+            sessionsInFlight.add(sessionUID);
 
             // Get all services for this app definition
             List<Service> existingServices = K8sUtil.getExistingIdeServices(client.kubernetes(), client.namespace(),
@@ -1144,7 +1155,6 @@ public class PrewarmedResourcePool {
             int availableCount = (int) externalServices.stream().filter(s -> TheiaCloudServiceUtil.isUnusedService(s))
                     .count();
             span.setData("pool.total_capacity", totalCapacity);
-            span.setData("pool.available", availableCount);
 
             // Check if session already has a reservation
             Optional<Service> alreadyReservedExternal = TheiaCloudServiceUtil.getServiceOwnedBySession(sessionName,
@@ -1202,11 +1212,32 @@ public class PrewarmedResourcePool {
                         return internal != null && TheiaCloudServiceUtil.isUnusedService(internal)
                                 && !isClaimed(internal);
                     }).map(Map.Entry::getKey).sorted(Comparator.naturalOrder()).collect(Collectors.toList());
-            // Only the first free instance that has a deployment matters, so do not look at the others
-            // A pod that cannot start (image pull, crash loop) is not handed out, the session launches lazily instead
-            Optional<Integer> withDeployment = availableIds.stream().filter(id -> hasReadyDeployment(appDef, id))
-                    .findFirst();
-            availableIds = withDeployment.map(List::of).orElse(List.of());
+            // Prefer an instance that is ready. One that is still starting is better than none, but one whose pod
+            // cannot start (image pull, crash loop) is not handed out: the session launches lazily instead.
+            Integer ready = null;
+            Integer starting = null;
+            int broken = 0;
+            for (Integer id : availableIds) {
+                Deployment deployment = client.kubernetes().apps().deployments().inNamespace(client.namespace())
+                        .withName(TheiaCloudDeploymentUtil.getDeploymentName(appDef, id)).get();
+                if (deployment == null) {
+                    continue;
+                }
+                if (isReady(deployment)) {
+                    ready = id;
+                    break;
+                }
+                if (hasBrokenPod(deployment)) {
+                    broken++;
+                    LOGGER.warn(formatLogMessage(correlationId,
+                            "Instance " + id + " of " + appDefName + " has a pod that cannot start, not using it"));
+                } else if (starting == null) {
+                    starting = id;
+                }
+            }
+            span.setData("pool.available", availableCount - broken);
+            Integer usable = ready != null ? ready : starting;
+            availableIds = usable == null ? List.of() : List.of(usable);
 
             if (availableIds.isEmpty()) {
                 LOGGER.info(formatLogMessage(correlationId, "No prewarmed instances available"));
@@ -1418,14 +1449,13 @@ public class PrewarmedResourcePool {
                 return true;
             }
 
+            // A shared workspace volume means the instance is recreated below, which replaces the sidecar pods.
+            // Done here, after the checks above, so it never hits the instance of another session.
+            if (!SidecarConfig.requiresSharedWorkspace(appDef)) {
+                sidecarManager.restartPrewarmedSidecarPods(appDef, instanceId, correlationId);
+            }
             boolean success = resetClaimedInstance(appDef, instanceId, externalService, internalService,
                     correlationId);
-            try {
-                resetOrphanedClaims(appDef, correlationId);
-            } catch (Exception e) {
-                // The release itself worked, the timer picks up what is left
-                LOGGER.warn(formatLogMessage(correlationId, "Checking for orphaned claims failed"), e);
-            }
 
             span.setTag("outcome", success ? "success" : "failure"); Tracing.finish(span, success ? SpanStatus.OK : SpanStatus.INTERNAL_ERROR);
             return success;
@@ -1540,7 +1570,19 @@ public class PrewarmedResourcePool {
      * Resets instances that are marked as claimed but whose session no longer exists, which happens when the operator
      * missed the deletion event (it was down). Also marks instances of live claims that predate the claim label.
      */
-    synchronized void resetOrphanedClaims(AppDefinition appDef, String correlationId) {
+    synchronized List<Integer> resetOrphanedClaims(AppDefinition appDef, String correlationId) {
+        return resetOrphanedClaims(appDef, correlationId, false);
+    }
+
+    /**
+     * @param confirmFirst only reset a claim that was already an orphan in the previous call with this flag. A claim
+     *                     is also an orphan for a moment when the deletion of its session was not handled yet.
+     * @return the ids of the instances that were reset
+     */
+    synchronized List<Integer> resetOrphanedClaims(AppDefinition appDef, String correlationId,
+            boolean confirmFirst) {
+        List<Integer> reset = new ArrayList<>();
+        Set<String> suspects = new HashSet<>();
         String appDefName = appDef.getMetadata().getName();
         List<Session> sessions = client.sessions().list();
         Set<String> liveSessions = sessions.stream()
@@ -1576,17 +1618,40 @@ public class PrewarmedResourcePool {
                 continue;
             }
             Integer instanceId = parseInstanceId(external);
-            if (instanceId == null || liveSessions.contains(claimUid(external))) {
+            if (instanceId == null || liveSessions.contains(claimUid(external))
+                    || sessionsInFlight.contains(claimUid(external))) {
                 continue;
             }
             Service internal = servicesByName.get(TheiaCloudServiceUtil.getInternalServiceName(appDef, instanceId));
             if (internal == null) {
                 continue;
             }
+            String suspect = appDefName + "/" + instanceId + "/" + claimUid(external);
+            if (confirmFirst && !orphanSuspects.contains(suspect)) {
+                suspects.add(suspect);
+                continue;
+            }
             LOGGER.info(formatLogMessage(correlationId,
                     "Instance " + instanceId + " is claimed by a session that no longer exists, resetting it"));
             resetClaimedInstance(appDef, instanceId, external, internal, correlationId);
+            reset.add(instanceId);
         }
+        if (confirmFirst) {
+            orphanSuspects.removeIf(key -> key.startsWith(appDefName + "/"));
+            orphanSuspects.addAll(suspects);
+        }
+        return reset;
+    }
+
+    /** The session no longer needs its claim kept safe from the orphan check. */
+    public void sessionSetupFinished(Session session) {
+        sessionsInFlight.remove(session.getMetadata().getUid());
+    }
+
+    /** False when a reset took the instance away from the session, e.g. because the session was deleted meanwhile. */
+    public synchronized boolean holdsInstance(Session session, AppDefinition appDef, PoolInstance instance) {
+        return servicesOfInstance(appDef, instance.getInstanceId()).stream()
+                .anyMatch(service -> session.getMetadata().getUid().equals(claimUid(service)));
     }
 
     /**
@@ -1598,14 +1663,24 @@ public class PrewarmedResourcePool {
             return;
         }
         BACKGROUND.scheduleWithFixedDelay(() -> {
+            List<AppDefinition> appDefs;
             try {
-                for (AppDefinition appDef : client.appDefinitions().list()) {
-                    if (appDef.getSpec().getMinInstances() > 0) {
-                        resetOrphanedClaims(appDef, "pool-orphan-check");
-                    }
-                }
+                appDefs = client.appDefinitions().list();
             } catch (Exception e) {
-                LOGGER.error(formatLogMessage("pool-orphan-check", "Checking for orphaned claims failed"), e);
+                LOGGER.error(formatLogMessage("pool-orphan-check", "Listing the app definitions failed"), e);
+                return;
+            }
+            for (AppDefinition appDef : appDefs) {
+                try {
+                    if (appDef.getSpec().getMinInstances() > 0) {
+                        // A reset that discarded the instance leaves it to be built again
+                        resetOrphanedClaims(appDef, "pool-orphan-check", true)
+                                .forEach(id -> scheduleInstanceRecreation(appDef, id, "pool-orphan-check"));
+                    }
+                } catch (Exception e) {
+                    LOGGER.error(formatLogMessage("pool-orphan-check",
+                            "Checking for orphaned claims of " + appDef.getMetadata().getName() + " failed"), e);
+                }
             }
         }, ORPHAN_CHECK_MINUTES, ORPHAN_CHECK_MINUTES, TimeUnit.MINUTES);
     }
@@ -1803,11 +1878,26 @@ public class PrewarmedResourcePool {
         }
     }
 
-    private boolean hasReadyDeployment(AppDefinition appDef, int instanceId) {
-        Deployment deployment = client.kubernetes().apps().deployments().inNamespace(client.namespace())
-                .withName(TheiaCloudDeploymentUtil.getDeploymentName(appDef, instanceId)).get();
-        return deployment != null && deployment.getStatus() != null && deployment.getStatus().getReadyReplicas() != null
+    private static final Set<String> BROKEN_POD_REASONS = Set.of("ImagePullBackOff", "ErrImagePull",
+            "CrashLoopBackOff", "CreateContainerConfigError", "InvalidImageName");
+
+    private static boolean isReady(Deployment deployment) {
+        return deployment.getStatus() != null && deployment.getStatus().getReadyReplicas() != null
                 && deployment.getStatus().getReadyReplicas() > 0;
+    }
+
+    private boolean hasBrokenPod(Deployment deployment) {
+        if (deployment.getSpec() == null || deployment.getSpec().getSelector() == null
+                || deployment.getSpec().getSelector().getMatchLabels() == null) {
+            return false;
+        }
+        String selector = deployment.getSpec().getSelector().getMatchLabels().entrySet().stream()
+                .map(e -> e.getKey() + "=" + e.getValue()).collect(Collectors.joining(","));
+        return client.kubernetes().pods().inNamespace(client.namespace()).withLabelSelector(selector).list().getItems()
+                .stream().filter(pod -> pod.getStatus() != null && pod.getStatus().getContainerStatuses() != null)
+                .flatMap(pod -> pod.getStatus().getContainerStatuses().stream())
+                .anyMatch(status -> status.getState() != null && status.getState().getWaiting() != null
+                        && BROKEN_POD_REASONS.contains(status.getState().getWaiting().getReason()));
     }
 
     private boolean hasDeployment(AppDefinition appDef, int instanceId) {

@@ -319,6 +319,7 @@ class PrewarmedResourcePoolTests {
         PrewarmedResourcePool pool = Mockito.spy(new PrewarmedResourcePool());
         setField(pool, "client", client);
         setField(pool, "dataBridgeTokens", tokens);
+        setField(pool, "sidecarManager", Mockito.mock(SidecarManager.class));
         setField(pool, "arguments", Mockito.mock(TheiaCloudOperatorArguments.class));
         Mockito.doReturn(false).when(pool).needsRecreation(any(), Mockito.anyInt());
 

@@ -96,6 +96,14 @@ public class EagerSessionHandler implements SessionHandler {
      * needed.
      */
     public EagerSessionAddedOutcome trySessionAdded(Session session, String correlationId, ISpan parentSpan) {
+        try {
+            return handleSessionAdded(session, correlationId, parentSpan);
+        } finally {
+            pool.sessionSetupFinished(session);
+        }
+    }
+
+    private EagerSessionAddedOutcome handleSessionAdded(Session session, String correlationId, ISpan parentSpan) {
         SessionSpec spec = session.getSpec();
         String sessionName = spec.getName();
         String appDefinitionID = spec.getAppDefinition();
@@ -217,6 +225,17 @@ public class EagerSessionHandler implements SessionHandler {
             annotateSession(session, correlationId, instance.getInstanceId());
             Tracing.finishSuccess(annotateSpan);
 
+            // A session deleted meanwhile has lost its instance, it must not write its user into the next claim
+            if (!pool.holdsInstance(session, appDef, instance)) {
+                LOGGER.warn(formatLogMessage(correlationId, "Instance " + instance.getInstanceId()
+                        + " is no longer claimed by the session, giving up"));
+                SessionStatusUtil.markError(client, session, correlationId, "Prewarmed instance was released.");
+                reserveSpan.setTag("outcome", "released");
+                span.setTag("outcome", "error");
+                Tracing.finish(span, SpanStatus.ABORTED);
+                return EagerSessionAddedOutcome.ERROR;
+            }
+
             // Complete session setup (labels, deployment ownership, email config)
             ISpan setupSpan = Tracing.childSpan(span, "eager.complete_setup", "Complete session setup");
             setupSpan.setData("instance_id", instance.getInstanceId());
@@ -229,6 +248,15 @@ public class EagerSessionHandler implements SessionHandler {
                 return EagerSessionAddedOutcome.ERROR;
             }
             Tracing.finishSuccess(setupSpan);
+
+            if (!pool.holdsInstance(session, appDef, instance)) {
+                LOGGER.warn(formatLogMessage(correlationId, "Instance " + instance.getInstanceId()
+                        + " is no longer claimed by the session, giving up"));
+                SessionStatusUtil.markError(client, session, correlationId, "Prewarmed instance was released.");
+                span.setTag("outcome", "error");
+                Tracing.finish(span, SpanStatus.ABORTED);
+                return EagerSessionAddedOutcome.ERROR;
+            }
 
             // Schedule async credential injection via data bridge (tracked in separate transaction)
             if (DataBridgeUtil.isDataBridgeEnabled(appDef.getSpec())) {
@@ -310,11 +338,6 @@ public class EagerSessionHandler implements SessionHandler {
                 return false;
             }
             span.setData("instance_id", instanceId);
-
-            // A shared workspace volume means the instance is recreated below, which replaces the sidecar pods
-            if (!SidecarConfig.requiresSharedWorkspace(appDef)) {
-                sidecarManager.restartPrewarmedSidecarPods(appDef, instanceId, correlationId);
-            }
 
             // Release instance back to pool
             ISpan releaseSpan = Tracing.childSpan(span, "eager.release_instance", "Release pool instance");

@@ -2,9 +2,45 @@
 
 ## [Unreleased]
 
+### Fixes
+
+- [java/service] The service no longer writes bearer tokens to its log. Quarkus logged the complete token at WARN when its verification failed, so any caller could put arbitrary text into the log and a real expired or wrong-audience token ended up there. The `OidcProvider` logger now only logs errors. A token that fails local verification is no longer sent to the introspection endpoint, which removed the ERROR line `status: 403 ... Client not allowed` per invalid token.
+
+## [3.0.3] - 2026-11-17
+
+### Fixes
+
+- [images] The operator, service and conversion webhook images run on OpenJDK 27.0.1.1 (jdk.java.net, GPL) on Debian 13 instead of Temurin 21 on Alpine, to fix Java4Shell (CVE-2026-114938), a pre-auth RCE in the JDK itself. Only this build ships the fix, and it has no musl variant, hence the glibc base. The tarball is checked against a pinned sha256. Switch back to a vendor LTS build once one ships the fix. The images are about 140 MB larger. The JVM trust store is now Debian's Mozilla CA bundle (148 roots, including HARICA and D-TRUST) instead of the 106 roots of the OpenJDK tarball, and the JDK's distrust list is unchanged. The service and webhook logs show `sun.misc.Unsafe` deprecation warnings from Netty on JDK 27, which are harmless. The container user is still uid/gid 10001, the operator user is now named `theia-operator`. ([#190](https://github.com/EduIDE/EduIDE-Cloud/pull/190))
+
+## [3.0.2] - 2026-11-17
+
+### Upgrade notes
+
+- Sessions that are already running at rollout and whose IDE tab is already closed never get the `theia-cloud.io/monitor-answered` annotation, so they still end only by lifetime. This is one-off. New answers are recorded from the rollout on.
+
+### Fixes
+
+- [java/operator] A session whose IDE tab was closed is now ended by inactivity after an operator restart too. Whether the monitor answered is kept in the `theia-cloud.io/monitor-answered` Session annotation instead of in memory. ([#187](https://github.com/EduIDE/EduIDE-Cloud/pull/187))
+- [java/operator] A replaced session pod (eviction, node drain, manual delete) gets its data bridge injection again. The operator checks the pod of every handled bridge session once a minute and schedules an injection when it changed. ([#187](https://github.com/EduIDE/EduIDE-Cloud/pull/187))
+- [java/operator] The warm pool no longer treats the Deployment and Service of a sidecar of a pool instance as an IDE instance. Before, every full pool reconcile deleted and recreated them, so pool instances ran without their sidecar. Scaling the pool down now removes the sidecars of the removed instances, and an outdated instance is recreated together with its sidecars. ([#188](https://github.com/EduIDE/EduIDE-Cloud/pull/188))
+- [java/operator] A session no longer gets a pool instance whose pod cannot start (image pull error, crash loop, config error). A ready instance is preferred, one that is still starting is used, and without a usable one the session launches lazily. ([#188](https://github.com/EduIDE/EduIDE-Cloud/pull/188))
+- [java/operator] Orphaned claims (a claimed instance without a live session) are reset by a timer every 5 minutes, when they were orphaned in two runs in a row, and no longer only in a full pool reconcile. A session whose setup is still running keeps its claim, and the setup stops when its instance was released meanwhile. Every reset of an instance also restarts its sidecar pods, so the next user never gets the previous user's sidecars. ([#188](https://github.com/EduIDE/EduIDE-Cloud/pull/188))
+
+## [3.0.1] - 2026-11-16
+
+### Upgrade notes
+
+- The admin API (`/service/admin/appdefinition`, used for scaling) is off by default. Callers must enable it with `THEIA_CLOUD_ADMIN_API_ENABLED=true` (chart: `service.adminApiEnabled`). Off, the service answers these endpoints with 404 even when a token is configured. ([#182](https://github.com/EduIDE/EduIDE-Cloud/pull/182))
+
 ### Security
 
-- [java/operator] CL-14 follow-up: the operator no longer logs environment values of session pods. The rendered resource YAML is no longer written at TRACE level, only the kind and name. The default `log4j2.xml` enables TRACE for the operator, so affected deployments logged tokens by default.
+- [java/service] Put the admin API behind the feature toggle `THEIA_CLOUD_ADMIN_API_ENABLED`, off by default (see the upgrade notes). ([#182](https://github.com/EduIDE/EduIDE-Cloud/pull/182))
+- [java/operator] The operator no longer logs environment values of session pods. The rendered resource YAML is no longer written at TRACE level, only the kind and name. The default `log4j2.xml` enables TRACE for the operator, so affected deployments logged tokens by default. ([#183](https://github.com/EduIDE/EduIDE-Cloud/pull/183))
+
+### Fixes
+
+- [java/operator] Deliver the environment of a lazy session through the data bridge too. For an app with the data bridge enabled, a lazy session now gets `DATA_BRIDGE_ENABLED=1`, the bridge port and strategy like an eager one, and a token Secret of its own (owned by the session, deleted with it) that the IDE container reads as `DATA_BRIDGE_TOKEN`. The operator injects the session environment once the bridge answers. The variables stay in the pod environment as well. Apps without the data bridge are unchanged. The injection carries `THEIA=1`, and the operator schedules the injection again for every handled session of a bridge app when it starts, so a restart does not lose a pending one. ([#184](https://github.com/EduIDE/EduIDE-Cloud/pull/184))
+- [java/common] Resolve the cluster IP of a session from its IDE Service only, owned by that session (UID), skipping the Services of its sidecars. A data bridge injection no longer goes to a sidecar such as a language server. ([#184](https://github.com/EduIDE/EduIDE-Cloud/pull/184))
 
 ### Fixes
 

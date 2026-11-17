@@ -4,7 +4,7 @@
 
 Start Theia Cloud service from IDE (which starts quarkus in dev mode).
 
-Access generated specs at <http://localhost:8081/q/openapi?format=json>
+Access generated specs (served on the management port since 3.0.0) at <http://localhost:9000/q/openapi?format=json>
 
 Copy the results to [here](./openapi.json) and replace the securitySchemes at the bottom with this:
 
@@ -32,7 +32,7 @@ docker run -p 80:8080 swaggerapi/swagger-ui
 
 Then browse to <http://localhost/> and explore the spec from here: <https://raw.githubusercontent.com/eclipse-theia/theia-cloud/main/documentation/openapi.json>
 
-Or explore it from the locally started service: <http://localhost:8081/q/openapi?format=json>.
+Or explore it from the locally started service: <http://localhost:9000/q/openapi?format=json>.
 
 ## Generate Typescript API
 

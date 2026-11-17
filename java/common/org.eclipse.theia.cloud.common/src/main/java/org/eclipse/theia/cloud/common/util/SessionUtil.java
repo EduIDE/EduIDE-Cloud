@@ -69,7 +69,7 @@ public final class SessionUtil {
      * @return The cluster IP of the session pod, if available.
      */
     public static Optional<String> getClusterIP(TheiaCloudClient client, Session session) {
-        Optional<String> sessionIP = client.getClusterIPFromSessionName(session.getSpec().getName());
+        Optional<String> sessionIP = client.getClusterIPFromSession(session);
         return sessionIP;
     }
 
@@ -82,7 +82,7 @@ public final class SessionUtil {
      * @return The internal cluster IP of the session pod, if available.
      */
     public static Optional<String> getInternalClusterIP(TheiaCloudClient client, Session session) {
-        Optional<String> sessionIP = client.getInternalClusterIPFromSessionName(session.getSpec().getName());
+        Optional<String> sessionIP = client.getInternalClusterIPFromSession(session);
         return sessionIP;
     }
 

@@ -69,9 +69,7 @@ Run the service tests locally like this:
 cd java/service/org.eclipse.theia.cloud.service && mvn verify
 ```
 
-15 test classes over 208 source files, 11 of them in `service`. `operator` has
-two (`SidecarConfigTests`, `PrewarmedResourcePoolTests`); `conversion` and
-`defaultoperator` have none.
+Test classes live in `service`, `operator` and `common`; `conversion` and `defaultoperator` have none.
 
 ## The session monitor ships as a release asset, not an image
 
@@ -99,7 +97,8 @@ port, which targets oauth2-proxy and can never return 200.
 **A closed IDE tab looks like a dead monitor.** The monitor lives in Theia's
 plugin host, which ends when the last tab disconnects. `MonitorActivityTracker`
 therefore times out a session whose poll fails only if that session's monitor
-answered before (since operator start) and the last reported activity is older
+answered before (remembered in the `theia-cloud.io/monitor-answered` Session
+annotation, so an operator restart does not forget it) and the last reported activity is older
 than `timeoutAfter`. A monitor that never answered never times a session out
 (#140): its `lastActivity` is only the start time.
 
@@ -218,7 +217,7 @@ untracked.
 
 - Java 21. EPL-2.0 header on every file, though ~20 lack one and nothing
   enforces it.
-- Test classes end in `Tests`, never `Test`. All 14 follow this.
+- Test classes end in `Tests`, never `Test`.
 - Operator uses Guice `@Inject`; service uses Jakarta CDI `@Inject`.
 - Prettier config is duplicated at `theia/.prettierrc.js` and
   `node/.prettierrc.js` — change both.

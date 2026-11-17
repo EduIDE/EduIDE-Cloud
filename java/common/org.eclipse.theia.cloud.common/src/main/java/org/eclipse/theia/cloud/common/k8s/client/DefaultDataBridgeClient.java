@@ -87,7 +87,7 @@ public class DefaultDataBridgeClient implements DataBridgeClient {
         String sessionName = session.getSpec().getName();
 
         // Get the session's service IP
-        Optional<String> serviceIP = theiaCloudClient.getClusterIPFromSessionName(sessionName);
+        Optional<String> serviceIP = theiaCloudClient.getClusterIPFromSession(session);
 
         if (serviceIP.isEmpty()) {
             LOGGER.warn(
@@ -186,7 +186,7 @@ public class DefaultDataBridgeClient implements DataBridgeClient {
             return false;
         }
 
-        Optional<String> serviceIP = theiaCloudClient.getClusterIPFromSessionName(sessionName);
+        Optional<String> serviceIP = theiaCloudClient.getClusterIPFromSession(session.get());
 
         if (serviceIP.isEmpty()) {
             return false;

@@ -43,6 +43,7 @@ import org.eclipse.theia.cloud.common.k8s.resource.workspace.Workspace;
 import org.eclipse.theia.cloud.operator.metrics.SessionEndMetrics;
 import org.eclipse.theia.cloud.common.tracing.TraceContext;
 import org.eclipse.theia.cloud.common.tracing.Tracing;
+import org.eclipse.theia.cloud.operator.databridge.DataBridgeInjectionResumer;
 import org.eclipse.theia.cloud.operator.handler.appdef.AppDefinitionHandler;
 import org.eclipse.theia.cloud.operator.handler.session.SessionHandler;
 import org.eclipse.theia.cloud.operator.handler.ws.WorkspaceHandler;
@@ -91,6 +92,9 @@ public class BasicTheiaCloudOperator implements TheiaCloudOperator {
     @Inject
     private TheiaCloudOperatorArguments arguments;
 
+    @Inject
+    private DataBridgeInjectionResumer injectionResumer;
+
     private final Map<String, AppDefinition> appDefinitionCache = new ConcurrentHashMap<>();
     private final Map<String, Workspace> workspaceCache = new ConcurrentHashMap<>();
     private final Map<String, Session> sessionCache = new ConcurrentHashMap<>();
@@ -108,8 +112,11 @@ public class BasicTheiaCloudOperator implements TheiaCloudOperator {
         watches.add(initAppDefinitionsAndWatchForChanges());
         watches.add(initWorkspacesAndWatchForChanges());
         watches.add(initSessionsAndWatchForChanges());
+        injectionResumer.resume(TheiaCloudOperatorLauncher.COR_ID_INIT);
 
         STOP_EXECUTOR.scheduleWithFixedDelay(this::stopTimedOutSessions, 1, 1, TimeUnit.MINUTES);
+        STOP_EXECUTOR.scheduleWithFixedDelay(() -> injectionResumer.reinjectReplacedPods(generateCorrelationId()), 1, 1,
+                TimeUnit.MINUTES);
         WATCH_EXECUTOR.scheduleWithFixedDelay(this::lookForIdleWatches, 1, 1, TimeUnit.MINUTES);
     }
 

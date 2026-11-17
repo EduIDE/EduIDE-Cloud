@@ -93,7 +93,7 @@ class DefaultDataBridgeClientTests {
         when(appDefs.get(APP_DEF)).thenReturn(Optional.of(appDef));
 
         TheiaCloudClient theiaCloudClient = mock(TheiaCloudClient.class);
-        when(theiaCloudClient.getClusterIPFromSessionName(SESSION)).thenReturn(Optional.of("10.0.0.1"));
+        when(theiaCloudClient.getClusterIPFromSession(org.mockito.ArgumentMatchers.any())).thenReturn(Optional.of("10.0.0.1"));
         when(theiaCloudClient.appDefinitions()).thenReturn(appDefs);
 
         OkHttpClient http = new OkHttpClient.Builder().addInterceptor(chain -> {

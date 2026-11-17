@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -19,7 +20,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -55,6 +58,7 @@ import com.google.inject.Singleton;
 
 import io.fabric8.kubernetes.api.model.ConfigMap;
 import io.fabric8.kubernetes.api.model.HasMetadata;
+import io.fabric8.kubernetes.api.model.ContainerStatus;
 import io.fabric8.kubernetes.api.model.Pod;
 import io.fabric8.kubernetes.api.model.Service;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
@@ -87,7 +91,14 @@ public class PrewarmedResourcePool {
         return thread;
     });
     private static final int MAX_RECREATION_ATTEMPTS = 8;
+    private static final long ORPHAN_CHECK_MINUTES = 5;
     private final Set<String> pendingReconciles = ConcurrentHashMap.newKeySet();
+    private final AtomicBoolean orphanTimerStarted = new AtomicBoolean();
+    // Sessions between their reservation and the end of their added handler. Their claim is not an orphan, even when
+    // the session is already deleted and its deletion is still queued.
+    private final Set<String> sessionsInFlight = ConcurrentHashMap.newKeySet();
+    // Claims that looked orphaned in the last timer run: only a claim that still does is reset
+    private final Set<String> orphanSuspects = ConcurrentHashMap.newKeySet();
 
     /**
      * Claimed by the claim label, or by the session labels an older operator put on the services of a claimed instance.
@@ -224,9 +235,9 @@ public class PrewarmedResourcePool {
 
             // Get existing resources
             ISpan fetchSpan = span.startChild("pool.fetch_existing", "Fetch existing resources");
-            List<Service> existingServices = K8sUtil.getExistingServices(client.kubernetes(), client.namespace(),
+            List<Service> existingServices = K8sUtil.getExistingIdeServices(client.kubernetes(), client.namespace(),
                     ownerName, ownerUID);
-            List<Deployment> existingDeployments = K8sUtil.getExistingDeployments(client.kubernetes(),
+            List<Deployment> existingDeployments = K8sUtil.getExistingIdeDeployments(client.kubernetes(),
                     client.namespace(), ownerName, ownerUID);
             List<ConfigMap> existingConfigMaps = K8sUtil.getExistingConfigMaps(client.kubernetes(), client.namespace(),
                     ownerName, ownerUID);
@@ -366,6 +377,7 @@ public class PrewarmedResourcePool {
         span.setData("generation", appDef.getMetadata().getGeneration());
 
         LOGGER.info(formatLogMessage(correlationId, "Reconciling pool to " + targetInstances + " instances"));
+        startOrphanTimer();
 
         try {
             String ownerName = appDef.getMetadata().getName();
@@ -394,7 +406,7 @@ public class PrewarmedResourcePool {
             synchronized (this) {
             // Reconcile services
             ISpan serviceSpan = span.startChild("pool.reconcile_services", "Reconcile services");
-            List<Service> existingServices = K8sUtil.getExistingServices(client.kubernetes(), client.namespace(),
+            List<Service> existingServices = K8sUtil.getExistingIdeServices(client.kubernetes(), client.namespace(),
                     ownerName, ownerUID);
             List<Service> externalServices = existingServices.stream()
                     .filter(s -> !s.getMetadata().getName().endsWith("-int")).collect(Collectors.toList());
@@ -553,7 +565,7 @@ public class PrewarmedResourcePool {
 
             // Reconcile deployments
             ISpan deploySpan = span.startChild("pool.reconcile_deployments", "Reconcile deployments");
-            List<Deployment> existingDeployments = K8sUtil.getExistingDeployments(client.kubernetes(),
+            List<Deployment> existingDeployments = K8sUtil.getExistingIdeDeployments(client.kubernetes(),
                     client.namespace(), ownerName, ownerUID);
             Set<Integer> missingDeploymentIds = TheiaCloudDeploymentUtil.computeIdsOfMissingDeployments(appDef,
                     correlationId, targetInstances, existingDeployments);
@@ -580,7 +592,10 @@ public class PrewarmedResourcePool {
                             .recreateResource(d -> {
                                 Integer id = TheiaCloudDeploymentUtil.getId(correlationId, appDef, d);
                                 if (id != null) {
+                                    // Sidecars carry no generation label, so they are replaced with their instance
+                                    sidecarManager.deletePrewarmedSidecars(appDef, id, correlationId);
                                     Optional<String> pvcName = createInstancePvc(appDef, id, correlationId);
+                                    sidecarManager.createPrewarmedSidecars(appDef, id, pvcName, labels, correlationId);
                                     resourceFactory.createDeploymentForEagerInstance(appDef, id, pvcName, labels, correlationId);
                                 }
                             }).build());
@@ -589,6 +604,7 @@ public class PrewarmedResourcePool {
                 Integer id = TheiaCloudDeploymentUtil.getId(correlationId, appDef, d);
                 if (id != null && id > targetInstances && OwnershipManager.isOwnedSolelyBy(d, owner)) {
                     deleteDataBridgeToken(appDef, id, correlationId);
+                    sidecarManager.deletePrewarmedSidecars(appDef, id, correlationId);
                 }
             }
 
@@ -650,9 +666,9 @@ public class PrewarmedResourcePool {
                     + minInstances + ", generation=" + currentGeneration + ")"));
 
             // Find resources for this instance
-            List<Service> allServices = K8sUtil.getExistingServices(client.kubernetes(), client.namespace(), ownerName,
+            List<Service> allServices = K8sUtil.getExistingIdeServices(client.kubernetes(), client.namespace(), ownerName,
                     ownerUID);
-            List<Deployment> allDeployments = K8sUtil.getExistingDeployments(client.kubernetes(), client.namespace(),
+            List<Deployment> allDeployments = K8sUtil.getExistingIdeDeployments(client.kubernetes(), client.namespace(),
                     ownerName, ownerUID);
             List<ConfigMap> allConfigMaps = K8sUtil.getExistingConfigMaps(client.kubernetes(), client.namespace(),
                     ownerName, ownerUID);
@@ -1067,7 +1083,7 @@ public class PrewarmedResourcePool {
             boolean success = true;
 
             ISpan svcSpan = span.startChild("pool.release_services", "Release services");
-            List<Service> services = K8sUtil.getExistingServices(client.kubernetes(), client.namespace(), ownerName,
+            List<Service> services = K8sUtil.getExistingIdeServices(client.kubernetes(), client.namespace(), ownerName,
                     ownerUID);
             svcSpan.setData("count", services.size());
             success &= ResourceLifecycleManager.releaseOwnership(services, owner,
@@ -1086,7 +1102,7 @@ public class PrewarmedResourcePool {
             cmSpan.setTag("outcome", cmSuccess ? "success" : "failure"); Tracing.finish(cmSpan, cmSuccess ? SpanStatus.OK : SpanStatus.INTERNAL_ERROR);
 
             ISpan deploySpan = span.startChild("pool.release_deployments", "Release deployments");
-            List<Deployment> deployments = K8sUtil.getExistingDeployments(client.kubernetes(), client.namespace(),
+            List<Deployment> deployments = K8sUtil.getExistingIdeDeployments(client.kubernetes(), client.namespace(),
                     ownerName, ownerUID);
             deploySpan.setData("count", deployments.size());
             boolean deploySuccess = ResourceLifecycleManager.releaseOwnership(deployments, owner,
@@ -1124,9 +1140,10 @@ public class PrewarmedResourcePool {
             String appDefOwnerName = appDef.getMetadata().getName();
             String appDefOwnerUID = appDef.getMetadata().getUid();
             String sessionUID = session.getMetadata().getUid();
+            sessionsInFlight.add(sessionUID);
 
             // Get all services for this app definition
-            List<Service> existingServices = K8sUtil.getExistingServices(client.kubernetes(), client.namespace(),
+            List<Service> existingServices = K8sUtil.getExistingIdeServices(client.kubernetes(), client.namespace(),
                     appDefOwnerName, appDefOwnerUID);
 
             // Separate external and internal services
@@ -1140,7 +1157,6 @@ public class PrewarmedResourcePool {
             int availableCount = (int) externalServices.stream().filter(s -> TheiaCloudServiceUtil.isUnusedService(s))
                     .count();
             span.setData("pool.total_capacity", totalCapacity);
-            span.setData("pool.available", availableCount);
 
             // Check if session already has a reservation
             Optional<Service> alreadyReservedExternal = TheiaCloudServiceUtil.getServiceOwnedBySession(sessionName,
@@ -1198,9 +1214,40 @@ public class PrewarmedResourcePool {
                         return internal != null && TheiaCloudServiceUtil.isUnusedService(internal)
                                 && !isClaimed(internal);
                     }).map(Map.Entry::getKey).sorted(Comparator.naturalOrder()).collect(Collectors.toList());
-            // Only the first free instance that has a deployment matters, so do not look at the others
-            Optional<Integer> withDeployment = availableIds.stream().filter(id -> hasDeployment(appDef, id)).findFirst();
-            availableIds = withDeployment.map(List::of).orElse(List.of());
+            // Prefer an instance that is ready. One that is still starting is better than none, but one whose pod
+            // cannot start (image pull, crash loop) is not handed out: the session launches lazily instead.
+            Map<Integer, Deployment> deploymentsById = new HashMap<>();
+            for (Deployment d : K8sUtil.getExistingIdeDeployments(client.kubernetes(), client.namespace(),
+                    appDefOwnerName, appDefOwnerUID)) {
+                deploymentsById.put(parseDeploymentInstanceIdOrDefault(appDef, d, -1), d);
+            }
+            List<Pod> pods = null; // listed once, and only when an instance is not ready
+            Integer ready = null;
+            Integer starting = null;
+            int broken = 0;
+            for (Integer id : availableIds) {
+                Deployment deployment = deploymentsById.get(id);
+                if (deployment == null) {
+                    continue;
+                }
+                if (isReady(deployment)) {
+                    ready = id;
+                    break;
+                }
+                if (pods == null) {
+                    pods = client.kubernetes().pods().inNamespace(client.namespace()).list().getItems();
+                }
+                if (hasBrokenPod(deployment, pods)) {
+                    broken++;
+                    LOGGER.warn(formatLogMessage(correlationId,
+                            "Instance " + id + " of " + appDefName + " has a pod that cannot start, not using it"));
+                } else if (starting == null) {
+                    starting = id;
+                }
+            }
+            span.setData("pool.available", availableCount - broken);
+            Integer usable = ready != null ? ready : starting;
+            availableIds = usable == null ? List.of() : List.of(usable);
 
             if (availableIds.isEmpty()) {
                 LOGGER.info(formatLogMessage(correlationId, "No prewarmed instances available"));
@@ -1454,6 +1501,10 @@ public class PrewarmedResourcePool {
             return success;
         }
 
+        // The sidecar pods held the data of the last user too. Here, not in the release, so that an orphaned claim
+        // is covered as well. A shared workspace volume means the instance was discarded above with its sidecars.
+        sidecarManager.restartPrewarmedSidecarPods(appDef, instanceId, correlationId);
+
         // Replace the pod and rotate the data bridge token
         resetPod(appDef, instanceId, deploymentName, correlationId);
 
@@ -1479,7 +1530,7 @@ public class PrewarmedResourcePool {
         String ownerName = appDef.getMetadata().getName();
         String ownerUID = appDef.getMetadata().getUid();
         long generation = appDef.getMetadata().getGeneration();
-        List<Deployment> deployments = K8sUtil.getExistingDeployments(client.kubernetes(), client.namespace(),
+        List<Deployment> deployments = K8sUtil.getExistingIdeDeployments(client.kubernetes(), client.namespace(),
                 ownerName, ownerUID).stream()
                 .filter(d -> instanceId == parseDeploymentInstanceIdOrDefault(appDef, d, -1))
                 .collect(Collectors.toList());
@@ -1528,14 +1579,26 @@ public class PrewarmedResourcePool {
      * Resets instances that are marked as claimed but whose session no longer exists, which happens when the operator
      * missed the deletion event (it was down). Also marks instances of live claims that predate the claim label.
      */
-    synchronized void resetOrphanedClaims(AppDefinition appDef, String correlationId) {
+    synchronized List<Integer> resetOrphanedClaims(AppDefinition appDef, String correlationId) {
+        return resetOrphanedClaims(appDef, correlationId, false);
+    }
+
+    /**
+     * @param confirmFirst only reset a claim that was already an orphan in the previous call with this flag. A claim
+     *                     is also an orphan for a moment when the deletion of its session was not handled yet.
+     * @return the ids of the instances that were reset
+     */
+    synchronized List<Integer> resetOrphanedClaims(AppDefinition appDef, String correlationId,
+            boolean confirmFirst) {
+        List<Integer> reset = new ArrayList<>();
+        Set<String> suspects = new HashSet<>();
         String appDefName = appDef.getMetadata().getName();
         List<Session> sessions = client.sessions().list();
         Set<String> liveSessions = sessions.stream()
                 .filter(s -> s.getSpec() != null && appDefName.equals(s.getSpec().getAppDefinition()))
                 .map(s -> s.getMetadata().getUid()).collect(Collectors.toSet());
 
-        List<Service> services = K8sUtil.getExistingServices(client.kubernetes(), client.namespace(), appDefName,
+        List<Service> services = K8sUtil.getExistingIdeServices(client.kubernetes(), client.namespace(), appDefName,
                 appDef.getMetadata().getUid());
         Map<String, Service> servicesByName = new HashMap<>();
         services.forEach(service -> servicesByName.put(service.getMetadata().getName(), service));
@@ -1564,22 +1627,76 @@ public class PrewarmedResourcePool {
                 continue;
             }
             Integer instanceId = parseInstanceId(external);
-            if (instanceId == null || liveSessions.contains(claimUid(external))) {
+            if (instanceId == null || liveSessions.contains(claimUid(external))
+                    || sessionsInFlight.contains(claimUid(external))) {
                 continue;
             }
             Service internal = servicesByName.get(TheiaCloudServiceUtil.getInternalServiceName(appDef, instanceId));
             if (internal == null) {
                 continue;
             }
-            LOGGER.warn(formatLogMessage(correlationId,
+            String suspect = appDefName + "/" + instanceId + "/" + claimUid(external);
+            if (confirmFirst && !orphanSuspects.contains(suspect)) {
+                suspects.add(suspect);
+                continue;
+            }
+            LOGGER.info(formatLogMessage(correlationId,
                     "Instance " + instanceId + " is claimed by a session that no longer exists, resetting it"));
             resetClaimedInstance(appDef, instanceId, external, internal, correlationId);
+            reset.add(instanceId);
         }
+        if (confirmFirst) {
+            orphanSuspects.removeIf(key -> key.startsWith(appDefName + "/"));
+            orphanSuspects.addAll(suspects);
+        }
+        return reset;
+    }
+
+    /** The session no longer needs its claim kept safe from the orphan check. */
+    public void sessionSetupFinished(Session session) {
+        sessionsInFlight.remove(session.getMetadata().getUid());
+    }
+
+    /** False when a reset took the instance away from the session, e.g. because the session was deleted meanwhile. */
+    public synchronized boolean holdsInstance(Session session, AppDefinition appDef, PoolInstance instance) {
+        return servicesOfInstance(appDef, instance.getInstanceId()).stream()
+                .anyMatch(service -> session.getMetadata().getUid().equals(claimUid(service)));
+    }
+
+    /**
+     * Pools are only reconciled on events, so an orphaned claim would shrink the pool until the next one. The check
+     * takes the pool lock like a release does.
+     */
+    private void startOrphanTimer() {
+        if (!orphanTimerStarted.compareAndSet(false, true)) {
+            return;
+        }
+        BACKGROUND.scheduleWithFixedDelay(() -> {
+            List<AppDefinition> appDefs;
+            try {
+                appDefs = client.appDefinitions().list();
+            } catch (Exception e) {
+                LOGGER.error(formatLogMessage("pool-orphan-check", "Listing the app definitions failed"), e);
+                return;
+            }
+            for (AppDefinition appDef : appDefs) {
+                try {
+                    if (appDef.getSpec().getMinInstances() > 0) {
+                        // A reset that discarded the instance leaves it to be built again
+                        resetOrphanedClaims(appDef, "pool-orphan-check", true)
+                                .forEach(id -> scheduleInstanceRecreation(appDef, id, "pool-orphan-check"));
+                    }
+                } catch (Exception e) {
+                    LOGGER.error(formatLogMessage("pool-orphan-check",
+                            "Checking for orphaned claims of " + appDef.getMetadata().getName() + " failed"), e);
+                }
+            }
+        }, ORPHAN_CHECK_MINUTES, ORPHAN_CHECK_MINUTES, TimeUnit.MINUTES);
     }
 
     /** Ids of the instances that carry a claim, from the live services. */
     private Set<Integer> claimedInstanceIds(AppDefinition appDef) {
-        return K8sUtil.getExistingServices(client.kubernetes(), client.namespace(), appDef.getMetadata().getName(),
+        return K8sUtil.getExistingIdeServices(client.kubernetes(), client.namespace(), appDef.getMetadata().getName(),
                 appDef.getMetadata().getUid()).stream().filter(PrewarmedResourcePool::isClaimed)
                 .map(this::parseInstanceId).filter(Objects::nonNull).collect(Collectors.toSet());
     }
@@ -1770,6 +1887,33 @@ public class PrewarmedResourcePool {
         }
     }
 
+    private static final Set<String> BROKEN_POD_REASONS = Set.of("ImagePullBackOff", "ErrImagePull",
+            "CrashLoopBackOff", "CreateContainerConfigError", "InvalidImageName");
+
+    private static boolean isReady(Deployment deployment) {
+        return deployment.getStatus() != null && deployment.getStatus().getReadyReplicas() != null
+                && deployment.getStatus().getReadyReplicas() > 0;
+    }
+
+    private static boolean hasBrokenPod(Deployment deployment, List<Pod> pods) {
+        if (deployment.getSpec() == null || deployment.getSpec().getSelector() == null
+                || deployment.getSpec().getSelector().getMatchLabels() == null) {
+            return false;
+        }
+        Map<String, String> selector = deployment.getSpec().getSelector().getMatchLabels();
+        return pods.stream()
+                .filter(pod -> pod.getMetadata() != null && pod.getMetadata().getLabels() != null
+                        && pod.getMetadata().getLabels().entrySet().containsAll(selector.entrySet()))
+                .filter(pod -> pod.getStatus() != null)
+                .flatMap(pod -> Stream.concat(
+                        pod.getStatus().getContainerStatuses() == null ? Stream.<ContainerStatus> empty()
+                                : pod.getStatus().getContainerStatuses().stream(),
+                        pod.getStatus().getInitContainerStatuses() == null ? Stream.<ContainerStatus> empty()
+                                : pod.getStatus().getInitContainerStatuses().stream()))
+                .anyMatch(status -> status.getState() != null && status.getState().getWaiting() != null
+                        && BROKEN_POD_REASONS.contains(status.getState().getWaiting().getReason()));
+    }
+
     private boolean hasDeployment(AppDefinition appDef, int instanceId) {
         return client.kubernetes().apps().deployments().inNamespace(client.namespace())
                 .withName(TheiaCloudDeploymentUtil.getDeploymentName(appDef, instanceId)).get() != null;
@@ -1778,7 +1922,7 @@ public class PrewarmedResourcePool {
     private List<Service> servicesOfInstance(AppDefinition appDef, int instanceId) {
         String external = TheiaCloudServiceUtil.getServiceName(appDef, instanceId);
         String internal = TheiaCloudServiceUtil.getInternalServiceName(appDef, instanceId);
-        return K8sUtil.getExistingServices(client.kubernetes(), client.namespace(), appDef.getMetadata().getName(),
+        return K8sUtil.getExistingIdeServices(client.kubernetes(), client.namespace(), appDef.getMetadata().getName(),
                 appDef.getMetadata().getUid()).stream()
                 .filter(s -> external.equals(s.getMetadata().getName()) || internal.equals(s.getMetadata().getName()))
                 .collect(Collectors.toList());

@@ -94,6 +94,9 @@ class PoolClaimTests {
     private MixedOperation<Deployment, DeploymentList, RollableScalableResource<Deployment>> deployments;
     private RollableScalableResource<Deployment> deploymentResource = mock(RollableScalableResource.class);
     private PrewarmedResourcePool pool;
+    private SidecarManager sidecarManager;
+    private NonNamespaceOperation<Pod, PodList, PodResource> namespacedPods;
+    private K8sResourceFactory resourceFactory;
     private Service external;
     private Service internal;
 
@@ -125,8 +128,9 @@ class PoolClaimTests {
         when(deployments.inNamespace(any())).thenReturn(namespacedDeployments);
         when(deployments.withName(anyString())).thenReturn(deploymentResource);
         when(namespacedDeployments.withName(anyString())).thenReturn(deploymentResource);
-        when(deploymentResource.get()).thenReturn(new DeploymentBuilder().build());
-        when(namespacedDeployments.list()).thenReturn(new DeploymentList());
+        when(deploymentResource.get()).thenReturn(
+                new DeploymentBuilder().withNewStatus().withReadyReplicas(1).endStatus().build());
+        listDeployments(ideDeployment(1, true, true));
 
         MixedOperation<ConfigMap, ConfigMapList, Resource<ConfigMap>> configMaps = mock(MixedOperation.class);
         NonNamespaceOperation<ConfigMap, ConfigMapList, Resource<ConfigMap>> namespacedConfigMaps = mock(
@@ -147,8 +151,14 @@ class PoolClaimTests {
         setField(pool, "client", client);
         setField(pool, "arguments", mock(TheiaCloudOperatorArguments.class));
         setField(pool, "dataBridgeTokens", mock(DataBridgeTokenManager.class));
-        setField(pool, "sidecarManager", mock(SidecarManager.class));
-        setField(pool, "resourceFactory", mock(K8sResourceFactory.class));
+        sidecarManager = mock(SidecarManager.class);
+        setField(pool, "sidecarManager", sidecarManager);
+        resourceFactory = mock(K8sResourceFactory.class);
+        setField(pool, "resourceFactory", resourceFactory);
+    }
+
+    private void listDeployments(Deployment... existing) {
+        when(namespacedDeployments.list()).thenReturn(new DeploymentList(null, List.of(existing), null, null));
     }
 
     private Service service(String name, String claimedBy) {
@@ -216,11 +226,102 @@ class PoolClaimTests {
 
     @Test
     void reserveInstance_skipsAnInstanceWithoutDeployment() {
-        when(deploymentResource.get()).thenReturn(null);
+        listDeployments();
 
         var result = pool.reserveInstance(session(SESSION_UID, null), appDefinition, "cid");
 
         assertEquals(PrewarmedResourcePool.ReservationOutcome.NO_CAPACITY, result.getOutcome());
+    }
+
+    private void podsOfDeployment(String waitingReason) {
+        MixedOperation<Pod, PodList, PodResource> pods = mock(MixedOperation.class);
+        namespacedPods = mock(NonNamespaceOperation.class);
+        when(client.pods()).thenReturn(pods);
+        when(pods.inNamespace(any())).thenReturn(namespacedPods);
+        Pod pod = new PodBuilder().withNewMetadata().addToLabels("app", "x").endMetadata().withNewStatus().addNewContainerStatus().withNewState().withNewWaiting()
+                .withReason(waitingReason).endWaiting().endState().endContainerStatus().endStatus().build();
+        when(namespacedPods.list()).thenReturn(new PodListBuilder().withItems(pod).build());
+    }
+
+    private Deployment notReadyDeployment(int id) {
+        Deployment deployment = ideDeployment(id, true, false);
+        deployment.getSpec().setSelector(new io.fabric8.kubernetes.api.model.LabelSelectorBuilder()
+                .addToMatchLabels("app", "x").build());
+        return deployment;
+    }
+
+    @Test
+    void reserveInstance_skipsAnInstanceWhoseImageCannotBePulled() {
+        listDeployments(notReadyDeployment(1));
+        podsOfDeployment("ImagePullBackOff");
+
+        var result = pool.reserveInstance(session(SESSION_UID, null), appDefinition, "cid");
+
+        assertEquals(PrewarmedResourcePool.ReservationOutcome.NO_CAPACITY, result.getOutcome());
+        verify(namespacedServices, never()).withName(external.getMetadata().getName());
+    }
+
+    @Test
+    void reserveInstance_skipsAnInstanceWhoseInitContainerCannotStart() {
+        listDeployments(notReadyDeployment(1));
+        podsOfDeployment("ErrImagePull");
+        Pod pod = namespacedPods.list().getItems().get(0);
+        pod.getStatus().setInitContainerStatuses(pod.getStatus().getContainerStatuses());
+        pod.getStatus().setContainerStatuses(null);
+
+        var result = pool.reserveInstance(session(SESSION_UID, null), appDefinition, "cid");
+
+        assertEquals(PrewarmedResourcePool.ReservationOutcome.NO_CAPACITY, result.getOutcome());
+    }
+
+    @Test
+    void reserveInstance_listsDeploymentsAndPodsOnceForAllInstances() {
+        Service external2 = service(TheiaCloudServiceUtil.getServiceName(appDefinition, 2), null);
+        Service internal2 = service(TheiaCloudServiceUtil.getInternalServiceName(appDefinition, 2), null);
+        listServices(external, internal, external2, internal2);
+        listDeployments(notReadyDeployment(1), notReadyDeployment(2));
+        podsOfDeployment("ImagePullBackOff");
+
+        pool.reserveInstance(session(SESSION_UID, null), appDefinition, "cid");
+
+        verify(namespacedDeployments, Mockito.times(1)).list();
+        verify(namespacedPods, Mockito.times(1)).list();
+    }
+
+    @Test
+    void reserveInstance_usesAnInstanceThatIsStillStarting() {
+        listDeployments(notReadyDeployment(1));
+        podsOfDeployment("ContainerCreating");
+
+        var result = pool.reserveInstance(session(SESSION_UID, null), appDefinition, "cid");
+
+        assertEquals(PrewarmedResourcePool.ReservationOutcome.SUCCESS, result.getOutcome());
+    }
+
+    @Test
+    void reserveInstance_prefersAReadyInstanceOverAStartingOne() {
+        Service external2 = service(TheiaCloudServiceUtil.getServiceName(appDefinition, 2), null);
+        Service internal2 = service(TheiaCloudServiceUtil.getInternalServiceName(appDefinition, 2), null);
+        listServices(external, internal, external2, internal2);
+        listDeployments(notReadyDeployment(1), ideDeployment(2, true, true));
+        podsOfDeployment("ContainerCreating");
+
+        var result = pool.reserveInstance(session(SESSION_UID, null), appDefinition, "cid");
+
+        assertEquals(2, result.getInstance().get().getInstanceId());
+    }
+
+    @Test
+    void reserveInstance_ignoresTheServiceOfASidecar() {
+        Service sidecar = service("instance-1-lsp-" + APP_DEFINITION, null);
+        sidecar.getMetadata().getLabels().put("theia-cloud.io/sidecar", "lsp");
+        listServices(sidecar, external, internal);
+
+        var result = pool.reserveInstance(session(SESSION_UID, null), appDefinition, "cid");
+
+        assertEquals(PrewarmedResourcePool.ReservationOutcome.SUCCESS, result.getOutcome());
+        assertEquals(external.getMetadata().getName(), result.getInstance().get().getExternalService().getMetadata().getName());
+        assertFalse(serviceResources.containsKey(sidecar.getMetadata().getName()));
     }
 
     @Test
@@ -246,6 +347,8 @@ class PoolClaimTests {
         Service otherExternal = service(TheiaCloudServiceUtil.getServiceName(appDefinition, 2), SESSION_UID);
         Service otherInternal = service(TheiaCloudServiceUtil.getInternalServiceName(appDefinition, 2), SESSION_UID);
         listServices(external, internal, otherExternal, otherInternal);
+        // the session is still there while it is being deleted, so the sweep after the release leaves it alone
+        when(client.sessions().list()).thenReturn(List.of(session(SESSION_UID, "2")));
         Mockito.doNothing().when(pool).resetPod(any(), anyInt(), anyString(), anyString());
         Mockito.doReturn(false).when(pool).needsRecreation(any(), anyInt());
 
@@ -270,6 +373,7 @@ class PoolClaimTests {
         listServices(service(external.getMetadata().getName(), SESSION_UID),
                 service(internal.getMetadata().getName(), SESSION_UID));
         Mockito.doReturn(true).when(pool).needsRecreation(any(), anyInt());
+        when(client.sessions().list()).thenReturn(List.of(session(SESSION_UID, "1")));
 
         assertTrue(pool.releaseInstance(session(SESSION_UID, "1"), appDefinition, "cid"));
 
@@ -295,6 +399,147 @@ class PoolClaimTests {
         Service freed = applyLastEdit(external.getMetadata().getName(),
                 service(external.getMetadata().getName(), "deleted-session"));
         assertFalse(freed.getMetadata().getLabels().containsKey(PrewarmedResourcePool.CLAIM_LABEL));
+    }
+
+    @Test
+    void resetOrphanedClaims_leavesTheSidecarOfAnInstanceAlone() {
+        Service sidecar = service("instance-1-lsp-" + APP_DEFINITION, "deleted-session");
+        sidecar.getMetadata().getLabels().put("theia-cloud.io/sidecar", "lsp");
+        listServices(sidecar, external, internal);
+
+        pool.resetOrphanedClaims(appDefinition, "cid");
+
+        verify(pool, never()).resetPod(any(), anyInt(), anyString(), anyString());
+        assertTrue(serviceResources.isEmpty());
+    }
+
+    @Test
+    void resetOrphanedClaims_leavesTheClaimOfASessionWhoseSetupIsRunning() {
+        // the session was deleted while its added handler runs, so it is no longer listed
+        pool.reserveInstance(session(SESSION_UID, null), appDefinition, "cid");
+        listServices(service(external.getMetadata().getName(), SESSION_UID),
+                service(internal.getMetadata().getName(), SESSION_UID));
+
+        assertTrue(pool.resetOrphanedClaims(appDefinition, "cid").isEmpty());
+        verify(pool, never()).resetPod(any(), anyInt(), anyString(), anyString());
+
+        pool.sessionSetupFinished(session(SESSION_UID, null));
+        Mockito.doNothing().when(pool).resetPod(any(), anyInt(), anyString(), anyString());
+        Mockito.doReturn(false).when(pool).needsRecreation(any(), anyInt());
+        assertEquals(List.of(1), pool.resetOrphanedClaims(appDefinition, "cid"));
+    }
+
+    @Test
+    void resetOrphanedClaims_restartsTheSidecarPods() {
+        listServices(service(external.getMetadata().getName(), "deleted-session"),
+                service(internal.getMetadata().getName(), "deleted-session"));
+        Mockito.doNothing().when(pool).resetPod(any(), anyInt(), anyString(), anyString());
+        Mockito.doReturn(false).when(pool).needsRecreation(any(), anyInt());
+
+        pool.resetOrphanedClaims(appDefinition, "cid");
+
+        verify(sidecarManager).restartPrewarmedSidecarPods(any(), Mockito.eq(1), anyString());
+    }
+
+    @Test
+    void resetOrphanedClaims_withConfirmationResetsOnlyOnTheSecondRun() {
+        listServices(service(external.getMetadata().getName(), "deleted-session"),
+                service(internal.getMetadata().getName(), "deleted-session"));
+        Mockito.doNothing().when(pool).resetPod(any(), anyInt(), anyString(), anyString());
+        Mockito.doReturn(false).when(pool).needsRecreation(any(), anyInt());
+
+        assertTrue(pool.resetOrphanedClaims(appDefinition, "cid", true).isEmpty());
+        verify(pool, never()).resetPod(any(), anyInt(), anyString(), anyString());
+        assertEquals(List.of(1), pool.resetOrphanedClaims(appDefinition, "cid", true));
+    }
+
+    @Test
+    void resetOrphanedClaims_withConfirmationForgetsAClaimThatWentAway() {
+        listServices(service(external.getMetadata().getName(), "deleted-session"),
+                service(internal.getMetadata().getName(), "deleted-session"));
+        pool.resetOrphanedClaims(appDefinition, "cid", true);
+        listServices(external, internal);
+        pool.resetOrphanedClaims(appDefinition, "cid", true);
+        listServices(service(external.getMetadata().getName(), "deleted-session"),
+                service(internal.getMetadata().getName(), "deleted-session"));
+
+        assertTrue(pool.resetOrphanedClaims(appDefinition, "cid", true).isEmpty());
+    }
+
+    @Test
+    void holdsInstance_isFalseOnceTheClaimIsGone() {
+        var instance = new PrewarmedResourcePool.PoolInstance(1, external, internal, "d");
+        listServices(service(external.getMetadata().getName(), SESSION_UID),
+                service(internal.getMetadata().getName(), SESSION_UID));
+        assertTrue(pool.holdsInstance(session(SESSION_UID, "1"), appDefinition, instance));
+
+        listServices(external, internal);
+        assertFalse(pool.holdsInstance(session(SESSION_UID, "1"), appDefinition, instance));
+
+        listServices(service(external.getMetadata().getName(), "someone-else"),
+                service(internal.getMetadata().getName(), "someone-else"));
+        assertFalse(pool.holdsInstance(session(SESSION_UID, "1"), appDefinition, instance));
+    }
+
+    @Test
+    void releaseInstance_restartsTheSidecarPodsOnlyOfAnInstanceItReleases() {
+        listServices(service(external.getMetadata().getName(), "someone-else"),
+                service(internal.getMetadata().getName(), "someone-else"));
+        pool.releaseInstance(session(SESSION_UID, "1"), appDefinition, "cid");
+        verify(sidecarManager, never()).restartPrewarmedSidecarPods(any(), anyInt(), anyString());
+
+        listServices(service(external.getMetadata().getName(), SESSION_UID),
+                service(internal.getMetadata().getName(), SESSION_UID));
+        Mockito.doNothing().when(pool).resetPod(any(), anyInt(), anyString(), anyString());
+        Mockito.doReturn(false).when(pool).needsRecreation(any(), anyInt());
+        pool.releaseInstance(session(SESSION_UID, "1"), appDefinition, "cid");
+        verify(sidecarManager).restartPrewarmedSidecarPods(any(), Mockito.eq(1), anyString());
+    }
+
+    private Deployment ideDeployment(int id, boolean current) {
+        return ideDeployment(id, current, false);
+    }
+
+    private Deployment ideDeployment(int id, boolean current, boolean ready) {
+        ObjectMetaBuilder meta = new ObjectMetaBuilder()
+                .withName(TheiaCloudDeploymentUtil.getDeploymentName(appDefinition, id))
+                .withOwnerReferences(new OwnerReferenceBuilder().withName(APP_DEFINITION)
+                        .withUid(appDefinition.getMetadata().getUid()).build());
+        if (current) {
+            meta.addToLabels(PrewarmedResourcePool.APPDEFINITION_GENERATION_LABEL, "1");
+        }
+        return new DeploymentBuilder().withMetadata(meta.build()).withNewSpec().withNewTemplate().withNewMetadata()
+                .addToLabels(org.eclipse.theia.cloud.common.util.LabelsUtil.LABEL_KEY_SESSION,
+                        org.eclipse.theia.cloud.common.util.LabelsUtil.LABEL_VALUE_SESSION)
+                .addToLabels(org.eclipse.theia.cloud.common.util.LabelsUtil.LABEL_KEY_THEIACLOUD,
+                        org.eclipse.theia.cloud.common.util.LabelsUtil.LABEL_VALUE_THEIACLOUD)
+                .endMetadata().withNewSpec().endSpec().endTemplate().endSpec()
+                .withNewStatus().withReadyReplicas(ready ? 1 : 0).endStatus().build();
+    }
+
+    private void reconcileWithDeployments(Deployment... existing) {
+        when(namespacedDeployments.list()).thenReturn(new DeploymentList(null, List.of(existing), null, null));
+        when(namespacedDeployments.resource(any())).thenReturn(deploymentResource);
+        when(deploymentResource.delete()).thenReturn(List.of());
+        pool.reconcile(appDefinition, 1, "cid");
+    }
+
+    @Test
+    void reconcile_removesTheSidecarsOfAnInstanceThatIsScaledAway() {
+        reconcileWithDeployments(ideDeployment(1, true), ideDeployment(2, true));
+
+        verify(sidecarManager).deletePrewarmedSidecars(any(), Mockito.eq(2), anyString());
+        verify(sidecarManager, never()).deletePrewarmedSidecars(any(), Mockito.eq(1), anyString());
+    }
+
+    @Test
+    void reconcile_replacesTheSidecarsOfAnOutdatedInstance() {
+        reconcileWithDeployments(ideDeployment(1, false));
+
+        InOrder order = Mockito.inOrder(sidecarManager, resourceFactory);
+        order.verify(sidecarManager).deletePrewarmedSidecars(any(), Mockito.eq(1), anyString());
+        order.verify(sidecarManager).createPrewarmedSidecars(any(), Mockito.eq(1), any(), any(), anyString());
+        order.verify(resourceFactory).createDeploymentForEagerInstance(any(), Mockito.eq(1), any(), any(), anyString());
     }
 
     @Test

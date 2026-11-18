@@ -155,7 +155,7 @@ class K8sUtilTests {
         assertEquals("https://github.com/octocat/Hello-World",
                 K8sUtil.repositoryOf(env(" https://user:secret@GitHub.COM:443/octocat/Hello-World.git/ ")));
         assertEquals("http://localhost:7990/scm/ex/repo", K8sUtil.repositoryOf(env("http://localhost:7990/scm/ex/repo")));
-        assertEquals("git@github.com:octocat/Hello-World.git",
+        assertEquals("github.com:octocat/Hello-World",
                 K8sUtil.repositoryOf(env("git@github.com:octocat/Hello-World.git")));
         assertEquals("https://github.com/octocat/Hello-World",
                 K8sUtil.repositoryOf(env("https://github.com/octocat/Hello-World///")));
@@ -164,6 +164,20 @@ class K8sUtilTests {
         assertNull(K8sUtil.repositoryOf(null));
         assertNull(K8sUtil.repositoryOf(env("   ")));
         assertNull(K8sUtil.repositoryOf(envOf(Map.of())));
+    }
+
+    @Test
+    void repositoryOf_normalizesScpStyleAndUnparsableUris() {
+        String scp = K8sUtil.repositoryOf(env("git@github.com:octocat/Hello-World.git"));
+        assertEquals(scp, K8sUtil.repositoryOf(env("git@github.com:octocat/Hello-World")));
+        assertEquals(scp, K8sUtil.repositoryOf(env("git@GitHub.com:octocat/Hello-World.git/")));
+        assertEquals(scp, K8sUtil.repositoryOf(env("deploy@github.com:octocat/Hello-World.git")));
+        assertNotEquals(scp, K8sUtil.repositoryOf(env("git@github.com:octocat/hello-world.git")),
+                "the path keeps its case");
+
+        assertEquals(K8sUtil.repositoryOf(env("https://stud:tok@git.example/my repo.git")),
+                K8sUtil.repositoryOf(env("https://git.example/my repo")));
+        assertEquals("./local/repo", K8sUtil.repositoryOf(env("./local/repo.git")));
     }
 
     @Test

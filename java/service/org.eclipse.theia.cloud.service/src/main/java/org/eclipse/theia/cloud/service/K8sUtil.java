@@ -176,6 +176,7 @@ public final class K8sUtil {
      * Returns the repository a session clones, normalized so that every launch of the same repository maps to the same
      * session: credentials are dropped (Artemis embeds a token in {@value #GIT_URI_ENV} that may change between
      * launches), scheme and host are lowercased, a default port is dropped, and a trailing ".git" or "/" is ignored.
+     * An scp-style repository ("git@host:owner/repo.git") loses its user and its host is lowercased the same way.
      * A {@value #GIT_REF_ENV} and a {@value #GIT_SOURCE_ENV} are appended after line breaks, which no URI contains:
      * Scorpio checks a ref out only after a fresh clone, so another ref of the same repository needs a session of its
      * own, and an external launch must not reopen the Artemis session of the same repository, which Scorpio set up
@@ -212,7 +213,7 @@ public final class K8sUtil {
         try {
             URI uri = new URI(gitUri);
             if (uri.getScheme() == null || uri.getHost() == null) {
-                return withoutUserInfo(gitUri);
+                return normalizedFallback(gitUri);
             }
             String scheme = uri.getScheme().toLowerCase(Locale.ROOT);
             int port = uri.getPort();
@@ -224,9 +225,36 @@ public final class K8sUtil {
             }
             return scheme + "://" + uri.getHost().toLowerCase(Locale.ROOT) + (defaultPort ? "" : ":" + port) + path;
         } catch (URISyntaxException e) {
-            // e.g. scp-style "git@host:owner/repo.git", which carries no secret, or a host or path java.net.URI rejects
-            return withoutUserInfo(gitUri);
+            // e.g. scp-style "git@host:owner/repo.git", or a host or path java.net.URI rejects
+            return normalizedFallback(gitUri);
         }
+    }
+
+    /**
+     * Normalizes a repository java.net.URI cannot take apart as far as it safely can: the user info is dropped, an
+     * scp-style host ("git@Host:owner/repo") is lowercased without its user, and a trailing ".git" or "/" is ignored.
+     */
+    private static String normalizedFallback(String gitUri) {
+        String repository = gitUri.contains("://") ? withoutUserInfo(gitUri) : scpStyleWithoutUser(gitUri);
+        repository = withoutTrailingSlashes(repository);
+        if (repository.endsWith(".git")) {
+            repository = withoutTrailingSlashes(repository.substring(0, repository.length() - ".git".length()));
+        }
+        return repository;
+    }
+
+    /**
+     * Turns "user@Host:path" into "host:path". Like git, it reads a value as scp-style only when a colon comes before
+     * the first slash; anything else, such as a local path, is returned as it is.
+     */
+    private static String scpStyleWithoutUser(String gitUri) {
+        int colon = gitUri.indexOf(':');
+        int slash = gitUri.indexOf('/');
+        if (colon <= 0 || (slash >= 0 && slash < colon)) {
+            return gitUri;
+        }
+        String host = gitUri.substring(gitUri.lastIndexOf('@', colon - 1) + 1, colon);
+        return host.toLowerCase(Locale.ROOT) + gitUri.substring(colon);
     }
 
     /** Drops "user:token@" from a URI that java.net.URI cannot take apart, so a rotated token keeps the name. */

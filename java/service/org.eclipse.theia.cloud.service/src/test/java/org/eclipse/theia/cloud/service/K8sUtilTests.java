@@ -10,14 +10,20 @@
 package org.eclipse.theia.cloud.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 
 import java.lang.reflect.Field;
+import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.eclipse.theia.cloud.common.k8s.client.AppDefinitionResourceClient;
@@ -84,6 +90,132 @@ class K8sUtilTests {
     }
 
     @Test
+    void launchEphemeralSession_namesTheSessionAfterTheRepository() throws Exception {
+        String repoA = launchedSessionName(env("https://github.com/octocat/Hello-World.git"));
+        String repoB = launchedSessionName(env("https://github.com/octocat/Spoon-Knife.git"));
+        String repoAAgain = launchedSessionName(env("https://GitHub.com/octocat/Hello-World/"));
+
+        assertNotEquals(repoA, repoB, "a second repository must not reopen the first one's session");
+        assertEquals(repoA, repoAAgain, "the same repository reopens its own session");
+    }
+
+    @Test
+    void launchEphemeralSession_namesTheSessionAfterTheRef() throws Exception {
+        String main = launchedSessionName(envOf(Map.of("GIT_URI", "https://gitlab.com/group/sub/repo.git", "GIT_REF", "main")));
+        String solution = launchedSessionName(
+                envOf(Map.of("GIT_URI", "https://gitlab.com/group/sub/repo.git", "GIT_REF", "solution")));
+        String noRef = launchedSessionName(env("https://gitlab.com/group/sub/repo.git"));
+        String blankRef = launchedSessionName(envOf(Map.of("GIT_URI", "https://gitlab.com/group/sub/repo.git", "GIT_REF", " ")));
+
+        assertNotEquals(main, solution, "another ref of the same repository must not reopen the first ref's session");
+        assertNotEquals(main, noRef);
+        assertEquals(noRef, blankRef, "a blank ref keeps the name of a launch without a ref");
+    }
+
+    @Test
+    void launchEphemeralSession_ignoresCredentialsInTheRepository() throws Exception {
+        String withToken = launchedSessionName(env("https://student1:token-1@artemis.example.org/git/EX/ex-student1.git"));
+        String newToken = launchedSessionName(env("https://student1:token-2@artemis.example.org/git/EX/ex-student1.git"));
+
+        assertEquals(withToken, newToken);
+        assertFalse(withToken.contains("token"), withToken);
+    }
+
+    @Test
+    void launchEphemeralSession_unparsableUriIgnoresCredentials() throws Exception {
+        for (String uri : new String[] { "https://stud:%s@my_git.example/x.git", "https://stud:%s@git.example/my repo.git" }) {
+            String withToken = launchedSessionName(env(uri.formatted("tok-1")));
+            String rotated = launchedSessionName(env(uri.formatted("tok-2")));
+
+            assertEquals(withToken, rotated, uri);
+            assertFalse(K8sUtil.repositoryOf(env(uri.formatted("tok-1"))).contains("tok"), uri);
+        }
+    }
+
+    @Test
+    void launchEphemeralSession_namesTheSessionAfterTheSource() throws Exception {
+        String uri = "https://git.example/org/repo.git";
+        String artemis = launchedSessionName(envOf(Map.of("GIT_URI", uri, "GIT_SOURCE", "artemis")));
+        String external = launchedSessionName(envOf(Map.of("GIT_URI", uri, "GIT_SOURCE", "external")));
+        String externalAgain = launchedSessionName(envOf(Map.of("GIT_URI", uri, "GIT_SOURCE", " External ")));
+
+        assertNotEquals(artemis, external, "an external launch must not reopen the Artemis session of the same repository");
+        assertEquals(external, externalAgain);
+    }
+
+    @Test
+    void launchEphemeralSession_withoutRepositoryKeepsTheUserAndAppName() throws Exception {
+        assertEquals(WorkspaceUtil.getSessionName("alice", "test-app", false), launchedSessionName(null));
+        assertEquals(WorkspaceUtil.getSessionName("alice", "test-app", false),
+                launchedSessionName(envOf(Map.of("THEIA", "true"))));
+    }
+
+    @Test
+    void repositoryOf_normalizesTheGitUri() {
+        assertEquals("https://github.com/octocat/Hello-World",
+                K8sUtil.repositoryOf(env(" https://user:secret@GitHub.COM:443/octocat/Hello-World.git/ ")));
+        assertEquals("http://localhost:7990/scm/ex/repo", K8sUtil.repositoryOf(env("http://localhost:7990/scm/ex/repo")));
+        assertEquals("github.com:octocat/Hello-World",
+                K8sUtil.repositoryOf(env("git@github.com:octocat/Hello-World.git")));
+        assertEquals("https://github.com/octocat/Hello-World",
+                K8sUtil.repositoryOf(env("https://github.com/octocat/Hello-World///")));
+        assertEquals("https://github.com/octocat/Hello-World",
+                K8sUtil.repositoryOf(env("https://github.com/octocat/Hello-World.git//")));
+        assertNull(K8sUtil.repositoryOf(null));
+        assertNull(K8sUtil.repositoryOf(env("   ")));
+        assertNull(K8sUtil.repositoryOf(envOf(Map.of())));
+    }
+
+    @Test
+    void repositoryOf_normalizesScpStyleAndUnparsableUris() {
+        String scp = K8sUtil.repositoryOf(env("git@github.com:octocat/Hello-World.git"));
+        assertEquals(scp, K8sUtil.repositoryOf(env("git@github.com:octocat/Hello-World")));
+        assertEquals(scp, K8sUtil.repositoryOf(env("git@GitHub.com:octocat/Hello-World.git/")));
+        assertEquals(scp, K8sUtil.repositoryOf(env("deploy@github.com:octocat/Hello-World.git")));
+        assertNotEquals(scp, K8sUtil.repositoryOf(env("git@github.com:octocat/hello-world.git")),
+                "the path keeps its case");
+
+        assertEquals(K8sUtil.repositoryOf(env("https://stud:tok@git.example/my repo.git")),
+                K8sUtil.repositoryOf(env("https://git.example/my repo")));
+        assertEquals("./local/repo", K8sUtil.repositoryOf(env("./local/repo.git")));
+    }
+
+    @Test
+    void repositoryOf_staysLinearOnARunOfSlashes() {
+        String slashes = "/".repeat(100_000);
+        String gitUri = "https://github.com/" + slashes + "x" + slashes;
+
+        String repository = assertTimeoutPreemptively(Duration.ofSeconds(2), () -> K8sUtil.repositoryOf(env(gitUri)));
+
+        assertEquals("https://github.com/" + slashes + "x", repository);
+    }
+
+    private String launchedSessionName(EnvironmentVars env) throws Exception {
+        return launchedSessionName(createK8sUtil(), env);
+    }
+
+    private String launchedSessionName(K8sUtil util, EnvironmentVars env) throws Exception {
+        Mockito.when(util.CLIENT.appDefinitions().get("test-app")).thenReturn(Optional.empty());
+        Mockito.when(util.CLIENT.sessions().launch(anyString(), any(), anyInt())).thenReturn(launchedSession("https://example.test"));
+
+        util.launchEphemeralSession("corr", "test-app", "alice", 3, env);
+
+        ArgumentCaptor<SessionSpec> spec = ArgumentCaptor.forClass(SessionSpec.class);
+        Mockito.verify(util.CLIENT.sessions()).launch(anyString(), spec.capture(), anyInt());
+        return spec.getValue().getName();
+    }
+
+    private EnvironmentVars env(String gitUri) {
+        return envOf(Map.of("GIT_URI", gitUri));
+    }
+
+    private EnvironmentVars envOf(Map<String, String> fromMap) {
+        EnvironmentVars env = new EnvironmentVars();
+        env.fromMap = fromMap;
+        return env;
+    }
+
+    @Test
     void launchEphemeralSession_sessionWithoutUrl_throwsServiceUnavailable() throws Exception {
         K8sUtil util = createK8sUtil();
 
@@ -126,6 +258,59 @@ class K8sUtilTests {
         ArgumentCaptor<SessionSpec> spec = ArgumentCaptor.forClass(SessionSpec.class);
         Mockito.verify(util.CLIENT.sessions()).launch(anyString(), spec.capture(), anyInt());
         assertEquals(legacy, spec.getValue().getName());
+    }
+
+    @Test
+    void launchEphemeralSession_earlierSessionOfAnotherRepository_isNotReused() throws Exception {
+        K8sUtil util = createK8sUtil();
+        String legacy = WorkspaceUtil.getLegacyEphemeralSessionName("alice", "test-app");
+        Mockito.when(util.CLIENT.sessions().get(legacy)).thenReturn(
+                Optional.of(earlierSession(legacy, Map.of("GIT_URI", "https://github.com/octocat/Hello-World.git"))));
+
+        EnvironmentVars spoonKnife = env("https://github.com/octocat/Spoon-Knife.git");
+
+        assertEquals(WorkspaceUtil.getSessionName("alice", "test-app", K8sUtil.repositoryOf(spoonKnife)),
+                launchedSessionName(util, spoonKnife));
+    }
+
+    @Test
+    void launchEphemeralSession_earlierSessionOfTheSameRepository_isReused() throws Exception {
+        K8sUtil util = createK8sUtil();
+        String legacy = WorkspaceUtil.getLegacyEphemeralSessionName("alice", "test-app");
+        String withoutRepository = WorkspaceUtil.getSessionName("alice", "test-app", false);
+        Mockito.when(util.CLIENT.sessions().get(legacy)).thenReturn(Optional.empty());
+        Mockito.when(util.CLIENT.sessions().get(withoutRepository)).thenReturn(Optional.of(
+                earlierSession(withoutRepository, Map.of("GIT_URI", "https://token@github.com/octocat/Hello-World.git"))));
+
+        assertEquals(withoutRepository,
+                launchedSessionName(util, env("https://github.com/octocat/Hello-World")));
+    }
+
+    @Test
+    void launchEphemeralSession_earlierSessionOfAnotherAppDefinition_isNotReused() throws Exception {
+        // Both earlier names truncate the app definition, so these two share them.
+        String java = "a".repeat(54) + "-java";
+        String python = "a".repeat(54) + "-python";
+        String legacy = WorkspaceUtil.getLegacyEphemeralSessionName("alice", python);
+        assertEquals(WorkspaceUtil.getLegacyEphemeralSessionName("alice", java), legacy);
+        K8sUtil util = createK8sUtil();
+        Session javaSession = new Session();
+        javaSession.setSpec(new SessionSpec(legacy, java, "alice", null, Map.of()));
+        Mockito.when(util.CLIENT.appDefinitions().get(python)).thenReturn(Optional.empty());
+        Mockito.when(util.CLIENT.sessions().get(legacy)).thenReturn(Optional.of(javaSession));
+        Mockito.when(util.CLIENT.sessions().launch(anyString(), any(), anyInt())).thenReturn(launchedSession("https://example.test"));
+
+        util.launchEphemeralSession("corr", python, "alice", 3, null);
+
+        ArgumentCaptor<SessionSpec> spec = ArgumentCaptor.forClass(SessionSpec.class);
+        Mockito.verify(util.CLIENT.sessions()).launch(anyString(), spec.capture(), anyInt());
+        assertEquals(WorkspaceUtil.getSessionName("alice", python, false), spec.getValue().getName());
+    }
+
+    private Session earlierSession(String name, Map<String, String> envVars) {
+        Session session = new Session();
+        session.setSpec(new SessionSpec(name, "test-app", "alice", null, envVars));
+        return session;
     }
 
     @Test

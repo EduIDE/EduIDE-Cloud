@@ -18,8 +18,12 @@ package org.eclipse.theia.cloud.service;
 
 import static org.eclipse.theia.cloud.common.util.WorkspaceUtil.getSessionName;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.text.MessageFormat;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Consumer;
@@ -57,6 +61,13 @@ import jakarta.ws.rs.core.Response.Status;
 
 @ApplicationScoped
 public final class K8sUtil {
+    /** Session environment variable with the repository the IDE clones (read by Scorpio). */
+    static final String GIT_URI_ENV = "GIT_URI";
+    /** Session environment variable with the branch, tag or commit Scorpio checks out after the clone. */
+    static final String GIT_REF_ENV = "GIT_REF";
+    /** Session environment variable that says whether the repository comes from Artemis (set by the landing page). */
+    static final String GIT_SOURCE_ENV = "GIT_SOURCE";
+
     private NamespacedKubernetesClient KUBERNETES = CustomResourceUtil.createClient();
     public TheiaCloudClient CLIENT = new DefaultTheiaCloudClient(KUBERNETES);
 
@@ -116,17 +127,158 @@ public final class K8sUtil {
                     "Ephemeral sessions are not supported for app definitions whose sidecars mount the workspace. Use a workspace-backed session.");
         }
 
-        // A session started before the naming change keeps its name until it ends
-        String legacyName = WorkspaceUtil.getLegacyEphemeralSessionName(user, appDefinition);
-        boolean legacyRunning = CLIENT.sessions().get(legacyName)
-                .filter(session -> Objects.equals(session.getSpec().getUser(), user)
-                        && (session.getSpec().getWorkspace() == null || session.getSpec().getWorkspace().isEmpty()))
-                .isPresent();
-        SessionSpec sessionSpec = new SessionSpec(
-                legacyRunning ? legacyName : getSessionName(user, appDefinition, false), appDefinition, user);
+        SessionSpec sessionSpec = new SessionSpec(ephemeralSessionName(user, appDefinition, env), appDefinition, user);
         sessionSpec = sessionSpecWithEnv(sessionSpec, env);
 
         return launchSession(correlationId, sessionSpec, timeout);
+    }
+
+    /**
+     * Returns the name of the ephemeral session a launch with these arguments starts or reopens. An existing session of
+     * that name is returned as it is, with its old environment. Without the repository in the name, a second repository
+     * in the same app definition would reopen the first one's session.
+     *
+     * @param user          the session's user
+     * @param appDefinition the session's app definition
+     * @param env           the launch environment, may be <code>null</code>
+     * @return the session name
+     */
+    public String ephemeralSessionName(String user, String appDefinition, EnvironmentVars env) {
+        String repository = repositoryOf(env);
+        return earlierEphemeralSessionName(user, appDefinition, repository)
+                .orElse(getSessionName(user, appDefinition, repository));
+    }
+
+    /**
+     * Returns the name of a running ephemeral session of the user that was started under an earlier naming scheme and
+     * works on the same repository. Such a session keeps its name until it ends, so a relaunch has to find it to not
+     * count as a second session. The earlier names are the one before the reserved prefix and the hash, and, for a
+     * launch with a repository, the one without the repository. Both truncate a long app definition, so the session's
+     * own app definition is compared too.
+     */
+    private Optional<String> earlierEphemeralSessionName(String user, String appDefinition, String repository) {
+        List<String> earlierNames = repository == null
+                ? List.of(WorkspaceUtil.getLegacyEphemeralSessionName(user, appDefinition))
+                : List.of(WorkspaceUtil.getLegacyEphemeralSessionName(user, appDefinition),
+                        getSessionName(user, appDefinition, false));
+        return earlierNames.stream()
+                .filter(name -> CLIENT.sessions().get(name)
+                        .map(Session::getSpec)
+                        .filter(spec -> Objects.equals(spec.getUser(), user)
+                                && Objects.equals(spec.getAppDefinition(), appDefinition)
+                                && (spec.getWorkspace() == null || spec.getWorkspace().isEmpty())
+                                && Objects.equals(repositoryOf(spec.getEnvVars()), repository))
+                        .isPresent())
+                .findFirst();
+    }
+
+    /**
+     * Returns the repository a session clones, normalized so that every launch of the same repository maps to the same
+     * session: credentials are dropped (Artemis embeds a token in {@value #GIT_URI_ENV} that may change between
+     * launches), scheme and host are lowercased, a default port is dropped, and a trailing ".git" or "/" is ignored.
+     * An scp-style repository ("git@host:owner/repo.git") loses its user and its host is lowercased the same way.
+     * A {@value #GIT_REF_ENV} and a {@value #GIT_SOURCE_ENV} are appended after line breaks, which no URI contains:
+     * Scorpio checks a ref out only after a fresh clone, so another ref of the same repository needs a session of its
+     * own, and an external launch must not reopen the Artemis session of the same repository, which Scorpio set up
+     * differently.
+     *
+     * @param env the launch environment, may be <code>null</code>
+     * @return the normalized repository and ref, or <code>null</code> if the environment names no repository
+     */
+    static String repositoryOf(EnvironmentVars env) {
+        return env == null ? null : repositoryOf(env.fromMap);
+    }
+
+    private static String repositoryOf(Map<String, String> env) {
+        if (env == null) {
+            return null;
+        }
+        String gitUri = env.get(GIT_URI_ENV);
+        if (gitUri == null || gitUri.isBlank()) {
+            return null;
+        }
+        String ref = env.get(GIT_REF_ENV);
+        String source = env.get(GIT_SOURCE_ENV);
+        String repository = normalizedRepository(gitUri.strip());
+        if (ref != null && !ref.isBlank()) {
+            repository += "\nref:" + ref.strip();
+        }
+        if (source != null && !source.isBlank()) {
+            repository += "\nsource:" + source.strip().toLowerCase(Locale.ROOT);
+        }
+        return repository;
+    }
+
+    private static String normalizedRepository(String gitUri) {
+        try {
+            URI uri = new URI(gitUri);
+            if (uri.getScheme() == null || uri.getHost() == null) {
+                return normalizedFallback(gitUri);
+            }
+            String scheme = uri.getScheme().toLowerCase(Locale.ROOT);
+            int port = uri.getPort();
+            boolean defaultPort = port == -1 || ("https".equals(scheme) && port == 443)
+                    || ("http".equals(scheme) && port == 80);
+            String path = withoutTrailingSlashes(uri.getRawPath() == null ? "" : uri.getRawPath());
+            if (path.endsWith(".git")) {
+                path = withoutTrailingSlashes(path.substring(0, path.length() - ".git".length()));
+            }
+            return scheme + "://" + uri.getHost().toLowerCase(Locale.ROOT) + (defaultPort ? "" : ":" + port) + path;
+        } catch (URISyntaxException e) {
+            // e.g. scp-style "git@host:owner/repo.git", or a host or path java.net.URI rejects
+            return normalizedFallback(gitUri);
+        }
+    }
+
+    /**
+     * Normalizes a repository java.net.URI cannot take apart as far as it safely can: the user info is dropped, an
+     * scp-style host ("git@Host:owner/repo") is lowercased without its user, and a trailing ".git" or "/" is ignored.
+     */
+    private static String normalizedFallback(String gitUri) {
+        String repository = gitUri.contains("://") ? withoutUserInfo(gitUri) : scpStyleWithoutUser(gitUri);
+        repository = withoutTrailingSlashes(repository);
+        if (repository.endsWith(".git")) {
+            repository = withoutTrailingSlashes(repository.substring(0, repository.length() - ".git".length()));
+        }
+        return repository;
+    }
+
+    /**
+     * Turns "user@Host:path" into "host:path". Like git, it reads a value as scp-style only when a colon comes before
+     * the first slash; anything else, such as a local path, is returned as it is.
+     */
+    private static String scpStyleWithoutUser(String gitUri) {
+        int colon = gitUri.indexOf(':');
+        int slash = gitUri.indexOf('/');
+        if (colon <= 0 || (slash >= 0 && slash < colon)) {
+            return gitUri;
+        }
+        String host = gitUri.substring(gitUri.lastIndexOf('@', colon - 1) + 1, colon);
+        return host.toLowerCase(Locale.ROOT) + gitUri.substring(colon);
+    }
+
+    /** Drops "user:token@" from a URI that java.net.URI cannot take apart, so a rotated token keeps the name. */
+    private static String withoutUserInfo(String gitUri) {
+        int schemeEnd = gitUri.indexOf("://");
+        if (schemeEnd < 0) {
+            return gitUri;
+        }
+        int authorityStart = schemeEnd + 3;
+        int authorityEnd = gitUri.indexOf('/', authorityStart);
+        if (authorityEnd < 0) {
+            authorityEnd = gitUri.length();
+        }
+        int at = gitUri.lastIndexOf('@', authorityEnd - 1);
+        return at < authorityStart ? gitUri : gitUri.substring(0, authorityStart) + gitUri.substring(at + 1);
+    }
+
+    // A loop rather than a regex: GIT_URI is caller-supplied, and "/*$" backtracks quadratically on a run of slashes.
+    private static String withoutTrailingSlashes(String path) {
+        int end = path.length();
+        while (end > 0 && path.charAt(end - 1) == '/') {
+            end--;
+        }
+        return path.substring(0, end);
     }
 
     private boolean requiresSharedWorkspace(AppDefinitionSpec spec) {

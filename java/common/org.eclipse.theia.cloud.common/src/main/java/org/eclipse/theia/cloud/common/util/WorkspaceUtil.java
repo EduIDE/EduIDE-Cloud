@@ -32,6 +32,8 @@ public final class WorkspaceUtil {
     private static final String EPHEMERAL_PREFIX = "eph-";
     private static final int EPHEMERAL_HASH_LENGTH = 16;
     private static final int WORKSPACE_NAME_LIMIT = NamingUtil.VALID_NAME_LIMIT - SESSION_SUFFIX.length();
+    // 64 bits, so nobody can search for a discriminator whose name collides with another user's session.
+    private static final int DISCRIMINATOR_HASH_LENGTH = 16;
 
     private WorkspaceUtil() {
         // util
@@ -47,10 +49,13 @@ public final class WorkspaceUtil {
      * case would collide in the readable part, so a hash of the exact user is appended.
      */
     public static String generateNonUniqueWorkspaceName(String user, String appDefinitionName) {
-        String readable = asValidName(
-                (EPHEMERAL_PREFIX + getWorkspaceDescription(appDefinitionName) + "-" + user).toLowerCase(),
-                WORKSPACE_NAME_LIMIT - EPHEMERAL_HASH_LENGTH - 1);
-        return readable + "-" + hash(user);
+        return ephemeralReadablePart(user, appDefinitionName, WORKSPACE_NAME_LIMIT - EPHEMERAL_HASH_LENGTH - 1) + "-"
+                + hash(user);
+    }
+
+    private static String ephemeralReadablePart(String user, String appDefinitionName, int limit) {
+        return asValidName((EPHEMERAL_PREFIX + getWorkspaceDescription(appDefinitionName) + "-" + user).toLowerCase(),
+                limit);
     }
 
     /**
@@ -87,6 +92,35 @@ public final class WorkspaceUtil {
         return getSessionName(workspaceName);
     }
 
+    /**
+     * Returns the non-unique session name of the given user and app definition, told apart by a discriminator such as
+     * the repository the session works on. Like every ephemeral session name it starts with the reserved prefix. It
+     * ends with a hash of the exact user, the app definition and the discriminator, which is kept in full when the
+     * readable part has to be shortened. Truncation therefore cannot make two users, two app definitions or two
+     * discriminators share a session.
+     * A <code>null</code> or blank discriminator yields the same name as
+     * {@link #getSessionName(String, String, boolean)} with <code>unique == false</code>.
+     *
+     * @param user              the session's user
+     * @param appDefinitionName the session's app definition
+     * @param discriminator     what distinguishes sessions of the same user and app definition, may be
+     *                          <code>null</code>
+     * @return the session name, at most {@link NamingUtil#VALID_NAME_LIMIT} characters long
+     */
+    public static String getSessionName(String user, String appDefinitionName, String discriminator) {
+        if (discriminator == null || discriminator.isBlank()) {
+            return getSessionName(user, appDefinitionName, false);
+        }
+        // Length prefixes keep the hash input unambiguous, whatever characters the parts contain.
+        String hashInput = String.join("", lengthPrefixed(user), lengthPrefixed(appDefinitionName),
+                lengthPrefixed(discriminator));
+        String hashSuffix = "-" + sha256Hex(hashInput).substring(0, DISCRIMINATOR_HASH_LENGTH);
+        // This hash covers the exact user, so the user hash of the name without discriminator is not needed.
+        String workspaceName = ephemeralReadablePart(user, appDefinitionName,
+                WORKSPACE_NAME_LIMIT - hashSuffix.length());
+        return getSessionName(workspaceName + hashSuffix);
+    }
+
     public static String getStorageName(Workspace workspace) {
         return NamingUtil.createName(workspace);
     }
@@ -97,6 +131,21 @@ public final class WorkspaceUtil {
 
     protected static String getWorkspaceDescription(String appDefinitionName) {
         return (appDefinitionName == null || appDefinitionName.isBlank()) ? "Workspace" : appDefinitionName;
+    }
+
+    private static String lengthPrefixed(String part) {
+        String text = String.valueOf(part);
+        return text.length() + ":" + text;
+    }
+
+    private static String sha256Hex(String text) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException e) {
+            // every Java platform is required to support SHA-256
+            throw new IllegalStateException(e);
+        }
     }
 
 }

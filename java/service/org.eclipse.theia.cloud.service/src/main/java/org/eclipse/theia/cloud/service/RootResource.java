@@ -145,7 +145,7 @@ public class RootResource extends BaseResource {
 
     private String existingSessionName(LaunchRequest request, String user) {
         if (request.isEphemeral()) {
-            return getSessionName(user, request.appDefinition, false);
+            return k8sUtil.ephemeralSessionName(user, request.appDefinition, request.env);
         }
         return request.isExistingWorkspace() ? getSessionName(asValidName(request.workspaceName)) : null;
     }

@@ -96,7 +96,7 @@ public class SessionResource extends BaseResource {
         if (request.isEphemeral()) {
             throwIfAppDefinitionNotLaunchable(correlationId, k8sUtil, request.appDefinition);
             throwIfUserLimitReached(correlationId, k8sUtil, user,
-                    getSessionName(user, request.appDefinition, false));
+                    k8sUtil.ephemeralSessionName(user, request.appDefinition, request.env));
             return k8sUtil.launchEphemeralSession(correlationId, request.appDefinition, user, request.timeout,
                     request.env);
         }

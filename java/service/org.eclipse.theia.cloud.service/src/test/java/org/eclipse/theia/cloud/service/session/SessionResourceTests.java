@@ -574,7 +574,9 @@ class SessionResourceTests {
         Mockito.when(applicationProperties.getSessionsPerUser()).thenReturn(1);
         Mockito.when(k8sUtil.countActiveSessions(TEST_USER)).thenReturn(1L);
         Session existing = mockDefaultSession();
-        Mockito.when(k8sUtil.findSession(anyString())).thenReturn(Optional.of(existing));
+        Mockito.when(k8sUtil.ephemeralSessionName(eq(TEST_USER), eq(TEST_APP_DEFINITION), any()))
+                .thenReturn(TEST_SESSION);
+        Mockito.when(k8sUtil.findSession(TEST_SESSION)).thenReturn(Optional.of(existing));
         Mockito.when(k8sUtil.launchEphemeralSession(anyString(), anyString(), anyString(), anyInt(), any()))
                 .thenReturn("https://s.test");
 
